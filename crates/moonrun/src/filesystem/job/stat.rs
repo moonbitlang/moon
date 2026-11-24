@@ -26,10 +26,11 @@ use std::os::fd::AsRawFd;
 use std::os::windows::io::AsRawHandle;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::filesystem::metadata::{file_kind_code, query_resource_stat};
 use crate::filesystem::os::stat::{self, StatValues};
 #[cfg(test)]
 use crate::filesystem::os::stat::{FileKind, StatTimestamp};
-use crate::filesystem::{FsOperation, FsTarget, HostFs, file_kind_code, query_resource_stat};
+use crate::filesystem::{FsOperation, FsTarget, HostFs};
 use crate::resource::ResourceRef;
 
 pub(super) const STAT_FILE_KIND: u32 = 0x0001;

@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
-use crate::filesystem::directory as dir;
+use crate::filesystem::directory_entries as dir;
 #[cfg(target_os = "linux")]
 use crate::filesystem::watch as watch_inotify;
 #[cfg(target_os = "macos")]

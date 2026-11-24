@@ -281,7 +281,7 @@ path operations, directory-handle lookup and enumeration, metadata queries,
 file I/O, advisory locks, and file notifications. Pipe creation returns owned
 endpoints for guest pipes and internal wakeups; only Async Host publishes their
 Handles. HostFs selects temporary directories from Runtime Env, using the native
-Windows query only for Ambient Env. `filesystem::directory` interprets native
+Windows query only for Ambient Env. `filesystem::directory_entries` interprets native
 result buffers; ABI adapters retain guest-memory access and string encoding.
 HostFs and Jobs share native stat classification; Jobs validate guest property
 masks and result capacities, encode stat and native strings, and serialize access

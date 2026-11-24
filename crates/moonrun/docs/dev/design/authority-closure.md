@@ -101,10 +101,13 @@ not yet guarantee protection of excluded descendants from ancestor operations.
 
 | Module | Responsibility |
 | --- | --- |
-| `filesystem/host.rs` | HostFs state, acquired-directory bases, synchronous effects, and domain `FsError` results |
-| `filesystem/authorization.rs` | Operation interpretation, authority selection, lazy directory-base lookup, and the common authorization entry point |
+| `filesystem/host/` | HostFs state and operations grouped by pathname, acquired Resource, directory handle, and Runtime Env |
+| `filesystem/authorization/mod.rs` | Operation interpretation, authority selection, lazy directory-base lookup, and the common authorization entry point |
 | `filesystem/authorization/grant.rs` | Opaque acquired-file grant, private to the authorizer |
-| `filesystem/path.rs` | Object/entry resolution, including symlink and missing-prefix behavior |
+| `filesystem/authorization/path.rs` | Object/entry resolution, including symlink and missing-prefix behavior |
+| `filesystem/metadata/` | Shared Resource stat queries, file-kind encoding, and legacy metadata compatibility |
+| `filesystem/directory_entries.rs` | Checked interpretation of native directory-result records |
+| `filesystem/watch/` | Watcher event buffers and decoding |
 | `filesystem/job/` | Filesystem Job payloads, execution, and result ownership |
 | `std::fs` and `filesystem/os.rs` | OS mechanisms; the custom modules accept host paths, handles, and typed operation options, return `io::Result`, and have no Runtime, policy, or ABI dependency |
 | `unstable_api/filesystem.rs` | Legacy error strings, status codes, and per-run getter state |

@@ -34,8 +34,9 @@ use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
 use super::stat::{PackedStat, StatRequest};
 use super::{FileTimeResult, OpenJobResult, RealpathJobResult, job_path, take_execution_path};
+use crate::filesystem::metadata::query_resource_stat;
 use crate::filesystem::os::stat::StatValues;
-use crate::filesystem::{FileGrant, FsOperation, FsPath, FsTarget, HostFs, query_resource_stat};
+use crate::filesystem::{FileGrant, FsOperation, FsPath, FsTarget, HostFs};
 
 use crate::filesystem::os::{self, RawFile, metadata};
 
@@ -166,7 +167,7 @@ ported_fns! {
         let parent = parent.take();
         let parent = parent.as_deref();
 
-        super::super::legacy_metadata::kind_by_path(
+        super::super::metadata::legacy::kind_by_path(
             parent.map(raw_file_handle).transpose()?, &path, follow_symlink, &super::CancellableIo,
         ).map(i64::from)
     }

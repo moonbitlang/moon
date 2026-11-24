@@ -42,14 +42,14 @@ use super::{
 };
 
 #[derive(Clone, Copy)]
-pub(super) struct FileTimeResult(FileInfo);
+pub(in crate::filesystem) struct FileTimeResult(FileInfo);
 
 impl FileTimeResult {
-    pub(super) fn new(file_time: FileInfo) -> Self {
+    pub(in crate::filesystem) fn new(file_time: FileInfo) -> Self {
         Self(file_time)
     }
 
-    pub(super) fn encode(&self) -> [u8; 48] {
+    pub(in crate::filesystem) fn encode(&self) -> [u8; 48] {
         let file_time = &self.0;
         let mut record = [0; 48];
         record[0..8].copy_from_slice(&get_atime_sec(file_time).to_le_bytes());
@@ -97,7 +97,7 @@ pub(in crate::filesystem) fn resource_kind(file: &Resource) -> AsyncHostResult<i
     kind_of_fd(raw)
 }
 
-pub(super) fn kind_by_path(
+pub(in crate::filesystem) fn kind_by_path(
     parent: Option<RawFile>,
     path: &OsStr,
     follow_symlink: bool,

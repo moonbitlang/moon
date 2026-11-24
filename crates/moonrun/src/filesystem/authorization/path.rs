@@ -21,11 +21,11 @@
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
-use super::host::FsError;
+use crate::filesystem::{FsError, os};
 
-pub(super) fn directory_path(handle: super::os::RawFile) -> Result<PathBuf, FsError> {
+pub(in crate::filesystem) fn directory_path(handle: os::RawFile) -> Result<PathBuf, FsError> {
     // A directory reported as missing cannot receive a fresh pathname grant.
-    super::os::directory::path(handle).map_err(|error| {
+    os::directory::path(handle).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             FsError::Denied
         } else {

@@ -22,7 +22,7 @@ mod console;
 mod runner;
 mod stat;
 
-use super::legacy_metadata::FileTimeResult;
+use super::metadata::legacy::FileTimeResult;
 
 use std::ffi::{OsStr, OsString};
 
@@ -833,7 +833,7 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     [
         runner::PORTED_SYMBOLS,
         console::PORTED_SYMBOLS,
-        super::legacy_metadata::PORTED_SYMBOLS,
+        super::metadata::legacy::PORTED_SYMBOLS,
     ]
     .concat()
 }
@@ -842,7 +842,7 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
 pub(crate) fn compat_symbols() -> Vec<crate::async_sys::CompatSymbol> {
     [
         runner::COMPAT_SYMBOLS,
-        super::legacy_metadata::COMPAT_SYMBOLS,
+        super::metadata::legacy::COMPAT_SYMBOLS,
     ]
     .concat()
 }
