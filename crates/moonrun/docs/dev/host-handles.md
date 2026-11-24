@@ -45,7 +45,9 @@ zero fails Handle validation with `Badf`.
 
 ## Owning tables
 
-`Handles<T>` owns a family's values together with their Host Key registrations.
+All opaque Handle tables use `Handles<T>` to own their values together with their
+Host Key registrations. `HostKeys` exposes no allocation or retirement operations
+to domains; its mutable registry is private to `runtime::handles`.
 Insertion accepts a complete value and allocates its key. Lookup checks both the
 central registration and membership in this table. Removal retires the key and
 returns the value so callers can release the table borrow before performing
@@ -83,6 +85,15 @@ by the operation before calling into the OS. Files, TCP sockets, and UDP sockets
 share the namespace; their operation permissions remain domain concerns.
 Jobs acquire host-owned Resource references before blocking work, so removing a
 guest Handle does not invalidate a Resource already acquired by a Job.
+The Resource table also owns the reserved invalid and stdio registrations.
+Aliased stdio streams share one Handle; reserved Handles cannot be closed by the
+guest and retire with the table without closing Runtime-owned stdio.
+
+SQLite retains its own native cleanup rules: a busy Database close preserves its
+Handle, while Statement finalization retires the Handle even when SQLite reports
+an execution error. Runtime teardown releases guest mutex entries before joining
+Workers, then SQLite retires and destroys Statements before Databases. Owning
+tables do not replace Job leases or choose native destruction order.
 
 Workers can create OS Resources, but publishing guest-visible Handles belongs
 to the guest-thread event loop. An open Worker returns a completed Job with an

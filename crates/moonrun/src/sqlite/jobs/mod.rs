@@ -133,10 +133,7 @@ impl SqliteHost {
         let database_key = self.database_key(database)?;
         let database = self.database_for_job(database)?;
         let key = self.statement_key(statement)?;
-        if self.job_uses_statement(key) {
-            return Err(SqliteHostError::InvalidInput);
-        }
-        let statement = self.statements.borrow()[key];
+        let statement = self.statement(statement)?;
         if statement.database != database_key {
             return Err(SqliteHostError::InvalidInput);
         }
@@ -153,8 +150,7 @@ impl SqliteHost {
     pub(crate) fn make_finalize_job(&self, database: u64, statement: u64) -> SqliteHostResult<Job> {
         let database_key = self.database_key(database)?;
         let database = self.database_for_job(database)?;
-        let key = self.statement_key(statement)?;
-        if self.job_uses_statement(key) || self.statements.borrow()[key].database != database_key {
+        if self.statement(statement)?.database != database_key {
             return Err(SqliteHostError::InvalidInput);
         }
         // Validate everything before consuming the Statement. Job construction

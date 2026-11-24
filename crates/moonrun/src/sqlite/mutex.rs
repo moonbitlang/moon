@@ -19,11 +19,11 @@
 use std::ptr::NonNull;
 
 use libsqlite3_sys as ffi;
-use slotmap::Key;
+use slotmap::{Key, KeyData};
 
 use super::connection::Database;
 use super::{SqliteHost, SqliteHostError, SqliteHostResult};
-use crate::runtime::{HostKey, HostResourceKind, null_handle};
+use crate::runtime::{HostKey, null_handle};
 
 pub(super) struct DatabaseMutex {
     database_key: HostKey,
@@ -54,18 +54,10 @@ impl SqliteHost {
             return Ok(mutex.data().as_ffi());
         }
 
-        let mutex = self
-            .keys
-            .borrow_mut()
-            .insert(HostResourceKind::SqliteDatabaseMutex);
-        let replaced = self.mutexes.borrow_mut().insert(
-            mutex,
-            DatabaseMutex {
-                database_key,
-                mutex_depth: 0,
-            },
-        );
-        debug_assert!(replaced.is_none());
+        let mutex = self.mutexes.borrow_mut().insert(DatabaseMutex {
+            database_key,
+            mutex_depth: 0,
+        });
         self.databases
             .borrow_mut()
             .get_mut(database_key)
@@ -109,8 +101,6 @@ impl SqliteHost {
         };
         let removed = self.mutexes.borrow_mut().remove(mutex);
         debug_assert!(removed.is_some());
-        let removed = self.keys.borrow_mut().remove(mutex);
-        debug_assert_eq!(removed, Some(HostResourceKind::SqliteDatabaseMutex));
     }
 
     pub(crate) fn release_entered_mutexes(&mut self) {
@@ -140,7 +130,7 @@ impl SqliteHost {
         if mutex == null_handle() {
             return Ok(());
         }
-        let mutex_key = self.mutex_key(mutex)?;
+        let mutex_key = KeyData::from_ffi(mutex).into();
         let (database_key, mutex_depth) = self
             .mutexes
             .borrow()
@@ -155,13 +145,6 @@ impl SqliteHost {
             .expect("validated mutex disappeared")
             .mutex_depth = mutex_depth;
         Ok(())
-    }
-
-    fn mutex_key(&self, handle: u64) -> SqliteHostResult<HostKey> {
-        self.keys
-            .borrow()
-            .key(handle, HostResourceKind::SqliteDatabaseMutex)
-            .ok_or(SqliteHostError::InvalidHandle)
     }
 
     fn native_mutex(&self, database_key: HostKey) -> SqliteHostResult<NonNull<ffi::sqlite3_mutex>> {

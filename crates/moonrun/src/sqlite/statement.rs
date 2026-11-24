@@ -20,10 +20,10 @@ use std::ffi::{c_int, c_void};
 use std::ptr::{self, NonNull};
 
 use libsqlite3_sys as ffi;
-use slotmap::Key;
+use slotmap::{Key, KeyData};
 
 use super::{SqliteHost, SqliteHostError, SqliteHostResult};
-use crate::runtime::{HostKey, HostResourceKind, null_handle};
+use crate::runtime::{HostKey, null_handle};
 
 // `libsqlite3-sys` intentionally omits SQLite's UTF-16 convenience APIs from
 // its generated bindings. The bundled SQLite library still exports them.
@@ -99,13 +99,11 @@ impl SqliteHost {
     }
 
     pub(super) fn insert_statement(&self, statement: Statement) -> u64 {
-        let key = self
-            .keys
+        self.statements
             .borrow_mut()
-            .insert(HostResourceKind::SqliteStatement);
-        let replaced = self.statements.borrow_mut().insert(key, statement);
-        debug_assert!(replaced.is_none());
-        key.data().as_ffi()
+            .insert(statement)
+            .data()
+            .as_ffi()
     }
 
     /// Validate guest access without acquiring SQLite's connection mutex.
@@ -124,26 +122,20 @@ impl SqliteHost {
     }
 
     pub(super) fn statement_key(&self, handle: u64) -> SqliteHostResult<HostKey> {
-        self.keys
+        let key = KeyData::from_ffi(handle).into();
+        self.statements
             .borrow()
-            .key(handle, HostResourceKind::SqliteStatement)
+            .get(key)
+            .map(|_| key)
             .ok_or(SqliteHostError::InvalidHandle)
     }
 
     pub(super) fn remove_statement(&self, handle: u64) -> SqliteHostResult<Statement> {
-        let key = self
-            .keys
-            .borrow()
-            .key(handle, HostResourceKind::SqliteStatement)
-            .ok_or(SqliteHostError::InvalidHandle)?;
-        let statement = self
-            .statements
+        let key = KeyData::from_ffi(handle).into();
+        self.statements
             .borrow_mut()
             .remove(key)
-            .ok_or(SqliteHostError::InvalidHandle)?;
-        let removed = self.keys.borrow_mut().remove(key);
-        debug_assert_eq!(removed, Some(HostResourceKind::SqliteStatement));
-        Ok(statement)
+            .ok_or(SqliteHostError::InvalidHandle)
     }
 }
 

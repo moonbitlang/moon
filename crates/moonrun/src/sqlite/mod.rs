@@ -34,10 +34,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use libsqlite3_sys as ffi;
-use slotmap::SecondaryMap;
 
 use crate::filesystem::HostFs;
-use crate::runtime::{HostKey, HostKeys};
+use crate::runtime::{Handles, HostKeys, HostResourceKind};
 
 use connection::Database;
 use statement::Statement;
@@ -66,10 +65,9 @@ pub(crate) type SqliteHostResult<T> = Result<T, SqliteHostError>;
 /// SQLite-owned pointers remain private payloads of this module.
 pub(crate) struct SqliteHost {
     filesystem: Arc<HostFs>,
-    keys: Rc<RefCell<HostKeys>>,
-    databases: RefCell<SecondaryMap<HostKey, Database>>,
-    mutexes: RefCell<SecondaryMap<HostKey, mutex::DatabaseMutex>>,
-    statements: RefCell<SecondaryMap<HostKey, Statement>>,
+    databases: RefCell<Handles<Database>>,
+    mutexes: RefCell<Handles<mutex::DatabaseMutex>>,
+    statements: RefCell<Handles<Statement>>,
     job_leases: RefCell<Vec<std::sync::Weak<jobs::Lease>>>,
 }
 
@@ -77,10 +75,12 @@ impl SqliteHost {
     pub(crate) fn new(filesystem: Arc<HostFs>, keys: Rc<RefCell<HostKeys>>) -> Self {
         Self {
             filesystem,
-            keys,
-            databases: RefCell::new(SecondaryMap::new()),
-            mutexes: RefCell::new(SecondaryMap::new()),
-            statements: RefCell::new(SecondaryMap::new()),
+            databases: RefCell::new(Handles::new(keys.clone(), HostResourceKind::SqliteDatabase)),
+            mutexes: RefCell::new(Handles::new(
+                keys.clone(),
+                HostResourceKind::SqliteDatabaseMutex,
+            )),
+            statements: RefCell::new(Handles::new(keys, HostResourceKind::SqliteStatement)),
             job_leases: RefCell::new(Vec::new()),
         }
     }
@@ -107,10 +107,11 @@ impl Drop for SqliteHost {
         self.release_entered_mutexes();
         // Runtime destroys Async Host workers and Jobs before these tables.
         // Statements hold their connections open, so destroy them first.
-        for statement in self.statements.get_mut().values() {
+        for statement in self.statements.get_mut().take_all() {
             unsafe { ffi::sqlite3_finalize(statement.pointer.as_ptr()) };
         }
-        for database in self.databases.get_mut().values() {
+        self.mutexes.get_mut().take_all();
+        for database in self.databases.get_mut().take_all() {
             unsafe { ffi::sqlite3_close(database.pointer().as_ptr()) };
         }
     }
@@ -158,6 +159,86 @@ pub(super) mod tests {
 
     pub(super) fn utf16le(text: &str) -> Vec<u16> {
         text.encode_utf16().collect()
+    }
+
+    #[test]
+    fn dropping_host_retires_database_statement_and_mutex_handles() {
+        use crate::runtime::HostKey;
+        use slotmap::KeyData;
+
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let host = SqliteHost::new(ambient_filesystem(None), keys.clone());
+        let database = open_memory(&host);
+        let statement = host
+            .prepare16_v2(database, &utf16le("SELECT 1"))
+            .unwrap()
+            .statement
+            .unwrap();
+        let mutex = host.db_mutex(database).unwrap();
+        assert_ne!(mutex, crate::runtime::null_handle());
+        host.mutex_enter(mutex).unwrap();
+        host.mutex_enter(mutex).unwrap();
+
+        // Teardown must release abandoned recursive entries, finalize statements
+        // before closing their database, and retire all three Handle families.
+        drop(host);
+        for handle in [database, statement, mutex] {
+            assert_eq!(
+                keys.borrow().kind(HostKey::from(KeyData::from_ffi(handle))),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn busy_close_preserves_handles_until_statements_are_finalized() {
+        let host = host();
+        let database = open_memory(&host);
+        let statement = host
+            .prepare16_v2(database, &utf16le("SELECT 1"))
+            .unwrap()
+            .statement
+            .unwrap();
+        let mutex = host.db_mutex(database).unwrap();
+        assert_eq!(host.close(statement), Err(SqliteHostError::InvalidHandle));
+        assert_eq!(host.step(database), Err(SqliteHostError::InvalidHandle));
+        assert_eq!(
+            host.mutex_enter(statement),
+            Err(SqliteHostError::InvalidHandle)
+        );
+
+        assert_eq!(host.close(database), Ok(ffi::SQLITE_BUSY));
+        assert_eq!(host.db_mutex(database), Ok(mutex));
+        assert_eq!(host.step(statement), Ok(ffi::SQLITE_ROW));
+        assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
+
+        let replacement = open_memory(&host);
+        assert_ne!(replacement, database);
+        assert_eq!(host.close(database), Err(SqliteHostError::InvalidHandle));
+        assert_eq!(host.step(statement), Err(SqliteHostError::InvalidHandle));
+        assert_eq!(host.mutex_enter(mutex), Err(SqliteHostError::InvalidHandle));
+        assert_eq!(host.close(replacement), Ok(ffi::SQLITE_OK));
+    }
+
+    #[test]
+    fn finalize_retires_the_statement_even_when_it_reports_an_execution_error() {
+        let host = host();
+        let database = open_memory(&host);
+        let statement = host
+            .prepare16_v2(database, &utf16le("SELECT abs(-9223372036854775808)"))
+            .unwrap()
+            .statement
+            .unwrap();
+        assert_eq!(host.step(statement), Ok(ffi::SQLITE_ERROR));
+        assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_ERROR));
+        assert_eq!(
+            host.finalize(statement),
+            Err(SqliteHostError::InvalidHandle)
+        );
+        assert_eq!(host.step(statement), Err(SqliteHostError::InvalidHandle));
+        // SQLITE_OK also proves that the native Statement was released.
+        assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
     }
 
     #[test]

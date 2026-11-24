@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::*;
-use crate::async_host::tests::default_host;
+use crate::async_host::tests::{default_host, default_host_with_keys};
 
 #[test]
 fn io_result_status_rejects_wrong_fd_without_clearing_pending() {
@@ -102,8 +102,8 @@ fn freed_watcher_buffer_is_not_restored_by_its_io_result() {
 
 #[test]
 fn dropping_host_retires_available_and_leased_watcher_buffers() {
-    let host = default_host();
-    let keys = Rc::clone(&host.handles.borrow().keys);
+    let keys = Rc::new(RefCell::new(HostKeys::default()));
+    let host = default_host_with_keys(keys.clone());
     let available = host.insert_windows_watcher_buffer();
     let leased = host.insert_windows_watcher_buffer();
     host.make_read_dir_changes_io_result(leased).unwrap();
@@ -591,8 +591,8 @@ fn cancellation_keeps_the_iocp_request_until_its_packet_is_consumed() {
 fn host_shutdown_drains_multiple_reads_after_the_poll_handle_is_destroyed() {
     use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
 
-    let host = default_host();
-    let keys = host.handles.borrow().keys.clone();
+    let keys = Rc::new(RefCell::new(HostKeys::default()));
+    let host = default_host_with_keys(keys.clone());
     let poll = host.poll_create().unwrap();
     let [read, _write] = host.pipe(true, false).unwrap();
     host.poll_register(poll, read, true).unwrap();
@@ -621,8 +621,8 @@ fn host_shutdown_drains_multiple_reads_after_the_poll_handle_is_destroyed() {
 fn host_shutdown_drains_unregistered_reads_using_each_requests_event() {
     use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
 
-    let host = default_host();
-    let keys = host.handles.borrow().keys.clone();
+    let keys = Rc::new(RefCell::new(HostKeys::default()));
+    let host = default_host_with_keys(keys.clone());
     let [read, _write] = host.pipe(true, false).unwrap();
     let resource = Arc::downgrade(&host.acquire_resource(read).unwrap());
     let first = host.make_file_read_io_result(1, 0).unwrap();
@@ -703,7 +703,7 @@ fn watcher_iocp_completion_returns_the_buffer_and_handles_buffered_changes() {
         .open(directory.path())
         .unwrap();
     let resource = Resource::from_file(file, crate::filesystem::FileGrant::UNTRACKED);
-    let directory_handle = host.handles.borrow_mut().insert_resource(resource);
+    let directory_handle = host.resources.borrow_mut().insert_resource(resource);
     let poll = host.poll_create().unwrap();
     host.poll_register(poll, directory_handle, true).unwrap();
     let buffer = host.insert_windows_watcher_buffer();

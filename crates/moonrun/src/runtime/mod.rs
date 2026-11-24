@@ -34,7 +34,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use slotmap::Key;
-use slotmap::{KeyData, SlotMap, new_key_type};
+use slotmap::new_key_type;
 
 use crate::async_host::AsyncHost;
 use crate::filesystem::HostFs;
@@ -49,7 +49,7 @@ pub(crate) use environment_provisioning::EnvConfig;
 #[cfg(test)]
 pub(crate) use environment_provisioning::EnvProvisioning;
 pub(crate) use executable::Executable;
-pub(crate) use handles::Handles;
+pub(crate) use handles::{Handles, HostKeys};
 #[allow(
     unused_imports,
     reason = "shared interface may be unused by a partial backend"
@@ -91,35 +91,6 @@ pub(crate) enum HostResourceKind {
     SqliteDatabase,
     SqliteDatabaseMutex,
     SqliteStatement,
-}
-
-/// The only identity mint for moonrun-owned opaque guest handles.
-///
-/// Domain state stores payloads in secondary maps keyed by `HostKey`. This
-/// table records only liveness, generation, and kind, so adding another host
-/// import family cannot accidentally create a colliding handle namespace.
-#[derive(Default)]
-pub(crate) struct HostKeys {
-    kinds: SlotMap<HostKey, HostResourceKind>,
-}
-
-impl HostKeys {
-    pub(crate) fn insert(&mut self, kind: HostResourceKind) -> HostKey {
-        self.kinds.insert(kind)
-    }
-
-    pub(crate) fn key(&self, handle: u64, expected: HostResourceKind) -> Option<HostKey> {
-        let key = HostKey::from(KeyData::from_ffi(handle));
-        (self.kinds.get(key) == Some(&expected)).then_some(key)
-    }
-
-    pub(crate) fn kind(&self, key: HostKey) -> Option<HostResourceKind> {
-        self.kinds.get(key).copied()
-    }
-
-    pub(crate) fn remove(&mut self, key: HostKey) -> Option<HostResourceKind> {
-        self.kinds.remove(key)
-    }
 }
 
 /// Backend-neutral composition root for one Moonrun virtual environment.
@@ -451,30 +422,6 @@ mod tests {
             config.default_environment,
             Some(vec![("RUN_ONLY".into(), "value".into())])
         );
-    }
-
-    #[test]
-    fn keys_are_typed_and_generational() {
-        let mut keys = HostKeys::default();
-        let job = keys.insert(HostResourceKind::Job);
-        let poll = keys.insert(HostResourceKind::Poll);
-        let job_handle = job.data().as_ffi();
-        let poll_handle = poll.data().as_ffi();
-
-        assert_eq!(
-            HostKey::from(KeyData::from_ffi(null_handle())),
-            HostKey::null()
-        );
-        assert_ne!(job_handle, null_handle());
-        assert_eq!(keys.key(null_handle(), HostResourceKind::Job), None);
-        assert_ne!(job_handle, poll_handle);
-        assert_eq!(keys.key(job_handle, HostResourceKind::Job), Some(job));
-        assert_eq!(keys.key(job_handle, HostResourceKind::Poll), None);
-
-        assert_eq!(keys.remove(poll), Some(HostResourceKind::Poll));
-        let replacement = keys.insert(HostResourceKind::Poll);
-        assert_ne!(poll_handle, replacement.data().as_ffi());
-        assert_eq!(keys.key(poll_handle, HostResourceKind::Poll), None);
     }
 
     #[test]
