@@ -23,7 +23,6 @@
 //! native source path and symbol so the adapter registry can stay aligned with
 //! the C implementation. Moonrun-only runtime state stays in `async_host`.
 
-pub(crate) mod fs;
 pub(crate) mod internal;
 pub(crate) mod os_error;
 pub(crate) mod process;
@@ -190,14 +189,14 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     let mut symbols = Vec::new();
     symbols.extend_from_slice(internal::c_buffer::stub::PORTED_SYMBOLS);
     symbols.extend_from_slice(internal::env_util::stub::PORTED_SYMBOLS);
-    symbols.extend_from_slice(internal::fd_util::stub::PORTED_SYMBOLS);
+    symbols.extend_from_slice(crate::filesystem::PIPE_PORTED_SYMBOLS);
     symbols.extend(internal::event_loop::io::ported_symbols());
     symbols.extend_from_slice(crate::filesystem::IO_PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::filesystem::LOCK_PORTED_SYMBOLS);
     symbols.extend(internal::event_loop::poll::ported_symbols());
     symbols.extend(internal::event_loop::thread_pool::ported_symbols());
-    symbols.extend_from_slice(fs::dir::PORTED_SYMBOLS);
-    symbols.extend_from_slice(fs::stub::PORTED_SYMBOLS);
+    symbols.extend_from_slice(crate::filesystem::directory::PORTED_SYMBOLS);
+    symbols.extend_from_slice(crate::filesystem::TEMP_DIR_PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::filesystem::watch::PORTED_SYMBOLS);
     #[cfg(unix)]
     symbols.extend_from_slice(crate::filesystem::WATCH_PORTED_SYMBOLS);
@@ -212,7 +211,6 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
 pub(crate) fn compat_symbols() -> Vec<CompatSymbol> {
     let mut symbols = Vec::new();
     symbols.extend(crate::filesystem::compat_symbols());
-    symbols.extend_from_slice(internal::fd_util::stub::COMPAT_SYMBOLS);
     symbols.extend_from_slice(os_error::stub::COMPAT_SYMBOLS);
     symbols
 }

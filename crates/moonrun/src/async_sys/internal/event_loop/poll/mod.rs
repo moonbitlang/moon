@@ -20,7 +20,7 @@
 //! The native C surface calls this abstraction the event bus.
 
 use crate::async_host::AsyncHostError;
-use crate::async_sys::internal::fd_util::stub::RawFd;
+use crate::filesystem::RawFile as RawFd;
 
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, OwnedFd};

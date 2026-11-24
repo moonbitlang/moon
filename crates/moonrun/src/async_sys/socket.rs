@@ -26,9 +26,9 @@ use std::os::unix::ffi::OsStringExt;
 use windows_sys::Win32::Networking::WinSock as ws;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-#[cfg(unix)]
-use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
+#[cfg(unix)]
+use std::os::fd::RawFd;
 
 #[cfg(unix)]
 pub(crate) type RawSocket = RawFd;

@@ -21,8 +21,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::fd_util;
-use crate::filesystem::FileGrant;
+use crate::filesystem::{FileGrant, RawFile};
 
 #[cfg(unix)]
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
@@ -151,7 +150,7 @@ impl Resource {
         }
     }
 
-    pub(crate) fn new(raw: fd_util::stub::RawFd) -> Self {
+    pub(crate) fn new(raw: RawFile) -> Self {
         if raw == invalid_raw_file() {
             return Self::invalid();
         }
@@ -171,9 +170,9 @@ impl Resource {
         })
     }
 
-    pub(crate) fn async_pipe_writer(raw: fd_util::stub::RawFd) -> Self {
+    pub(crate) fn async_pipe_writer(file: std::fs::File) -> Self {
         Self::from_payload(ResourcePayload::File {
-            raw: owned_raw_file(raw),
+            raw: file.into(),
             async_pipe_writer: true,
             grant: FileGrant::UNTRACKED,
         })
@@ -189,7 +188,7 @@ impl Resource {
         )
     }
 
-    pub(crate) fn stdio_file(raw: fd_util::stub::RawFd) -> Self {
+    pub(crate) fn stdio_file(raw: RawFile) -> Self {
         if raw == invalid_raw_file() {
             return Self::invalid();
         }
@@ -352,12 +351,12 @@ impl Resource {
 }
 
 #[cfg(unix)]
-fn invalid_raw_file() -> fd_util::stub::RawFd {
+fn invalid_raw_file() -> RawFile {
     -1
 }
 
 #[cfg(windows)]
-fn invalid_raw_file() -> fd_util::stub::RawFd {
+fn invalid_raw_file() -> RawFile {
     windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE
 }
 
@@ -372,13 +371,13 @@ fn invalid_raw_socket() -> RawSocket {
 }
 
 #[cfg(unix)]
-fn owned_raw_file(raw: fd_util::stub::RawFd) -> OwnedRawFile {
+fn owned_raw_file(raw: RawFile) -> OwnedRawFile {
     // Resource takes ownership of handles returned by platform APIs.
     unsafe { OwnedFd::from_raw_fd(raw) }
 }
 
 #[cfg(windows)]
-fn owned_raw_file(raw: fd_util::stub::RawFd) -> OwnedRawFile {
+fn owned_raw_file(raw: RawFile) -> OwnedRawFile {
     // Resource takes ownership of handles returned by platform APIs.
     unsafe { OwnedHandle::from_raw_handle(raw) }
 }

@@ -47,15 +47,15 @@ use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::event_loop::{
     poll::{self, PollInstance},
     thread_pool::{
-        self, HostHandle, Job, JobPayload, ResourceTable, WorkerCompletionDestination,
-        WorkerCompletionId, WorkerJob,
+        self, HostHandle, Job, JobPayload, WorkerCompletionDestination, WorkerCompletionId,
+        WorkerJob,
     },
 };
-use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
 #[cfg(target_os = "macos")]
 use crate::filesystem::FsTarget;
 use crate::filesystem::HostFs;
+use crate::filesystem::RawFile as RawFd;
 use crate::filesystem::{FsOperation, FsPath};
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
@@ -204,17 +204,6 @@ impl From<crate::filesystem::FsError> for AsyncHostError {
         match error {
             crate::filesystem::FsError::Denied => Self::PermissionDenied,
             crate::filesystem::FsError::Io(error) => error.into(),
-        }
-    }
-}
-
-// Existing async_sys temp-directory primitives still use the async error type.
-// Keep that compatibility conversion at the ABI boundary, not in the OS layer.
-impl From<AsyncHostError> for crate::filesystem::FsError {
-    fn from(error: AsyncHostError) -> Self {
-        match error {
-            AsyncHostError::PermissionDenied => Self::Denied,
-            _ => Self::Io(std::io::Error::from_raw_os_error(error.errno())),
         }
     }
 }
@@ -429,12 +418,6 @@ impl ResourceHandles {
             leaks.push(format!("resources={resources}"));
         }
         (!leaks.is_empty()).then(|| leaks.join(", "))
-    }
-}
-
-impl ResourceTable for ResourceHandles {
-    fn insert_resource(&mut self, resource: Resource) -> AsyncHostResult<u64> {
-        Ok(ResourceHandles::insert_resource(self, resource))
     }
 }
 
@@ -2229,12 +2212,18 @@ impl AsyncHost {
         read_end_is_async: bool,
         write_end_is_async: bool,
     ) -> AsyncHostResult<[HostHandle; 2]> {
-        let mut handles = self.resources.borrow_mut();
-        crate::async_sys::internal::fd_util::stub::pipe_resources(
-            &mut *handles,
-            read_end_is_async,
-            write_end_is_async,
-        )
+        let [read, write] = crate::filesystem::pipe(read_end_is_async, write_end_is_async)?;
+        let read = Resource::from_file(read, crate::filesystem::FileGrant::UNTRACKED);
+        let write = if write_end_is_async {
+            Resource::async_pipe_writer(write)
+        } else {
+            Resource::from_file(write, crate::filesystem::FileGrant::UNTRACKED)
+        };
+        let mut resources = self.resources.borrow_mut();
+        Ok([
+            resources.insert_resource(read),
+            resources.insert_resource(write),
+        ])
     }
 
     pub(crate) fn stdio_kind(&self, handle: HostHandle) -> AsyncHostResult<i32> {
@@ -2249,7 +2238,7 @@ impl AsyncHost {
         self.with_resource(handle, |file| {
             #[cfg(unix)]
             {
-                crate::async_sys::internal::fd_util::stub::set_cloexec(file.as_file()?.as_raw_fd())
+                Ok(crate::filesystem::set_cloexec(file.as_file()?.as_raw_fd())?)
             }
             #[cfg(windows)]
             {
@@ -4235,6 +4224,11 @@ mod tests {
             assert!(write_flags >= 0);
             assert_eq!((read_flags & libc::O_NONBLOCK) != 0, read_is_async);
             assert_eq!((write_flags & libc::O_NONBLOCK) != 0, write_is_async);
+            for fd in [read_fd, write_fd] {
+                let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+                assert!(flags >= 0);
+                assert_ne!(flags & libc::FD_CLOEXEC, 0);
+            }
 
             host.close_fd(read).unwrap();
             host.close_fd(write).unwrap();

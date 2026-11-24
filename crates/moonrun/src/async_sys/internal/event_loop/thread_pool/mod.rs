@@ -29,7 +29,7 @@ pub(crate) use jobs::make_sleep_job;
 pub(crate) use jobs::{errno_is_cancelled, get_platform};
 pub(crate) use jobs::{job_get_err, job_get_ret};
 pub(crate) use runner::run_host_job;
-pub(crate) use types::{CancellationOutcome, HostHandle, Job, JobPayload, ResourceTable};
+pub(crate) use types::{CancellationOutcome, HostHandle, Job, JobPayload};
 pub(crate) use types::{JobCancellation, JobCancellationOverride};
 #[cfg(test)]
 pub(crate) use worker::free_worker;

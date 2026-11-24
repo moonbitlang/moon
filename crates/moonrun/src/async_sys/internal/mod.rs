@@ -19,5 +19,4 @@
 pub(crate) mod c_buffer;
 pub(crate) mod env_util;
 pub(crate) mod event_loop;
-pub(crate) mod fd_util;
 pub(crate) mod time;

@@ -19,11 +19,13 @@
 //! Filesystem authority and execution, independent of the Wasm execution backend.
 
 mod authorization;
+pub(crate) mod directory;
 mod host;
 mod job;
 mod legacy_metadata;
 mod os;
 mod path;
+mod temp_dir;
 #[cfg_attr(target_os = "linux", path = "watch/inotify.rs")]
 #[cfg_attr(target_os = "macos", path = "watch/kqueue.rs")]
 #[cfg_attr(windows, path = "watch/windows.rs")]
@@ -45,11 +47,21 @@ const FILE_KIND_CONSOLE: i32 = 8;
 pub(crate) use authorization::{FileGrant, FsOperation, FsPath, FsTarget};
 pub(crate) use host::{Directory, FileOpenOptions, FsError, HostFs};
 pub(crate) use job::Job;
+pub(crate) use os::RawFile;
 pub(crate) use os::lock::errno_is_lock_violation;
+pub(crate) use os::pipe::pipe;
+#[cfg(unix)]
+pub(crate) use os::pipe::set_cloexec;
 pub(crate) use path::entry_before_directory_suffix;
 
 #[cfg(test)]
+pub(crate) use temp_dir::PORTED_SYMBOLS as TEMP_DIR_PORTED_SYMBOLS;
+
+#[cfg(test)]
 pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};
+
+#[cfg(test)]
+pub(crate) use os::pipe::PORTED_SYMBOLS as PIPE_PORTED_SYMBOLS;
 
 #[cfg(test)]
 pub(crate) use os::io::PORTED_SYMBOLS as IO_PORTED_SYMBOLS;

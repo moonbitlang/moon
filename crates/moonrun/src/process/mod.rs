@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(windows)]
-use crate::async_sys::internal::fd_util::stub::RawFd;
+use crate::filesystem::RawFile as RawFd;
 use crate::policy::{Policy, ProcessPolicy};
 use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};

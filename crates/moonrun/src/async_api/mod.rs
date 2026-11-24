@@ -21,8 +21,8 @@
 //! This layer owns the canonical import list and typed registrations. Backend
 //! adapters decode arguments, acquire guest memory, convert results and traps.
 //! Implementations use `ImportContext` independently of the selected engine.
-//! Ported native-stub behavior belongs in `async_sys`; shared runtime state
-//! belongs in `async_host`.
+//! Host Domains own operation semantics and delegate mechanisms to their OS
+//! modules. `async_sys` retains shared scheduling and remaining native ports.
 
 mod c_buffer;
 mod context;

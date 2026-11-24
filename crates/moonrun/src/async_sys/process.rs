@@ -255,7 +255,7 @@ ported_fns! {
     #[cfg(target_os = "linux")]
     pub(crate) fn open_pid_handle(
         pid: i32,
-    ) -> AsyncHostResult<crate::async_sys::internal::fd_util::stub::RawFd> {
+    ) -> AsyncHostResult<crate::filesystem::RawFile> {
         use std::os::fd::IntoRawFd;
         Ok(crate::process::os::open_pidfd(pid)?.into_raw_fd())
     }
@@ -267,7 +267,7 @@ ported_fns! {
     #[cfg(windows)]
     pub(crate) fn open_pid_handle(
         pid: i32,
-    ) -> AsyncHostResult<crate::async_sys::internal::fd_util::stub::RawFd> {
+    ) -> AsyncHostResult<crate::filesystem::RawFile> {
         use std::os::windows::io::IntoRawHandle;
         Ok(crate::process::os::open_process_for_wait(pid as u32)?.into_raw_handle())
     }
@@ -277,7 +277,7 @@ ported_fns! {
         original = "moonbitlang_async_get_process_result"
     )]
     pub(crate) fn get_process_result(
-        handle: Option<crate::async_sys::internal::fd_util::stub::RawFd>,
+        handle: Option<crate::filesystem::RawFile>,
         pid: i32,
     ) -> AsyncHostResult<i32> {
         #[cfg(windows)]

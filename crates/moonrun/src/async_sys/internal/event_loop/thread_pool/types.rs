@@ -219,13 +219,6 @@ pub(crate) enum JobPayload {
     Signal(SigwaitJob),
 }
 
-pub(crate) trait ResourceTable {
-    fn insert_resource(
-        &mut self,
-        resource: crate::resource::Resource,
-    ) -> AsyncHostResult<HostHandle>;
-}
-
 pub(crate) fn platform() -> i32 {
     #[cfg(windows)]
     {

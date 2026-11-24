@@ -35,7 +35,6 @@ use std::sync::Arc;
 use super::path::entry_before_directory_suffix;
 use super::{FsOperation, FsPath, FsTarget};
 use crate::async_host::AsyncHostResult;
-use crate::async_sys::fs::stub;
 use crate::policy::FsPolicy;
 use crate::resource::Resource;
 use crate::runtime::{Env, WorkingDirectory};
@@ -228,23 +227,7 @@ impl HostFs {
     }
 
     pub(crate) fn temp_dir(&self) -> Result<OsString, FsError> {
-        // Native Windows selection has fallbacks beyond TMP and TEMP. Preserve
-        // those only for Ambient; an owned Env must never consult process state.
-        if self.environment.is_ambient() {
-            return stub::get_tmp_path().map_err(Into::into);
-        }
-        #[cfg(unix)]
-        {
-            stub::get_tmp_path_from_env(self.environment.get("TMPDIR".as_ref())).map_err(Into::into)
-        }
-        #[cfg(windows)]
-        {
-            stub::get_tmp_path_from_env(
-                self.environment.get("TMP".as_ref()),
-                self.environment.get("TEMP".as_ref()),
-            )
-            .map_err(Into::into)
-        }
+        super::temp_dir::resolve(&self.environment)
     }
 
     pub(crate) fn resource_stdio_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
@@ -543,7 +526,21 @@ mod tests {
     fn ambient_temp_dir_uses_native_path() {
         let host = host_fs(None, Arc::new(Env::ambient()));
 
-        assert_eq!(host.temp_dir().unwrap(), stub::get_tmp_path().unwrap());
+        #[cfg(windows)]
+        assert_eq!(
+            host.temp_dir().unwrap(),
+            super::super::os::path::temp_dir().unwrap()
+        );
+        #[cfg(unix)]
+        {
+            let environment =
+                Env::owned(std::env::var_os("TMPDIR").map(|value| ("TMPDIR".into(), value)))
+                    .unwrap();
+            assert_eq!(
+                host.temp_dir().unwrap(),
+                super::super::temp_dir::resolve(&environment).unwrap()
+            );
+        }
     }
 
     #[cfg(unix)]
@@ -571,7 +568,7 @@ mod tests {
         environment.unset("TMPDIR".as_ref()).unwrap();
         assert_eq!(
             host.temp_dir().unwrap(),
-            stub::get_tmp_path_from_env(None).unwrap()
+            super::super::temp_dir::resolve(&Env::owned([]).unwrap()).unwrap()
         );
     }
 
