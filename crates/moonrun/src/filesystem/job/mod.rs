@@ -23,7 +23,6 @@ mod runner;
 mod stat;
 
 use super::legacy_metadata::FileTimeResult;
-pub(crate) use stat::stdio_kind;
 
 use std::ffi::{OsStr, OsString};
 
@@ -598,7 +597,7 @@ impl Job {
         }
     }
 
-    pub(crate) fn stat_result(&self) -> AsyncHostResult<&PackedStat> {
+    fn stat_result(&self) -> AsyncHostResult<&PackedStat> {
         match &self.kind {
             Kind::Open {
                 result: Some(OpenJobResult { stat: result, .. }),
@@ -804,15 +803,6 @@ fn truncate_at_nul(path: OsString) -> OsString {
     }
 }
 
-#[cfg(unix)]
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(
-        std::io::Error::last_os_error()
-            .raw_os_error()
-            .expect("OS error code"),
-    )
-}
-
 fn job_path<'a>(parent: Option<&Resource>, path: &'a OsStr) -> AsyncHostResult<FsPath<'a>> {
     match parent {
         None => Ok(FsPath::Cwd(path)),
@@ -935,7 +925,7 @@ mod tests {
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Ambient),
         );
-        let watcher = Resource::new(crate::async_sys::fs::watch_inotify::create().unwrap());
+        let watcher = Resource::new(crate::filesystem::watch::create().unwrap());
         let mut job = Job::inotify_add_watch(Arc::new(watcher), file.path().into(), false);
 
         assert_eq!(job.run(&filesystem), Err(AsyncHostError::PermissionDenied));

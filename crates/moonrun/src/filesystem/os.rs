@@ -18,14 +18,21 @@
 
 //! Operating-system filesystem mechanisms, independent of runtime policy and ABIs.
 
+#[cfg(windows)]
+pub(super) mod console;
 pub(super) mod directory;
 pub(super) mod io;
 pub(super) mod lock;
 pub(super) mod metadata;
 pub(super) mod openat;
 pub(super) mod path;
+pub(super) mod stat;
 pub(super) mod symlink;
 pub(super) mod unlinkat;
+#[cfg_attr(target_os = "linux", path = "os/watch/inotify.rs")]
+#[cfg_attr(target_os = "macos", path = "os/watch/kqueue.rs")]
+#[cfg_attr(windows, path = "os/watch/windows.rs")]
+pub(super) mod watch;
 
 #[cfg(unix)]
 pub(super) type RawFile = std::os::fd::RawFd;

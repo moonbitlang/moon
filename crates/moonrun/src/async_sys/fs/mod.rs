@@ -18,9 +18,3 @@
 
 pub(crate) mod dir;
 pub(crate) mod stub;
-#[cfg(target_os = "linux")]
-pub(crate) mod watch_inotify;
-#[cfg(target_os = "macos")]
-pub(crate) mod watch_kqueue;
-#[cfg(windows)]
-pub(crate) mod watch_windows;
