@@ -33,7 +33,8 @@ ported_fns! {
         }
     }
 
-    #[ported(source = "src/internal/event_loop/fs.c", original = "inotify_add_watch_job_worker")]
+    // The Job executor tracks inotify_add_watch_job_worker's provenance;
+    // this native helper is not a separate guest-import implementation.
     pub(in crate::filesystem) fn add_file(
         inotify: RawFile,
         path: &OsStr,
