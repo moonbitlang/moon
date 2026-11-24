@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Read and write operations in the Host Filesystem domain.
+//! Operations on acquired Resources and their retained authority.
 //!
 //! Keep authorization next to the native effect. Async Host validates guest
 //! memory and owns pending-I/O lifetimes; it does not interpret file policy.
@@ -28,10 +28,54 @@ use std::os::fd::AsRawFd;
 use std::os::windows::io::AsRawHandle;
 
 use super::HostFs;
-use crate::filesystem::{FsOperation, os};
+use crate::filesystem::{FsOperation, FsTarget, metadata, os};
 use crate::resource::Resource;
 
 impl HostFs {
+    pub(crate) fn resource_stdio_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
+        self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
+        // Stdio initialization needs only the kind, before guest memory exists.
+        metadata::query_resource_stat(file, os::stat::KIND)?
+            .kind
+            .map(metadata::file_kind_code)
+            .ok_or_else(|| {
+                crate::async_host::AsyncHostError::Native(
+                    crate::async_sys::os_error::stub::get_enotsup(),
+                )
+            })
+    }
+
+    pub(crate) fn resource_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
+        self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
+        metadata::legacy::resource_kind(file)
+    }
+
+    pub(crate) fn try_lock_resource(
+        &self,
+        file: &Resource,
+        exclusive: bool,
+    ) -> AsyncHostResult<()> {
+        self.authorize(FsOperation::Lock {
+            file: file.file_grant(),
+            exclusive,
+        })?;
+        #[cfg(unix)]
+        let file = file.as_file()?.as_raw_fd();
+        #[cfg(windows)]
+        let file = file.as_file()?.as_raw_handle();
+        Ok(os::lock::try_lock(file, exclusive)?)
+    }
+
+    pub(crate) fn unlock_resource(&self, file: &Resource) -> AsyncHostResult<()> {
+        // Releasing an acquired lock needs no new authority. Keep resource
+        // validation, but do not introduce a policy check on cleanup.
+        #[cfg(unix)]
+        let file = file.as_file()?.as_raw_fd();
+        #[cfg(windows)]
+        let file = file.as_file()?.as_raw_handle();
+        Ok(os::lock::unlock(file)?)
+    }
+
     /// Perform one read with the descriptor's existing blocking mode.
     /// Readiness waits and retries belong to the event loop or a blocking Job.
     #[cfg(unix)]

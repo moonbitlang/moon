@@ -44,7 +44,7 @@ ported_fns! {
             // Native Windows has fallbacks beyond TMP and TEMP. Owned Env must
             // not reach those process-wide inputs when neither variable is set.
             if environment.is_ambient() {
-                return Ok(super::os::path::temp_dir()?);
+                return Ok(crate::filesystem::os::path::temp_dir()?);
             }
             environment.get("TMP".as_ref()).and_then(with_separator)
                 .or_else(|| environment.get("TEMP".as_ref()).and_then(with_separator))

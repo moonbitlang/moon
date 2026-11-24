@@ -759,3 +759,44 @@ fn watcher_iocp_completion_returns_the_buffer_and_handles_buffered_changes() {
     host.poll_destroy(poll).unwrap();
     assert_eq!(completed, Ok(1));
 }
+
+#[test]
+fn denied_watch_releases_its_request_and_returns_the_leased_buffer() {
+    use crate::async_host::tests::host_with_policy;
+    use crate::filesystem::Job as FilesystemJob;
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("write_only");
+    std::fs::write(&file, b"contents").unwrap();
+    let policy = directory.path().join("policy.toml");
+    std::fs::write(&policy, "[fs]\nwrite = ['write_only']\n").unwrap();
+    let host = host_with_policy(&policy);
+    let open = host
+        .insert_job(FilesystemJob::open_legacy(
+            file.into_os_string(),
+            1,
+            0,
+            false,
+            0,
+            0,
+        ))
+        .unwrap();
+    host.run_job(open).unwrap();
+    let file = host.open_job_get_fd(open).unwrap();
+    let buffer = host.insert_windows_watcher_buffer();
+    let request = host.make_read_dir_changes_io_result(buffer).unwrap();
+
+    // Watch requires read authority even though this Resource was acquired
+    // successfully. Denial must not leave a pending native request behind.
+    assert_eq!(
+        host.read_dir_changes_io_result(file, request),
+        Err(AsyncHostError::PermissionDenied)
+    );
+    host.close_fd(file).unwrap();
+    host.free_io_result(request).unwrap();
+    host.with_windows_watcher_buffer(buffer, |_| Ok(()))
+        .unwrap();
+    host.free_windows_watcher_buffer(buffer).unwrap();
+    host.free_job(open).unwrap();
+    assert_eq!(host.leak_summary(), None);
+}

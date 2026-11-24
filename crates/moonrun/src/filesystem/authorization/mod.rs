@@ -20,6 +20,9 @@
 //! Callers supply operations and targets, never inferred policy requirements.
 
 mod grant;
+mod path;
+pub(super) use path::directory_path;
+pub(crate) use path::entry_before_directory_suffix;
 #[cfg(unix)]
 mod system_reads;
 
@@ -31,8 +34,8 @@ use std::path::{Path, PathBuf};
 
 use super::host::{FileOpenOptions, FsError, HostFs};
 use super::os::RawFile;
-use super::path::{canonicalize_entry_path, canonicalize_existing_prefix, directory_path};
 use crate::policy::AccessRights;
+use path::{canonicalize_entry_path, canonicalize_existing_prefix};
 
 /// A pathname lookup uses either Runtime cwd or an acquired directory's base.
 /// It never inherits the grant for operations on the directory handle itself.

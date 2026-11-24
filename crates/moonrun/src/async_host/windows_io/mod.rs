@@ -24,7 +24,6 @@ use super::{
 };
 use crate::async_sys::internal::event_loop::poll::{self, CompletionPort, PollInstance};
 use crate::async_sys::socket::RawSocket;
-use crate::filesystem::{FsOperation, FsTarget};
 use crate::guest_memory::GuestMemory;
 use crate::resource::{Resource, ResourceClass, ResourceRef};
 use crate::runtime::{Handles, HostKeys};
@@ -1010,17 +1009,14 @@ impl AsyncHost {
         }
         result.kind.validate_resource(file)?;
         result.prepare_submission(port)?;
-        self.filesystem
-            .authorize(FsOperation::Watch(FsTarget::File(file.file_grant())))?;
         let overlapped = result.overlapped_ptr();
         let buffer = result
             .read_dir_changes_buffer
             .as_mut()
-            .ok_or(AsyncHostError::Inval)?
-            .buffer_mut();
+            .map(WindowsWatcherBufferLease::buffer_mut);
         // The result keeps the leased buffer, OVERLAPPED, and Resource alive
-        // until completion; submission only selects the native event layout.
-        unsafe { buffer.submit(file, overlapped)? };
+        // until completion; filesystem owns watch authorization and submission.
+        unsafe { crate::filesystem::watch::submit(&self.filesystem, file, buffer, overlapped)? };
 
         // Directory change notification reports successful submission, not
         // synchronous completion. Match native async by

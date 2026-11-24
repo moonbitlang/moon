@@ -19,6 +19,7 @@
 use super::os::watch::{self, EventLayout};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
+use crate::filesystem::{FsOperation, FsTarget, HostFs};
 use crate::resource::Resource;
 use std::os::windows::io::AsRawHandle;
 use windows_sys::Win32::Storage::FileSystem::{
@@ -43,6 +44,35 @@ pub(crate) struct EventBuffer {
     completed_len: usize,
 }
 
+/// Authorize a directory watch and submit it using the leased result buffer.
+/// An already-consumed buffer is rejected after authorization, preserving the
+/// async operation's error precedence.
+///
+/// # Safety
+/// The caller retains the directory, buffer allocation, and initialized
+/// `overlapped` until completion. Neither buffer may be accessed while pending,
+/// and `overlapped` must have no pending operation before submission.
+pub(crate) unsafe fn submit(
+    filesystem: &HostFs,
+    directory: &Resource,
+    buffer: Option<&mut EventBuffer>,
+    overlapped: *mut OVERLAPPED,
+) -> AsyncHostResult<()> {
+    filesystem.authorize(FsOperation::Watch(FsTarget::File(directory.file_grant())))?;
+    let buffer = buffer.ok_or(AsyncHostError::Inval)?;
+    let len = u32::try_from(buffer.capacity()).map_err(|_| AsyncHostError::Fault)?;
+    let layout = unsafe {
+        watch::submit(
+            directory.as_file()?.as_raw_handle(),
+            buffer.as_mut_slice().as_mut_ptr(),
+            len,
+            overlapped,
+        )?
+    };
+    buffer.begin_read(layout);
+    Ok(())
+}
+
 impl EventBuffer {
     pub(crate) fn new() -> Self {
         let len = usize::try_from(event_buffer_size())
@@ -53,30 +83,6 @@ impl EventBuffer {
             layout: None,
             completed_len: 0,
         }
-    }
-
-    /// Submit using this buffer's allocation and record the selected layout.
-    ///
-    /// # Safety
-    /// The caller must retain the authorized directory, this allocation, and
-    /// `overlapped` until completion, without accessing either buffer while
-    /// pending. `overlapped` must be initialized and have no pending operation.
-    pub(crate) unsafe fn submit(
-        &mut self,
-        directory: &Resource,
-        overlapped: *mut OVERLAPPED,
-    ) -> AsyncHostResult<()> {
-        let len = u32::try_from(self.capacity()).map_err(|_| AsyncHostError::Fault)?;
-        let layout = unsafe {
-            watch::submit(
-                directory.as_file()?.as_raw_handle(),
-                self.as_mut_slice().as_mut_ptr(),
-                len,
-                overlapped,
-            )?
-        };
-        self.begin_read(layout);
-        Ok(())
     }
 
     fn as_mut_slice(&mut self) -> &mut [u8] {
@@ -238,6 +244,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn consumed_buffer_errors_do_not_bypass_watch_authorization() {
+        use crate::filesystem::FileGrant;
+        use crate::policy::AccessRights;
+
+        let file = tempfile::tempfile().unwrap();
+        let filesystem = HostFs::default();
+        let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+        for (access, expected) in [
+            (AccessRights::WRITE, AsyncHostError::PermissionDenied),
+            (AccessRights::READ, AsyncHostError::Inval),
+        ] {
+            let resource =
+                Resource::from_file(file.try_clone().unwrap(), FileGrant::acquired(access));
+            // A completed request may have already returned its buffer. Keep
+            // permission denial ahead of that missing-buffer error.
+            assert_eq!(
+                unsafe { submit(&filesystem, &resource, None, &mut overlapped) },
+                Err(expected)
+            );
+        }
+    }
+
+    #[test]
     fn submitted_directory_watch_decodes_the_completed_native_layout() {
         use std::os::windows::{
             fs::OpenOptionsExt,
@@ -265,7 +294,15 @@ mod tests {
         let mut overlapped: Box<OVERLAPPED> = Box::new(unsafe { std::mem::zeroed() });
         overlapped.hEvent = event.as_raw_handle();
         let mut buffer = EventBuffer::new();
-        unsafe { buffer.submit(&resource, overlapped.as_mut()).unwrap() };
+        unsafe {
+            submit(
+                &HostFs::default(),
+                &resource,
+                Some(&mut buffer),
+                overlapped.as_mut(),
+            )
+            .unwrap()
+        };
 
         let write = std::fs::write(directory.path().join("changed"), b"contents");
         let wait = unsafe { WaitForSingleObject(event.as_raw_handle(), 5000) };

@@ -274,29 +274,11 @@ The Unstable API owns its legacy error/getter contract, not separate filesystem
 policy or mechanisms. Its retirement should remove that adaptation without
 removing shared host behavior.
 
-`std::fs` supplies ordinary OS operations directly. `filesystem::os` supplements
-it with mechanisms that need custom platform handling: rename with explicit
-replacement and cross-device options, handle-relative opening and removal,
-path operations, directory-handle lookup and enumeration, metadata queries,
-file I/O, advisory locks, and file notifications. Pipe creation returns owned
-endpoints for guest pipes and internal wakeups; only Async Host publishes their
-Handles. HostFs selects temporary directories from Runtime Env, using the native
-Windows query only for Ambient Env. `filesystem::directory` interprets native
-result buffers; ABI adapters retain guest-memory access and string encoding.
-HostFs and Jobs share native stat classification; Jobs validate guest property
-masks and result capacities, encode stat and native strings, and serialize access
-to shared directory cursors. Console I/O uses the same execution bracket as file
-I/O. `filesystem::watch` owns watcher buffer
-validation and guest event decoding; the OS layer owns registration, polling,
-and Windows notification-layout fallback. Async Host retains pending I/O and
-buffer leases.
-Opening accepts typed host options and an execution bracket; Filesystem Jobs
-supply worker cancellation, while synchronous HostFs calls execute directly. The
-raw layer returns `io::Result` and does not import Async errors or worker state.
-Other custom async mechanisms reside in Job runners and `async_sys`; move them as their
-responsibilities are separated, without adding forwarding wrappers around std.
-Likewise, remove `AsyncHost` only if extracting its responsibilities leaves it
-unnecessary; deletion is a possible outcome, not a separate migration goal.
+`std::fs` and private filesystem OS modules supply native mechanisms using
+explicit host inputs. Filesystem code owns operation interpretation and
+authorization; the async runtime owns scheduling, pending requests, cancellation,
+and completion. Domain operations may borrow request-owned storage without
+taking over its lifetime. ABI adapters retain guest-memory access and encoding.
 
 Host Filesystem, Host Network, Host Process, SQLite Host, and WASI own their
 respective semantics. Env, Working Directory, and Stdio supply shared
