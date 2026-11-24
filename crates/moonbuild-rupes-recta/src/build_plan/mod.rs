@@ -146,7 +146,7 @@ pub(crate) struct BackendPlan {
     make_executable_info: HashMap<BuildTarget, MakeExecutableInfo>,
 
     /// The map of build target to the settings for compiling its generated C
-    compile_generated_c_info: HashMap<BuildTarget, CompileGeneratedCInfo>,
+    compile_generated_c_info: HashMap<BuildTarget, PackageNativeConfig>,
 
     /// The map of foreign-library package to its static archive settings
     foreign_library_info: HashMap<PackageId, ForeignLibraryInfo>,
@@ -473,33 +473,29 @@ pub struct BuildCStubsInfo {
 
 #[derive(Debug)]
 pub struct MakeExecutableInfo {
-    /// The effective native toolchain for this executable step
-    pub(crate) effective_native_toolchain: Toolchain,
-    /// Compiler-driver settings retained at link time for generated-C and LLVM
-    /// builds. Direct-object native linking does not consume these settings.
-    pub(crate) driver_debug_info: bool,
-    pub(crate) driver_opt_level: CCOptLevel,
-    /// Preserve the link effects of `cc-flags` (e.g. sanitizers and LTO).
-    /// TODO: Remove this compatibility forwarding only with an explicit
-    /// migration to requiring those flags in `cc-link-flags` as well.
-    pub(crate) driver_flags: Vec<String>,
+    /// Package settings shared with generated-C compilation, when present.
+    pub(crate) native: PackageNativeConfig,
     /// Ordered link inputs, rendered by the selected driver during command lowering.
     pub(crate) link_args: Vec<NativeLinkArg>,
     /// The C stub targets to link with.
     pub(crate) link_c_stubs: Vec<PackageId>,
-    /// The allocator selected for the native runtime and executable link.
-    pub(crate) native_allocator: NativeAllocator,
 }
 
+/// Native settings resolved once per package within a build configuration.
+/// Generated-C compilation and executable linking consume this same selection;
+/// foreign-library archiving uses only its toolchain and allocator.
 #[derive(Clone, Debug)]
-pub struct CompileGeneratedCInfo {
-    /// The effective native toolchain for compiling the generated C
+pub struct PackageNativeConfig {
     pub(crate) effective_native_toolchain: Toolchain,
-    pub(crate) c_debug_info: bool,
-    pub(crate) c_opt_level: CCOptLevel,
-    /// The package's `link.native.cc-flags`
-    pub(crate) c_flags: Vec<String>,
-    /// The allocator the generated C is compiled against.
+    /// Driver settings for generated-C compilation and generated-C/LLVM links.
+    /// Direct-object native linking does not consume these settings.
+    pub(crate) driver_debug_info: bool,
+    pub(crate) driver_opt_level: CCOptLevel,
+    /// The package's `link.native.cc-flags`, also forwarded at link time for
+    /// effects such as sanitizers and LTO.
+    /// TODO: Remove link-time forwarding only with an explicit migration to
+    /// requiring those flags in `cc-link-flags` as well.
+    pub(crate) cc_flags: Vec<String>,
     pub(crate) native_allocator: NativeAllocator,
 }
 

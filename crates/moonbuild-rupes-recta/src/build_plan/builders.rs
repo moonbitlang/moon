@@ -60,10 +60,10 @@ use crate::{
 
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo,
-    CompileGeneratedCInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
-    PackagePrebuildKey, WasmLinkInfo,
+    ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, PackageNativeConfig, PackagePrebuildKey,
+    WasmLinkInfo,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
-    constructor::{BuildPlanConstructor, NativeToolchainRole, PackageFileSet, PackageNativeConfig},
+    constructor::{BuildPlanConstructor, NativeToolchainRole, PackageFileSet},
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -198,7 +198,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     .iter()
                     .any(|(target, info)| {
                         target.package == package
-                            && info.effective_native_toolchain.source()
+                            && info.native.effective_native_toolchain.source()
                                 == ToolchainSource::EnvOverride
                     });
             let stub_cc_overridden = native.stub_cc.is_some()
@@ -1368,20 +1368,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
-        let PackageNativeConfig {
-            effective_native_toolchain,
-            c_flags,
-            native_allocator,
-        } = self.resolve_package_native_config(target.package)?;
-
-        // Keep the existing driver settings for generated-C and LLVM linking.
-        // Direct-object linking does not consume them.
-        let driver_debug_info = self.res.backend.direct_native_target().is_none()
-            && self.config.debug_info.symbols != DebugSymbols::None;
-        let driver_opt_level = match self.config.configuration().profile {
-            OptLevel::Debug => CCOptLevel::Debug,
-            OptLevel::Release => CCOptLevel::Speed,
-        };
+        let native = self.resolve_package_native_config(target.package)?;
 
         let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
@@ -1415,15 +1402,18 @@ impl<'a> BuildPlanConstructor<'a> {
                 NativeBackendMode::DirectObject(mode) => should_generate_direct_native_dsym(
                     mode,
                     moonc_debug_info || self.config.debug_info.runtime_backtrace,
-                    &effective_native_toolchain,
+                    &native.effective_native_toolchain,
                 ),
                 // Compiling and linking in one clang invocation used to run
                 // dsymutil implicitly. With persistent objects it must be an
                 // explicit action, otherwise libbacktrace loses source lines.
                 NativeBackendMode::GeneratedC => {
-                    self.config.debug_info.symbols != DebugSymbols::None
+                    native.driver_debug_info
                         && *os == OperatingSystem::MacOS
-                        && effective_native_toolchain.cc().targets_apple_darwin()
+                        && native
+                            .effective_native_toolchain
+                            .cc()
+                            .targets_apple_darwin()
                 }
             },
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
@@ -1440,12 +1430,8 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
-            effective_native_toolchain,
-            driver_debug_info,
-            driver_opt_level,
-            driver_flags: c_flags,
+            native,
             link_args,
-            native_allocator,
         };
         self.res.backend.make_executable_info.insert(target, v);
 
@@ -1468,8 +1454,8 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    /// Parse package flags and validate the allocator against the selected
-    /// program toolchain once, independently of the actions that consume them.
+    /// Resolve package flags and driver settings, and validate the allocator
+    /// against the selected program toolchain once for all consuming actions.
     fn resolve_package_native_config(
         &mut self,
         package: PackageId,
@@ -1507,7 +1493,13 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let info = PackageNativeConfig {
             effective_native_toolchain,
-            c_flags,
+            cc_flags: c_flags,
+            driver_debug_info: self.res.backend.direct_native_target().is_none()
+                && self.config.debug_info.symbols != DebugSymbols::None,
+            driver_opt_level: match self.config.configuration().profile {
+                OptLevel::Debug => CCOptLevel::Debug,
+                OptLevel::Release => CCOptLevel::Speed,
+            },
             native_allocator,
         };
         self.package_native_config.insert(package, info.clone());
@@ -1535,22 +1527,7 @@ impl<'a> BuildPlanConstructor<'a> {
             },
         );
 
-        let PackageNativeConfig {
-            effective_native_toolchain,
-            c_flags,
-            native_allocator,
-        } = self.resolve_package_native_config(target.package)?;
-        let info = CompileGeneratedCInfo {
-            effective_native_toolchain,
-            c_flags,
-            // Retain the source locations emitted into generated C.
-            c_debug_info: self.config.debug_info.symbols != DebugSymbols::None,
-            c_opt_level: match self.config.configuration().profile {
-                OptLevel::Debug => CCOptLevel::Debug,
-                OptLevel::Release => CCOptLevel::Speed,
-            },
-            native_allocator,
-        };
+        let info = self.resolve_package_native_config(target.package)?;
         self.res
             .backend
             .compile_generated_c_info
