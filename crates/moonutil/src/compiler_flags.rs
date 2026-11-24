@@ -680,32 +680,28 @@ impl CC {
     }
 }
 
-pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(|| {
-    let env_cc = env::var(ENV_MOON_CC);
-    let env_ar = env::var(ENV_MOON_AR);
-
-    match (env_cc, env_ar) {
-        (Ok(cc), Ok(ar)) => {
-            let cc = CC::try_from_path_with_ar(&cc, &ar)
-                .context(format!("failed to parse cc from env {ENV_MOON_CC}"))
-                .unwrap();
-            Some(CC {
+/// Capture the global compiler override and its target probe once per invocation.
+pub fn env_cc() -> anyhow::Result<Option<&'static CC>> {
+    static ENV_CC: std::sync::LazyLock<anyhow::Result<Option<CC>>> =
+        std::sync::LazyLock::new(|| {
+            let Ok(cc) = env::var(ENV_MOON_CC) else {
+                return Ok(None);
+            };
+            let cc = match env::var(ENV_MOON_AR) {
+                Ok(ar) => CC::try_from_path_with_ar(&cc, &ar),
+                Err(_) => CC::try_from_path(&cc),
+            }
+            .with_context(|| format!("failed to parse cc from env {ENV_MOON_CC}"))?;
+            Ok(Some(CC {
                 is_env_override: true,
                 ..cc
-            })
-        }
-        (Ok(cc), _) => {
-            let cc = CC::try_from_path(&cc)
-                .context(format!("failed to parse cc from env {ENV_MOON_CC}"))
-                .unwrap();
-            Some(CC {
-                is_env_override: true,
-                ..cc
-            })
-        }
-        _ => None,
-    }
-});
+            }))
+        });
+    ENV_CC
+        .as_ref()
+        .map(Option::as_ref)
+        .map_err(|err| anyhow::anyhow!("{err:#}"))
+}
 
 fn detect_path_candidate(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<CC> {
     CC::try_from_detected_path(cc_path, cc_kind)

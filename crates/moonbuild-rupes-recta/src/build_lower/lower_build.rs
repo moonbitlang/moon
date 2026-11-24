@@ -335,7 +335,6 @@ impl<'a> LoweringContext<'a> {
             | TargetKind::InlineTest
             | TargetKind::SubPackage => package.raw.is_main,
         };
-        let backend = self.opt.configuration().backend;
         let cmd = compiler::MooncCheck {
             required: BuildCommonInput::new(
                 &files_vec,
@@ -346,7 +345,7 @@ impl<'a> LoweringContext<'a> {
                 self.artifact_paths
                     .target_layout()
                     .all_pkgs_of_build_target(),
-                backend,
+                self.opt.configuration(),
                 target.kind,
             ),
             defaults: self.set_build_commons(artifacts, package, info, is_main),
@@ -387,7 +386,6 @@ impl<'a> LoweringContext<'a> {
 
         let files_vec = self.compiler_source_files(info);
 
-        let backend = self.opt.configuration().backend;
         let whyml_output = artifacts.single_output_path_matching(|artifact| {
             matches!(
                 artifact,
@@ -406,7 +404,7 @@ impl<'a> LoweringContext<'a> {
                 self.artifact_paths
                     .target_layout()
                     .all_pkgs_of_build_target(),
-                backend,
+                self.opt.configuration(),
                 target.kind,
             ),
             defaults: self.set_build_commons(artifacts, package, info, package.raw.is_main),
@@ -490,7 +488,6 @@ impl<'a> LoweringContext<'a> {
             TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
-        let backend = self.opt.configuration().backend;
         let mut cmd = compiler::MooncBuildPackage {
             required: BuildCommonInput::new(
                 &files,
@@ -501,7 +498,7 @@ impl<'a> LoweringContext<'a> {
                 self.artifact_paths
                     .target_layout()
                     .all_pkgs_of_build_target(),
-                backend,
+                self.opt.configuration(),
                 target.kind,
             ),
             defaults: self.set_build_commons(artifacts, package, info, is_main),

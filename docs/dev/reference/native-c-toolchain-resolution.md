@@ -463,9 +463,13 @@ then uses those bindings together with the requested artifacts, build profile,
 and direct-object candidate. This selection does not read the process environment
 or probe compilers; it consumes the earlier resolution result. The planner stores
 the final mode once in its Backend Plan, and action construction and lowering
-consume that mode. Commands without native toolchain actions, including
-`moon check`, builds requesting only `.core`/`.mi` artifacts, and `moon test --outline`,
-do not probe compilers.
+consume that mode. For Native, an explicit `MOON_CC` is probed during configuration
+selection even for `moon check` and library builds. These commands still need
+no package compiler or resolved archiver. Generated-C source selection normally
+only tests for Windows. Crossing from a non-Windows host to Windows selects
+`-cfg platform=windows`; crossing from Windows to Linux or macOS selects
+`platform=linux` or `platform=macos`. Only an override bypasses the installed
+host core bundle and uses the existing source-build fallback.
 
 Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
 They also remain on the compiler-driver link invocation for compatibility with

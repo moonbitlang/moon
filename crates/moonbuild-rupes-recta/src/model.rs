@@ -643,7 +643,7 @@ impl BuildPlanNode {
 }
 
 /// Supported operating systems for artifact generation
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatingSystem {
     Windows,
     Linux,

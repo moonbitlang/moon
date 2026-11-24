@@ -556,7 +556,7 @@ fn prepare_native_build(
         &package_dirs,
         user_log,
     )?;
-    let configuration = BuildConfiguration::new(
+    let configuration = moonbuild::compile::select_configuration(
         TargetBackend::Native,
         moonutil::cond_expr::OptLevel::Release,
     );

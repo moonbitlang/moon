@@ -22,8 +22,8 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use moonutil::package::PackageKind;
-use moonutil::target::TargetBackend;
 
+use crate::BuildConfiguration;
 use crate::build_lower::compiler::{
     CompiledPackageName, ErrorFormat, MOONC_DENY_WARNING_SET, MOONC_SUPPRESS_WARNING_SET,
     MiDependency, VirtualPackageImplementation, WarnAlertConfig,
@@ -48,8 +48,8 @@ pub(crate) struct BuildCommonInput<'a> {
     pub all_pkgs_json_path: PathBuf,
 
     // Target configuration
-    /// Target backend to compile for
-    pub target_backend: TargetBackend,
+    /// Source-visible configuration selected for this build.
+    pub configuration: BuildConfiguration,
     /// Target kind (source/test/etc.)
     pub target_kind: TargetKind,
 }
@@ -64,7 +64,7 @@ impl<'a> BuildCommonInput<'a> {
         package_name: CompiledPackageName<'a>,
         package_source: impl Into<Cow<'a, Path>>,
         all_pkgs_json_path: PathBuf,
-        target_backend: TargetBackend,
+        configuration: BuildConfiguration,
         target_kind: TargetKind,
     ) -> Self {
         Self {
@@ -74,7 +74,7 @@ impl<'a> BuildCommonInput<'a> {
             package_name,
             package_source: package_source.into(),
             all_pkgs_json_path,
-            target_backend,
+            configuration,
             target_kind,
         }
     }
@@ -124,8 +124,15 @@ impl<'a> BuildCommonInput<'a> {
     pub(crate) fn add_target_backend(&self, args: &mut Vec<String>) {
         args.extend([
             "-target".to_string(),
-            self.target_backend.to_flag().to_string(),
+            self.configuration.backend.to_flag().to_string(),
         ]);
+        self.add_platform_override(args);
+    }
+
+    pub(crate) fn add_platform_override(&self, args: &mut Vec<String>) {
+        if let Some(platform) = self.configuration.platform_override {
+            args.extend(["-cfg".to_owned(), format!("platform={platform}")]);
+        }
     }
 
     /// Add white/black box test arguments

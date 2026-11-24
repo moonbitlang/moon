@@ -23,7 +23,7 @@ mod prebuild;
 mod session;
 mod standalone;
 
-pub use config::{prepare_backend, prepare_config};
+pub use config::{prepare_backend, prepare_config, select_configuration};
 pub use session::{BuildRequest, BuildSession, MetadataOutput};
 pub use standalone::{StandaloneWasm, build_standalone_wasm};
 

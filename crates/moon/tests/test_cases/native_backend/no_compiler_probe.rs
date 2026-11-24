@@ -88,7 +88,7 @@ fn compiler_calls(dir: &TestDir, args: &[&str]) -> String {
 }
 
 #[test]
-fn commands_without_native_toolchain_actions_do_not_probe_compilers() {
+fn native_source_commands_probe_the_global_compiler_for_its_platform() {
     let dir = TestDir::new("native_backend/no_compiler_probe");
 
     for args in [
@@ -97,12 +97,29 @@ fn commands_without_native_toolchain_actions_do_not_probe_compilers() {
         &["test", "--target", "native", "--outline"],
     ] {
         let calls = compiler_calls(&dir, args);
-        assert!(
-            calls.is_empty(),
-            "`moon {}` probed MOON_CC:\n{calls}",
-            args.join(" ")
-        );
+        assert_eq!(calls, "-dumpmachine\n", "moon {}", args.join(" "));
     }
+}
+
+#[test]
+fn non_windows_cross_target_keeps_default_cfg_and_installed_core() {
+    let dir = TestDir::new("native_backend/no_compiler_probe");
+    let cc = dir.join("fake-toolchain/bin/probe-gcc");
+    // Both Unix hosts and this Linux target have the same default Windows predicate.
+    std::fs::write(&cc, "#!/bin/sh\necho aarch64-unknown-linux-musl\n").unwrap();
+    let output = crate::moon_process_cmd(&dir)
+        .env("MOON_CC", cc)
+        .args(["build", "--release", "--target", "native", "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let plan = String::from_utf8(output.stdout).unwrap();
+    assert!(plan.contains("/native/release/bundle/builtin/builtin.mi"));
+    assert!(!plan.contains(" -cfg "));
 }
 
 #[test]

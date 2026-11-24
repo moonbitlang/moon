@@ -263,7 +263,7 @@ impl BuildFlags {
         backend: TargetBackend,
         run_mode: RunMode,
     ) -> BuildConfiguration {
-        BuildConfiguration::new(backend, self.effective_profile(run_mode))
+        moonbuild::compile::select_configuration(backend, self.effective_profile(run_mode))
     }
 
     /// Resolve the effective build profile for Rupes Recta compilation.

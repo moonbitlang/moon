@@ -544,6 +544,8 @@ pub struct InputDirective {
 /// Represents errors that may occur during build graph construction.
 #[derive(Debug, thiserror::Error)]
 pub enum BuildPlanConstructError {
+    #[error("Invalid native compiler override")]
+    InvalidNativeCompiler(#[source] anyhow::Error),
     #[error("Failed to set C compiler when compiling {1}")]
     FailedToSetCC(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Failed to set C compiler when compiling runtime")]

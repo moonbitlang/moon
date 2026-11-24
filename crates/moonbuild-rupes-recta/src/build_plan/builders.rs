@@ -132,8 +132,9 @@ impl<'a> BuildPlanConstructor<'a> {
             .map(|role| {
                 // TODO: Receive captured toolchain candidates and environment inputs
                 // once native toolchain discovery moves to command orchestration.
-                // Keep this lazy: an empty role set must not probe MOON_CC.
-                let env_cc = compiler_flags::ENV_CC.as_ref();
+                // Only native tool actions need resolved compiler and archiver paths.
+                let env_cc = compiler_flags::env_cc()
+                    .map_err(BuildPlanConstructError::InvalidNativeCompiler)?;
                 let request = match (env_cc, role) {
                     (Some(_), _) | (_, Runtime) => None,
                     (None, Program(package) | CStubs(package)) => {

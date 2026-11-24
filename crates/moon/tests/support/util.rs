@@ -208,7 +208,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         "$MOON_HOME",
     );
     let s = if let Ok(toolchain) =
-        compiler_flags::effective_native_toolchain(compiler_flags::ENV_CC.as_ref(), None)
+        compiler_flags::effective_native_toolchain(compiler_flags::env_cc().unwrap(), None)
     {
         let cc = toolchain.cc();
         let s = s.replace(&cc.ar_path, cc.ar_name());

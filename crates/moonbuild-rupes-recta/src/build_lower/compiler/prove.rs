@@ -57,6 +57,7 @@ impl CmdlineAbstraction for MooncProve<'_> {
         }
         self.required.add_mi_dependencies(args);
         self.required.add_package_sources(args);
+        self.required.add_platform_override(args);
         self.required.add_test_kind_flags(args);
         self.defaults.add_virtual_package_check(args);
         self.defaults.add_virtual_package_implementation_check(args);
