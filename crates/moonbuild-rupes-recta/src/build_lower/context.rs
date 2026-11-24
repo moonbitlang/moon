@@ -434,9 +434,9 @@ impl<'a> LoweringContext<'a> {
                     && package_link_flags.is_none_or(<[_]>::is_empty)
             }
             BuildAction::MakeExecutable { info, .. } => {
-                info.c_flags.is_empty() && info.link_args.is_empty()
+                info.native.cc_flags.is_empty() && info.link_args.is_empty()
             }
-            BuildAction::CompileGeneratedC { info, .. } => info.c_flags.is_empty(),
+            BuildAction::CompileGeneratedC { info, .. } => info.cc_flags.is_empty(),
             // Objects carry no package or module link flags; see
             // `links_wasm_objects`.
             BuildAction::BuildWasmObject { .. }

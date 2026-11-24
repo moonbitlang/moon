@@ -33,7 +33,7 @@ use moonutil::{compiler_flags::Toolchain, user_log::UserLog};
 use tracing::{Level, instrument};
 
 use super::{
-    BuildPlan, BuildPlanConstructError,
+    BuildPlan, BuildPlanConstructError, PackageNativeConfig,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
 };
 
@@ -69,7 +69,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) resolved: HashSet<BuildPlanNode>,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
-    pub(super) package_native_compile: HashMap<PackageId, super::CompileGeneratedCInfo>,
+    pub(super) package_native_config: HashMap<PackageId, PackageNativeConfig>,
 
     /// Complete role bindings selected before payload planning. Action builders
     /// only read these bindings; compiler-request caching is local to resolution.
@@ -111,7 +111,7 @@ impl<'a> BuildPlanConstructor<'a> {
             resolved: HashSet::new(),
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
-            package_native_compile: HashMap::new(),
+            package_native_config: HashMap::new(),
             native_toolchains: HashMap::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),

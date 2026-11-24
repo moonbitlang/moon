@@ -45,8 +45,8 @@ use crate::{
         },
     },
     build_plan::{
-        ArtifactKey, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
-        ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, WasmLinkInfo,
+        ArtifactKey, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, ForeignLibraryInfo,
+        LinkCoreInfo, MakeExecutableInfo, PackageNativeConfig, WasmLinkInfo,
     },
     discover::DiscoveredPackage,
     model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind, WasmObject},
@@ -1081,7 +1081,7 @@ impl<'a> LoweringContext<'a> {
         &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
-        info: &CompileGeneratedCInfo,
+        info: &PackageNativeConfig,
     ) -> BuildCommand {
         let source = artifacts.single_dependency_path_matching(|artifact| {
             matches!(
@@ -1092,15 +1092,13 @@ impl<'a> LoweringContext<'a> {
         });
         let output = artifacts.single_output_path();
 
-        // Compile with the settings an executable link would use for the
-        // same generated C, so the object matches the runtime it links with.
         let config = CCConfig {
-            debug_info: info.c_debug_info,
+            debug_info: info.driver_debug_info,
             link_moonbitrun: true,
             link_libbacktrace: false,
             no_sys_header: true,
             output_ty: CCOutputType::Object,
-            opt_level: info.c_opt_level,
+            opt_level: info.driver_opt_level,
             allow_stacktrace: false,
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
@@ -1118,7 +1116,7 @@ impl<'a> LoweringContext<'a> {
         make_cc_command(
             &info.effective_native_toolchain,
             config,
-            &info.c_flags,
+            &info.cc_flags,
             &[],
             [source.display().to_string()],
             &pkg_dir,
@@ -1259,14 +1257,15 @@ impl<'a> LoweringContext<'a> {
         // driver flags here because they can also affect linking (e.g. LTO).
 
         let sources = self.native_executable_dependency_paths(artifacts, info);
+        let native = &info.native;
 
         let config = LinkerConfig::<&Path> {
-            driver_flags: info.c_flags.clone(),
-            opt_level: Some(info.c_opt_level),
-            debug_info: info.c_debug_info,
+            driver_flags: native.cc_flags.clone(),
+            opt_level: Some(native.driver_opt_level),
+            debug_info: native.driver_debug_info,
             link_moonbitrun: true,
             link_libbacktrace: true,
-            native_allocator: info.native_allocator,
+            native_allocator: native.native_allocator,
             ..Default::default()
         };
 
@@ -1282,7 +1281,7 @@ impl<'a> LoweringContext<'a> {
             .to_string();
 
         let cc_cmd = make_linker_command(
-            info.effective_native_toolchain.cc().clone(),
+            native.effective_native_toolchain.cc().clone(),
             config,
             &info.link_args,
             &sources
@@ -1297,7 +1296,7 @@ impl<'a> LoweringContext<'a> {
                 .expect("native lowering requires compiler paths"),
         );
 
-        cc_cmd.with_msvc_env(&info.effective_native_toolchain)
+        cc_cmd.with_msvc_env(&native.effective_native_toolchain)
     }
 
     fn lower_link_new_native_exe(
@@ -1312,7 +1311,8 @@ impl<'a> LoweringContext<'a> {
             .compiler_paths()
             .expect("native lowering requires compiler paths");
         let sources = self.native_executable_dependency_paths(artifacts, info);
-        let cc = info.effective_native_toolchain.cc().clone();
+        let native = &info.native;
+        let cc = native.effective_native_toolchain.cc().clone();
 
         let dest = artifacts.single_output_path().display().to_string();
 
@@ -1327,7 +1327,7 @@ impl<'a> LoweringContext<'a> {
             link_moonbitrun: true,
             link_libbacktrace: true,
             output_ty: CCOutputType::Executable,
-            native_allocator: info.native_allocator,
+            native_allocator: native.native_allocator,
             ..Default::default()
         };
 
@@ -1335,9 +1335,9 @@ impl<'a> LoweringContext<'a> {
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
-        let command = if info.effective_native_toolchain.uses_msvc_cli() {
+        let command = if native.effective_native_toolchain.uses_msvc_cli() {
             let commandline = compiler::native::msvc::link_executable_command(
-                &info.effective_native_toolchain,
+                &native.effective_native_toolchain,
                 &source_args,
                 &info.link_args,
                 &dest,
@@ -1360,7 +1360,7 @@ impl<'a> LoweringContext<'a> {
             )
         };
 
-        command.with_msvc_env(&info.effective_native_toolchain)
+        command.with_msvc_env(&native.effective_native_toolchain)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts))]
