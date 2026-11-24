@@ -26,6 +26,7 @@ pub(super) mod lock;
 pub(super) mod metadata;
 pub(super) mod openat;
 pub(super) mod path;
+pub(super) mod pipe;
 pub(super) mod stat;
 pub(super) mod symlink;
 pub(super) mod unlinkat;
@@ -35,9 +36,9 @@ pub(super) mod unlinkat;
 pub(super) mod watch;
 
 #[cfg(unix)]
-pub(super) type RawFile = std::os::fd::RawFd;
+pub(crate) type RawFile = std::os::fd::RawFd;
 #[cfg(windows)]
-pub(super) type RawFile = std::os::windows::io::RawHandle;
+pub(crate) type RawFile = std::os::windows::io::RawHandle;
 
 pub(super) fn raw_file(file: &std::fs::File) -> RawFile {
     #[cfg(unix)]

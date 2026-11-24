@@ -278,10 +278,15 @@ removing shared host behavior.
 it with mechanisms that need custom platform handling: rename with explicit
 replacement and cross-device options, handle-relative opening and removal,
 path operations, directory-handle lookup and enumeration, metadata queries,
-file I/O, advisory locks, and file notifications. HostFs and Jobs share native
-stat classification; Jobs validate guest property masks and result capacities,
-encode stat and native strings, and serialize access to shared directory cursors. Console I/O uses the
-same execution bracket as file I/O. `filesystem::watch` owns watcher buffer
+file I/O, advisory locks, and file notifications. Pipe creation returns owned
+endpoints for guest pipes and internal wakeups; only Async Host publishes their
+Handles. HostFs selects temporary directories from Runtime Env, using the native
+Windows query only for Ambient Env. `filesystem::directory` interprets native
+result buffers; ABI adapters retain guest-memory access and string encoding.
+HostFs and Jobs share native stat classification; Jobs validate guest property
+masks and result capacities, encode stat and native strings, and serialize access
+to shared directory cursors. Console I/O uses the same execution bracket as file
+I/O. `filesystem::watch` owns watcher buffer
 validation and guest event decoding; the OS layer owns registration, polling,
 and Windows notification-layout fallback. Async Host retains pending I/O and
 buffer leases.

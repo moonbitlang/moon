@@ -358,6 +358,24 @@ fn windows_dos_path_is_exact(units: &[u16]) -> bool {
     true
 }
 
+/// Query the native Windows temporary directory without selecting Runtime Env.
+#[cfg(windows)]
+pub(in crate::filesystem) fn temp_dir() -> io::Result<OsString> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::Foundation::{ERROR_INVALID_ADDRESS, MAX_PATH};
+    use windows_sys::Win32::Storage::FileSystem::GetTempPath2W;
+
+    let mut buffer = [0u16; MAX_PATH as usize + 1];
+    let len = unsafe { GetTempPath2W(buffer.len() as u32, buffer.as_mut_ptr()) };
+    if len == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let units = buffer
+        .get(..len as usize)
+        .ok_or_else(|| io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?;
+    Ok(OsString::from_wide(units))
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;

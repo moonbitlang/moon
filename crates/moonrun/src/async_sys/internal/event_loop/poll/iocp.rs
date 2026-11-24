@@ -22,8 +22,8 @@ use std::os::windows::io::{
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
+use crate::filesystem::RawFile as RawFd;
 
 use super::{EVENT_BUFFER_SIZE, PollEvent, PollInstance, last_errno, last_native_error};
 

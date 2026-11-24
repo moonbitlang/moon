@@ -16,6 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! Checked interpretation of native directory records returned by filesystem Jobs.
+//! Offsets address a host-owned result buffer, independently of Guest Memory.
+
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 
@@ -80,22 +83,22 @@ ported_fns! {
         source = "src/fs/dir.c",
         original = "moonbitlang_async_dir_entry_length"
     )]
-    pub(crate) fn entry_length(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<u32> {
+    pub(crate) fn entry_length(buf: &[u8], offset: u32) -> AsyncHostResult<u32> {
         #[cfg(windows)]
         {
-            let entry = windows_entry(buf, buf_ptr, offset)?;
+            let entry = windows_entry(buf, offset)?;
             Ok(entry.NextEntryOffset)
         }
 
         #[cfg(target_os = "macos")]
         {
-            let entry = entry_offset(buf_ptr, offset)?;
+            let entry = entry_offset(offset)?;
             read_u32_ne(buf, entry + MAC_D_RECLEN_OFFSET)
         }
 
         #[cfg(target_os = "linux")]
         {
-            let entry = entry_offset(buf_ptr, offset)?;
+            let entry = entry_offset(offset)?;
             Ok(u32::from(read_u16_ne(buf, entry + LINUX_D_RECLEN_OFFSET)?))
         }
     }
@@ -104,22 +107,22 @@ ported_fns! {
         source = "src/fs/dir.c",
         original = "moonbitlang_async_dir_entry_get_name_len"
     )]
-    pub(crate) fn entry_name_len(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<u32> {
+    pub(crate) fn entry_name_len(buf: &[u8], offset: u32) -> AsyncHostResult<u32> {
         #[cfg(windows)]
         {
-            let entry = windows_entry(buf, buf_ptr, offset)?;
+            let entry = windows_entry(buf, offset)?;
             Ok(entry.FileNameLength)
         }
 
         #[cfg(target_os = "macos")]
         {
-            let (_, len) = mac_name_range(buf, buf_ptr, offset)?;
+            let (_, len) = mac_name_range(buf, offset)?;
             u32::try_from(len).map_err(|_| AsyncHostError::Fault)
         }
 
         #[cfg(target_os = "linux")]
         {
-            let (_, len) = linux_name_range(buf, buf_ptr, offset)?;
+            let (_, len) = linux_name_range(buf, offset)?;
             u32::try_from(len).map_err(|_| AsyncHostError::Fault)
         }
     }
@@ -130,21 +133,20 @@ ported_fns! {
     )]
     pub(crate) fn entry_name_offset(
         buf: &[u8],
-        buf_ptr: u32,
         offset: u32,
     ) -> AsyncHostResult<u32> {
         #[cfg(windows)]
         {
             use windows_sys::Win32::Storage::FileSystem::FILE_ID_BOTH_DIR_INFO;
 
-            windows_name_range(buf, buf_ptr, offset)?;
+            windows_name_range(buf, offset)?;
             u32::try_from(std::mem::offset_of!(FILE_ID_BOTH_DIR_INFO, FileName))
                 .map_err(|_| AsyncHostError::Fault)
         }
 
         #[cfg(target_os = "macos")]
         {
-            let name_offset = mac_name_offset(buf, buf_ptr, offset)?;
+            let name_offset = mac_name_offset(buf, offset)?;
             u32::try_from(
                 MAC_D_NAME_OFFSET
                     .checked_add(name_offset)
@@ -155,7 +157,7 @@ ported_fns! {
 
         #[cfg(target_os = "linux")]
         {
-            linux_name_range(buf, buf_ptr, offset)?;
+            linux_name_range(buf, offset)?;
             u32::try_from(LINUX_D_NAME_OFFSET).map_err(|_| AsyncHostError::Fault)
         }
     }
@@ -164,21 +166,21 @@ ported_fns! {
         source = "src/fs/dir.c",
         original = "moonbitlang_async_dir_entry_is_dir"
     )]
-    pub(crate) fn entry_is_dir(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<i32> {
+    pub(crate) fn entry_is_dir(buf: &[u8], offset: u32) -> AsyncHostResult<i32> {
         #[cfg(windows)]
         {
             use windows_sys::Win32::Storage::FileSystem::{
                 FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
             };
 
-            let entry = windows_entry(buf, buf_ptr, offset)?;
+            let entry = windows_entry(buf, offset)?;
             Ok(((entry.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0
                 && (entry.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) as i32)
         }
 
         #[cfg(target_os = "macos")]
         {
-            let entry = entry_offset(buf_ptr, offset)?;
+            let entry = entry_offset(offset)?;
             let attrs = read_u32_ne(buf, entry + MAC_D_ATTRS_OFFSET)?;
             if (attrs & libc::ATTR_CMN_OBJTYPE) == 0 {
                 return Ok(-1);
@@ -195,7 +197,7 @@ ported_fns! {
 
         #[cfg(target_os = "linux")]
         {
-            let entry = entry_offset(buf_ptr, offset)?;
+            let entry = entry_offset(offset)?;
             match read_u8(buf, entry + LINUX_D_TYPE_OFFSET)? {
                 libc::DT_UNKNOWN => Ok(-1),
                 libc::DT_DIR => Ok(1),
@@ -208,24 +210,24 @@ ported_fns! {
         source = "src/fs/dir.c",
         original = "moonbitlang_async_dir_entry_is_hidden"
     )]
-    pub(crate) fn entry_is_hidden(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<bool> {
+    pub(crate) fn entry_is_hidden(buf: &[u8], offset: u32) -> AsyncHostResult<bool> {
         #[cfg(windows)]
         {
             use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_HIDDEN;
 
-            let entry = windows_entry(buf, buf_ptr, offset)?;
+            let entry = windows_entry(buf, offset)?;
             Ok((entry.FileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0)
         }
 
         #[cfg(target_os = "macos")]
         {
-            let (start, _) = mac_name_range(buf, buf_ptr, offset)?;
+            let (start, _) = mac_name_range(buf, offset)?;
             Ok(read_u8(buf, start)? == b'.')
         }
 
         #[cfg(target_os = "linux")]
         {
-            let (start, _) = linux_name_range(buf, buf_ptr, offset)?;
+            let (start, _) = linux_name_range(buf, offset)?;
             Ok(read_u8(buf, start)? == b'.')
         }
     }
@@ -234,31 +236,29 @@ ported_fns! {
         source = "src/fs/dir.c",
         original = "moonbitlang_async_dir_entry_get_file_id"
     )]
-    pub(crate) fn entry_file_id(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<u64> {
+    pub(crate) fn entry_file_id(buf: &[u8], offset: u32) -> AsyncHostResult<u64> {
         #[cfg(windows)]
         {
-            let entry = windows_entry(buf, buf_ptr, offset)?;
+            let entry = windows_entry(buf, offset)?;
             Ok(entry.FileId as u64)
         }
 
         #[cfg(target_os = "macos")]
         {
-            let entry = entry_offset(buf_ptr, offset)?;
+            let entry = entry_offset(offset)?;
             read_u64_ne(buf, entry + MAC_D_FILEID_OFFSET)
         }
 
         #[cfg(target_os = "linux")]
         {
-            let entry = entry_offset(buf_ptr, offset)?;
+            let entry = entry_offset(offset)?;
             read_u64_ne(buf, entry + LINUX_D_INO_OFFSET)
         }
     }
 }
 
-fn entry_offset(buf_ptr: u32, offset: u32) -> AsyncHostResult<usize> {
-    let buf_ptr = usize::try_from(buf_ptr).map_err(|_| AsyncHostError::Fault)?;
-    let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
-    buf_ptr.checked_add(offset).ok_or(AsyncHostError::Fault)
+fn entry_offset(offset: u32) -> AsyncHostResult<usize> {
+    usize::try_from(offset).map_err(|_| AsyncHostError::Fault)
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -296,8 +296,8 @@ fn read_u64_ne(buf: &[u8], offset: usize) -> AsyncHostResult<u64> {
 }
 
 #[cfg(target_os = "linux")]
-fn linux_name_range(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<(usize, usize)> {
-    let entry = entry_offset(buf_ptr, offset)?;
+fn linux_name_range(buf: &[u8], offset: u32) -> AsyncHostResult<(usize, usize)> {
+    let entry = entry_offset(offset)?;
     let reclen = usize::from(read_u16_ne(buf, entry + LINUX_D_RECLEN_OFFSET)?);
     let name_start = entry
         .checked_add(LINUX_D_NAME_OFFSET)
@@ -314,11 +314,11 @@ fn linux_name_range(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<(u
 }
 
 #[cfg(target_os = "macos")]
-fn mac_name_range(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<(usize, usize)> {
-    let entry = entry_offset(buf_ptr, offset)?;
+fn mac_name_range(buf: &[u8], offset: u32) -> AsyncHostResult<(usize, usize)> {
+    let entry = entry_offset(offset)?;
     let reclen = usize::try_from(read_u32_ne(buf, entry + MAC_D_RECLEN_OFFSET)?)
         .map_err(|_| AsyncHostError::Fault)?;
-    let name_offset = mac_name_offset(buf, buf_ptr, offset)?;
+    let name_offset = mac_name_offset(buf, offset)?;
     let name_len = usize::try_from(read_u32_ne(buf, entry + MAC_D_NAME_LENGTH_OFFSET)?)
         .map_err(|_| AsyncHostError::Fault)?;
     let name_len = name_len.checked_sub(1).ok_or(AsyncHostError::Fault)?;
@@ -337,20 +337,19 @@ fn mac_name_range(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<(usi
 }
 
 #[cfg(target_os = "macos")]
-fn mac_name_offset(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<usize> {
-    let entry = entry_offset(buf_ptr, offset)?;
+fn mac_name_offset(buf: &[u8], offset: u32) -> AsyncHostResult<usize> {
+    let entry = entry_offset(offset)?;
     usize::try_from(read_i32_ne(buf, entry + MAC_D_NAME_OFFSET)?).map_err(|_| AsyncHostError::Fault)
 }
 
 #[cfg(windows)]
 fn windows_entry(
     buf: &[u8],
-    buf_ptr: u32,
     offset: u32,
 ) -> AsyncHostResult<windows_sys::Win32::Storage::FileSystem::FILE_ID_BOTH_DIR_INFO> {
     use windows_sys::Win32::Storage::FileSystem::FILE_ID_BOTH_DIR_INFO;
 
-    let entry = entry_offset(buf_ptr, offset)?;
+    let entry = entry_offset(offset)?;
     let end = entry
         .checked_add(std::mem::size_of::<FILE_ID_BOTH_DIR_INFO>())
         .ok_or(AsyncHostError::Fault)?;
@@ -361,11 +360,11 @@ fn windows_entry(
 }
 
 #[cfg(windows)]
-fn windows_name_range(buf: &[u8], buf_ptr: u32, offset: u32) -> AsyncHostResult<(usize, usize)> {
+fn windows_name_range(buf: &[u8], offset: u32) -> AsyncHostResult<(usize, usize)> {
     use windows_sys::Win32::Storage::FileSystem::FILE_ID_BOTH_DIR_INFO;
 
-    let entry = windows_entry(buf, buf_ptr, offset)?;
-    let entry_start = entry_offset(buf_ptr, offset)?;
+    let entry = windows_entry(buf, offset)?;
+    let entry_start = entry_offset(offset)?;
     let name_start = entry_start
         .checked_add(std::mem::offset_of!(FILE_ID_BOTH_DIR_INFO, FileName))
         .ok_or(AsyncHostError::Fault)?;
@@ -395,12 +394,12 @@ mod tests {
         buf[base + LINUX_D_TYPE_OFFSET] = libc::DT_DIR;
         buf[base + LINUX_D_NAME_OFFSET..base + LINUX_D_NAME_OFFSET + 4].copy_from_slice(b"abc\0");
 
-        assert_eq!(entry_length(&buf, 100, 0), Ok(24));
-        assert_eq!(entry_name_len(&buf, 100, 0), Ok(3));
-        assert_eq!(entry_name_offset(&buf, 100, 0), Ok(19));
-        assert_eq!(entry_is_dir(&buf, 100, 0), Ok(1));
-        assert_eq!(entry_is_hidden(&buf, 100, 0), Ok(false));
-        assert_eq!(entry_file_id(&buf, 100, 0), Ok(0x0102_0304_0506_0708));
+        assert_eq!(entry_length(&buf, 100), Ok(24));
+        assert_eq!(entry_name_len(&buf, 100), Ok(3));
+        assert_eq!(entry_name_offset(&buf, 100), Ok(19));
+        assert_eq!(entry_is_dir(&buf, 100), Ok(1));
+        assert_eq!(entry_is_hidden(&buf, 100), Ok(false));
+        assert_eq!(entry_file_id(&buf, 100), Ok(0x0102_0304_0506_0708));
     }
 
     #[cfg(target_os = "macos")]
@@ -422,11 +421,11 @@ mod tests {
             .copy_from_slice(&0x0102_0304_0506_0708_u64.to_ne_bytes());
         buf[base + 44..base + 48].copy_from_slice(b"abc\0");
 
-        assert_eq!(entry_length(&buf, 100, 0), Ok(52));
-        assert_eq!(entry_name_len(&buf, 100, 0), Ok(3));
-        assert_eq!(entry_name_offset(&buf, 100, 0), Ok(44));
-        assert_eq!(entry_is_dir(&buf, 100, 0), Ok(1));
-        assert_eq!(entry_is_hidden(&buf, 100, 0), Ok(false));
-        assert_eq!(entry_file_id(&buf, 100, 0), Ok(0x0102_0304_0506_0708));
+        assert_eq!(entry_length(&buf, 100), Ok(52));
+        assert_eq!(entry_name_len(&buf, 100), Ok(3));
+        assert_eq!(entry_name_offset(&buf, 100), Ok(44));
+        assert_eq!(entry_is_dir(&buf, 100), Ok(1));
+        assert_eq!(entry_is_hidden(&buf, 100), Ok(false));
+        assert_eq!(entry_file_id(&buf, 100), Ok(0x0102_0304_0506_0708));
     }
 }

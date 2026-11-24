@@ -17,8 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
-use crate::async_sys::fs::dir;
-use crate::async_sys::fs::stub;
+use crate::filesystem::directory as dir;
 #[cfg(target_os = "linux")]
 use crate::filesystem::watch as watch_inotify;
 #[cfg(target_os = "macos")]
@@ -65,9 +64,19 @@ pub(super) fn get_tmp_path(context: &mut ImportContext<'_>, ptr: u32, len: u32) 
 // Guests should use fs/get_tmp_path_len and fs/get_tmp_path.
 pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_>) -> AsyncHostResult<u64> {
     let path = context.filesystem().temp_dir()?;
-    Ok(context
-        .host
-        .insert_c_buffer(stub::tmp_path_buffer(path.as_os_str())?))
+    #[cfg(unix)]
+    let bytes = {
+        use std::os::unix::ffi::OsStringExt;
+        let mut bytes = path.into_vec();
+        bytes.push(0);
+        bytes
+    };
+    #[cfg(windows)]
+    let bytes = {
+        use std::os::windows::ffi::OsStrExt;
+        path.encode_wide().chain([0]).flat_map(u16::to_ne_bytes).collect::<Vec<_>>()
+    };
+    Ok(context.host.insert_c_buffer(bytes.into_boxed_slice()))
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
@@ -87,7 +96,7 @@ pub(super) fn dir_entry_length(
     offset: u32,
 ) -> AsyncHostResult<u32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_length(buf, 0, offset))
+        .with_c_buffer(buf, |buf| dir::entry_length(buf, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
@@ -97,7 +106,7 @@ pub(super) fn dir_entry_name_len(
     offset: u32,
 ) -> AsyncHostResult<u32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_name_len(buf, 0, offset))
+        .with_c_buffer(buf, |buf| dir::entry_name_len(buf, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
@@ -107,7 +116,7 @@ pub(super) fn dir_entry_name_offset(
     offset: u32,
 ) -> AsyncHostResult<u32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_name_offset(buf, 0, offset))
+        .with_c_buffer(buf, |buf| dir::entry_name_offset(buf, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
@@ -117,7 +126,7 @@ pub(super) fn dir_entry_is_dir(
     offset: u32,
 ) -> AsyncHostResult<i32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_is_dir(buf, 0, offset))
+        .with_c_buffer(buf, |buf| dir::entry_is_dir(buf, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
@@ -127,7 +136,7 @@ pub(super) fn dir_entry_is_hidden(
     offset: u32,
 ) -> AsyncHostResult<i32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_is_hidden(buf, 0, offset))
+        .with_c_buffer(buf, |buf| dir::entry_is_hidden(buf, offset))
         .map(|value| if value { 1 } else { 0 })
 }
 
@@ -138,7 +147,7 @@ pub(super) fn dir_entry_file_id(
     offset: u32,
 ) -> AsyncHostResult<u64> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_file_id(buf, 0, offset))
+        .with_c_buffer(buf, |buf| dir::entry_file_id(buf, offset))
 }
 
 #[ported(

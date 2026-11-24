@@ -21,7 +21,7 @@ use crate::async_host::AsyncHostError;
 use crate::async_host::AsyncHostResult;
 
 #[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, OwnedFd};
 
 use super::PollInstance;
 
@@ -44,10 +44,7 @@ impl PollWaker {
     pub(crate) fn new(poll: &PollInstance) -> AsyncHostResult<Self> {
         #[cfg(unix)]
         {
-            let fds = crate::async_sys::internal::fd_util::stub::pipe(true, true)?;
-            // SAFETY: pipe returned two fresh descriptors whose ownership moves here.
-            let recv = unsafe { OwnedFd::from_raw_fd(fds[0]) };
-            let send = unsafe { OwnedFd::from_raw_fd(fds[1]) };
+            let [recv, send] = crate::filesystem::pipe(true, true)?.map(OwnedFd::from);
             super::poll_register_completion_source(poll, recv.as_raw_fd(), 0)?;
             Ok(Self { _recv: recv, send })
         }

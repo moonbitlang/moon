@@ -17,10 +17,11 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::fd_util::stub as fd_util;
-use crate::async_sys::internal::fd_util::stub::RawFd;
+use crate::filesystem::RawFile as RawFd;
 use std::collections::VecDeque;
-use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+#[cfg(test)]
+use std::os::fd::FromRawFd;
+use std::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
 use std::sync::{
     Arc, Mutex, Weak,
     atomic::{AtomicBool, AtomicI64, Ordering},
@@ -103,12 +104,8 @@ impl ThreadPoolCompletionNotifier {
     }
 
     pub(crate) fn new() -> AsyncHostResult<(Self, RawFd)> {
-        let signals = fd_util::pipe(true, true)?;
-        let signal_recv = unsafe { OwnedFd::from_raw_fd(signals[0]) };
-        let signal_send = unsafe { OwnedFd::from_raw_fd(signals[1]) };
-        let fds = fd_util::pipe(true, true)?;
-        let notify_recv = unsafe { OwnedFd::from_raw_fd(fds[0]) };
-        let notify_send = unsafe { OwnedFd::from_raw_fd(fds[1]) };
+        let [signal_recv, signal_send] = crate::filesystem::pipe(true, true)?.map(OwnedFd::from);
+        let [notify_recv, notify_send] = crate::filesystem::pipe(true, true)?.map(OwnedFd::from);
         let guest_recv = notify_recv
             .try_clone()
             .map_err(|error| AsyncHostError::Native(error.raw_os_error().unwrap_or(libc::EIO)))?;

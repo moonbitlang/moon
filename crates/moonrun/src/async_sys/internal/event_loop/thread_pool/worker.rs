@@ -592,13 +592,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn terminating_worker_publishes_job_without_writing_completion() {
-        use crate::async_sys::internal::fd_util;
         use crate::resource::Resource;
         use std::os::fd::AsRawFd;
         use std::time::Duration;
 
-        let [reader, writer] = fd_util::stub::pipe(true, true).unwrap();
-        let reader = Resource::new(reader);
+        let [reader, writer] = crate::filesystem::pipe(true, true).unwrap();
+        let reader = Resource::from_file(reader, crate::filesystem::FileGrant::UNTRACKED);
         let writer =
             PipeCompletionNotifier::new(Arc::new(Resource::async_pipe_writer(writer))).unwrap();
         let (started_tx, started_rx) = mpsc::channel();
@@ -714,9 +713,9 @@ mod tests {
         let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
         let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
         let notifier = Arc::new(notifier);
-        let fds = crate::async_sys::internal::fd_util::stub::pipe(false, false).unwrap();
-        let read = unsafe { OwnedFd::from_raw_fd(fds[0]) };
-        let write = unsafe { OwnedFd::from_raw_fd(fds[1]) };
+        let [read, write] = crate::filesystem::pipe(false, false)
+            .unwrap()
+            .map(OwnedFd::from);
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();

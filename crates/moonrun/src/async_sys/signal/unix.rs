@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::{Arc, Mutex, Weak};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
@@ -24,7 +24,6 @@ use crate::async_sys::internal::event_loop::{
     ThreadPoolCompletionNotifier,
     thread_pool::{CancellationOutcome, JobCancellation, JobCancellationOverride},
 };
-use crate::async_sys::internal::fd_util::stub as fd_util;
 use crate::run_signal::{SignalReceiver, SignalTargetGuard, signal_mask};
 
 #[derive(Clone, Debug)]
@@ -124,9 +123,7 @@ pub(crate) fn make_sigwait_job(
     signals: &[i32],
     notifier: Arc<ThreadPoolCompletionNotifier>,
 ) -> AsyncHostResult<SigwaitJob> {
-    let [wake_recv, wake_send] = fd_util::pipe(false, true)?;
-    let wake_recv = unsafe { OwnedFd::from_raw_fd(wake_recv) };
-    let wake_send = unsafe { OwnedFd::from_raw_fd(wake_send) };
+    let [wake_recv, wake_send] = crate::filesystem::pipe(false, true)?.map(OwnedFd::from);
     let state = Arc::new(Mutex::new(SigwaitState::default()));
     let wake_send = Arc::new(wake_send);
     let target = receiver
