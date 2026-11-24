@@ -1092,8 +1092,6 @@ impl<'a> LoweringContext<'a> {
         });
         let output = artifacts.single_output_path();
 
-        // Compile with the settings an executable link would use for the
-        // same generated C, so the object matches the runtime it links with.
         let config = CCConfig {
             debug_info: info.c_debug_info,
             link_moonbitrun: true,
@@ -1261,9 +1259,9 @@ impl<'a> LoweringContext<'a> {
         let sources = self.native_executable_dependency_paths(artifacts, info);
 
         let config = LinkerConfig::<&Path> {
-            driver_flags: info.c_flags.clone(),
-            opt_level: Some(info.c_opt_level),
-            debug_info: info.c_debug_info,
+            driver_flags: info.driver_flags.clone(),
+            opt_level: Some(info.driver_opt_level),
+            debug_info: info.driver_debug_info,
             link_moonbitrun: true,
             link_libbacktrace: true,
             native_allocator: info.native_allocator,

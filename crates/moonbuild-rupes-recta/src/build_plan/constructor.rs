@@ -29,7 +29,10 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, PackageId, WasmObject},
     prebuild::PrebuildOutput,
 };
-use moonutil::{compiler_flags::Toolchain, user_log::UserLog};
+use moonutil::{
+    compiler_flags::{NativeAllocator, Toolchain},
+    user_log::UserLog,
+};
 use tracing::{Level, instrument};
 
 use super::{
@@ -48,6 +51,15 @@ pub(super) enum NativeToolchainRole {
     Program(PackageId),
     /// Compile and archive the package's C stubs.
     CStubs(PackageId),
+}
+
+/// Package inputs shared by generated-C compilation, executable linking, and
+/// foreign-library archiving. Debug and optimization policy belong to each action.
+#[derive(Clone, Debug)]
+pub(super) struct PackageNativeConfig {
+    pub(super) effective_native_toolchain: Toolchain,
+    pub(super) c_flags: Vec<String>,
+    pub(super) native_allocator: NativeAllocator,
 }
 
 /// The struct responsible for holding the states and dependencies used during
@@ -69,7 +81,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) resolved: HashSet<BuildPlanNode>,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
-    pub(super) package_native_compile: HashMap<PackageId, super::CompileGeneratedCInfo>,
+    pub(super) package_native_config: HashMap<PackageId, PackageNativeConfig>,
 
     /// Complete role bindings selected before payload planning. Action builders
     /// only read these bindings; compiler-request caching is local to resolution.
@@ -111,7 +123,7 @@ impl<'a> BuildPlanConstructor<'a> {
             resolved: HashSet::new(),
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
-            package_native_compile: HashMap::new(),
+            package_native_config: HashMap::new(),
             native_toolchains: HashMap::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),

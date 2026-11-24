@@ -63,7 +63,7 @@ use super::{
     CompileGeneratedCInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
     PackagePrebuildKey, WasmLinkInfo,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
-    constructor::{BuildPlanConstructor, NativeToolchainRole, PackageFileSet},
+    constructor::{BuildPlanConstructor, NativeToolchainRole, PackageFileSet, PackageNativeConfig},
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -1368,13 +1368,20 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
-        let CompileGeneratedCInfo {
+        let PackageNativeConfig {
             effective_native_toolchain,
             c_flags,
-            c_debug_info,
-            c_opt_level,
             native_allocator,
-        } = self.resolve_package_native_compile(target.package)?;
+        } = self.resolve_package_native_config(target.package)?;
+
+        // Keep the existing driver settings for generated-C and LLVM linking.
+        // Direct-object linking does not consume them.
+        let driver_debug_info = self.res.backend.direct_native_target().is_none()
+            && self.config.debug_info.symbols != DebugSymbols::None;
+        let driver_opt_level = match self.config.configuration().profile {
+            OptLevel::Debug => CCOptLevel::Debug,
+            OptLevel::Release => CCOptLevel::Speed,
+        };
 
         let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
@@ -1414,7 +1421,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 // dsymutil implicitly. With persistent objects it must be an
                 // explicit action, otherwise libbacktrace loses source lines.
                 NativeBackendMode::GeneratedC => {
-                    c_debug_info
+                    self.config.debug_info.symbols != DebugSymbols::None
                         && *os == OperatingSystem::MacOS
                         && effective_native_toolchain.cc().targets_apple_darwin()
                 }
@@ -1434,9 +1441,9 @@ impl<'a> BuildPlanConstructor<'a> {
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             effective_native_toolchain,
-            c_debug_info,
-            c_opt_level,
-            c_flags,
+            driver_debug_info,
+            driver_opt_level,
+            driver_flags: c_flags,
             link_args,
             native_allocator,
         };
@@ -1461,13 +1468,13 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    /// Resolve the package's `link.native` compiler selection together with
-    /// the settings for compiling its generated-C payload.
-    fn resolve_package_native_compile(
+    /// Parse package flags and validate the allocator against the selected
+    /// program toolchain once, independently of the actions that consume them.
+    fn resolve_package_native_config(
         &mut self,
         package: PackageId,
-    ) -> Result<CompileGeneratedCInfo, BuildPlanConstructError> {
-        if let Some(info) = self.package_native_compile.get(&package) {
+    ) -> Result<PackageNativeConfig, BuildPlanConstructError> {
+        if let Some(info) = self.package_native_config.get(&package) {
             return Ok(info.clone());
         }
         let pkg = self.input.pkg_dirs.get_package(package);
@@ -1498,22 +1505,12 @@ impl<'a> BuildPlanConstructor<'a> {
             .validate_for_cc(effective_native_toolchain.cc())
             .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
 
-        let info = CompileGeneratedCInfo {
+        let info = PackageNativeConfig {
             effective_native_toolchain,
             c_flags,
-            // The native compiler must retain the source locations emitted into
-            // generated C. A direct-object payload cannot create that information.
-            c_debug_info: self.res.backend.direct_native_target().is_none()
-                && self.config.debug_info.symbols != DebugSymbols::None,
-            c_opt_level: match self.config.configuration().profile {
-                OptLevel::Debug => CCOptLevel::Debug,
-                OptLevel::Release => CCOptLevel::Speed,
-            },
             native_allocator,
         };
-        // Compilation and linking consume the same resolved toolchain and
-        // flags, including across a package's different test executables.
-        self.package_native_compile.insert(package, info.clone());
+        self.package_native_config.insert(package, info.clone());
         Ok(info)
     }
 
@@ -1538,7 +1535,22 @@ impl<'a> BuildPlanConstructor<'a> {
             },
         );
 
-        let info = self.resolve_package_native_compile(target.package)?;
+        let PackageNativeConfig {
+            effective_native_toolchain,
+            c_flags,
+            native_allocator,
+        } = self.resolve_package_native_config(target.package)?;
+        let info = CompileGeneratedCInfo {
+            effective_native_toolchain,
+            c_flags,
+            // Retain the source locations emitted into generated C.
+            c_debug_info: self.config.debug_info.symbols != DebugSymbols::None,
+            c_opt_level: match self.config.configuration().profile {
+                OptLevel::Debug => CCOptLevel::Debug,
+                OptLevel::Release => CCOptLevel::Speed,
+            },
+            native_allocator,
+        };
         self.res
             .backend
             .compile_generated_c_info
@@ -1592,11 +1604,11 @@ impl<'a> BuildPlanConstructor<'a> {
         // system libraries, and the backtrace library to the foreign host. A
         // static archive cannot carry them.
 
-        let CompileGeneratedCInfo {
+        let PackageNativeConfig {
             effective_native_toolchain,
             native_allocator,
             ..
-        } = self.resolve_package_native_compile(package)?;
+        } = self.resolve_package_native_config(package)?;
         self.res.backend.foreign_library_info.insert(
             package,
             ForeignLibraryInfo {

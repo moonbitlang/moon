@@ -477,12 +477,12 @@ pub struct MakeExecutableInfo {
     pub(crate) effective_native_toolchain: Toolchain,
     /// Compiler-driver settings retained at link time for generated-C and LLVM
     /// builds. Direct-object native linking does not consume these settings.
-    pub(crate) c_debug_info: bool,
-    pub(crate) c_opt_level: CCOptLevel,
+    pub(crate) driver_debug_info: bool,
+    pub(crate) driver_opt_level: CCOptLevel,
     /// Preserve the link effects of `cc-flags` (e.g. sanitizers and LTO).
     /// TODO: Remove this compatibility forwarding only with an explicit
     /// migration to requiring those flags in `cc-link-flags` as well.
-    pub(crate) c_flags: Vec<String>,
+    pub(crate) driver_flags: Vec<String>,
     /// Ordered link inputs, rendered by the selected driver during command lowering.
     pub(crate) link_args: Vec<NativeLinkArg>,
     /// The C stub targets to link with.
