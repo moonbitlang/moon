@@ -120,18 +120,20 @@ impl<'a> BuildCommonInput<'a> {
         ]);
     }
 
-    /// Add target backend arguments
+    /// Add the backend and source cfg used by moonc to compile this package.
     pub(crate) fn add_target_backend(&self, args: &mut Vec<String>) {
         args.extend([
             "-target".to_string(),
             self.configuration.backend.to_flag().to_string(),
         ]);
-        self.add_platform_override(args);
-    }
-
-    pub(crate) fn add_platform_override(&self, args: &mut Vec<String>) {
-        if let Some(platform) = self.configuration.platform_override {
-            args.extend(["-cfg".to_owned(), format!("platform={platform}")]);
+        if let Some(windows) = self.configuration.windows_cfg_override {
+            // An empty value disables `platform="windows"` without enabling a named OS.
+            let cfg = if windows {
+                "platform=windows"
+            } else {
+                "platform="
+            };
+            args.extend(["-cfg".to_owned(), cfg.to_owned()]);
         }
     }
 

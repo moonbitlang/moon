@@ -133,8 +133,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 // TODO: Receive captured toolchain candidates and environment inputs
                 // once native toolchain discovery moves to command orchestration.
                 // Only native tool actions need resolved compiler and archiver paths.
-                let env_cc = compiler_flags::env_cc()
-                    .map_err(BuildPlanConstructError::InvalidNativeCompiler)?;
+                let env_cc = compiler_flags::global_compiler()
+                    .map_err(BuildPlanConstructError::InvalidNativeCompiler)?
+                    .map(|compiler| compiler.cc());
                 let request = match (env_cc, role) {
                     (Some(_), _) | (_, Runtime) => None,
                     (None, Program(package) | CStubs(package)) => {

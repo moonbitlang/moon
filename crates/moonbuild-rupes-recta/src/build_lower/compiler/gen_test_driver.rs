@@ -117,8 +117,7 @@ impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
             ]);
         }
 
-        // FIXME: Pass the source platform once moonc gen-test-info accepts -cfg.
-        // Cross-target test discovery currently evaluates platform on the host.
+        // Configuration
         args.extend([
             "--target".to_string(),
             self.target_backend.to_flag().to_string(),

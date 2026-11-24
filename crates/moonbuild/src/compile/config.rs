@@ -33,23 +33,23 @@ use std::path::Path;
 
 /// Select source-visible configuration before resolving packages. Only a global
 /// compiler override can select the platform for both application and core.
-pub fn select_configuration(backend: TargetBackend, profile: OptLevel) -> BuildConfiguration {
+pub fn select_configuration(
+    backend: TargetBackend,
+    profile: OptLevel,
+    action: RunMode,
+) -> anyhow::Result<BuildConfiguration> {
     let mut config = BuildConfiguration::new(backend, profile);
-    // An unusable override has no known platform. Native tool actions report
-    // the error when they need the compiler.
+    // TODO: Include test and bench once moonc gen-test-info accepts the same source cfg.
     if backend == TargetBackend::Native
-        && let Ok(Some(cc)) = compiler_flags::env_cc()
+        && matches!(action, RunMode::Check | RunMode::Build | RunMode::Run)
     {
-        // For generated C, moonc only enables the Windows predicate by default.
-        // Preserve that default for builds between two non-Windows systems.
-        config.platform_override = match cfg!(windows) {
-            false if cc.targets_os("windows") => Some(OperatingSystem::Windows),
-            true if cc.targets_os("linux") => Some(OperatingSystem::Linux),
-            true if cc.targets_os("macos") => Some(OperatingSystem::MacOS),
-            _ => None,
-        };
+        // TODO: Select a named platform once moonc defines defaults beyond Windows.
+        config.windows_cfg_override = compiler_flags::global_compiler()?
+            .and_then(|compiler| compiler.target_os())
+            .map(|os| os == "windows")
+            .filter(|windows| *windows != cfg!(windows));
     }
-    config
+    Ok(config)
 }
 
 /// Capture only the environment inputs used by the selected backend.
@@ -123,7 +123,7 @@ pub fn prepare_config(
     // layout, without writing into the toolchain or observing the filesystem.
     let stdlib_path = stdlib_path.filter(|root| {
         // Installed native bundles were compiled with moonc's host platform.
-        if configuration.platform_override.is_some() {
+        if configuration.windows_cfg_override.is_some() {
             return false;
         }
         resolved_project

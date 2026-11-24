@@ -23,6 +23,7 @@ use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
     process::Command,
+    sync::{LazyLock, OnceLock},
 };
 
 mod gcc_like;
@@ -295,6 +296,10 @@ fn target_os_name(component: &str) -> &str {
     }
 }
 
+fn target_os_components(triple: &str) -> impl Iterator<Item = &str> {
+    triple.split('-').skip(1).map(target_os_name)
+}
+
 /// Whether a target triple names the given host architecture and operating
 /// system, as reported by `std::env::consts::{ARCH, OS}`, with the default
 /// ABI of that host.
@@ -439,34 +444,46 @@ impl CC {
         }
     }
 
-    fn parse_compiler_name(path: &Path) -> anyhow::Result<String> {
-        let name = path.file_name().and_then(OsStr::to_str).context(
-            "Invalid compiler path: path must point to a file with valid UTF-8 filename",
-        )?;
-        Ok(name.to_string())
+    fn compiler_kind(path: &Path) -> anyhow::Result<CCKind> {
+        let name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .context("Invalid compiler path: path must point to a file with valid UTF-8 filename")?
+            .to_ascii_lowercase();
+        let stem = Self::strip_exe_suffix(&name);
+        Ok(if stem.ends_with("clang-cl") {
+            CCKind::ClangCl
+        } else if stem.ends_with("cl") {
+            CCKind::Msvc
+        } else if stem.ends_with("gcc") {
+            CCKind::Gcc
+        } else if stem.ends_with("clang") {
+            CCKind::Clang
+        } else if stem.ends_with("tcc") {
+            CCKind::Tcc
+        } else {
+            CCKind::SystemCC
+        })
     }
 
     fn strip_exe_suffix(name: &str) -> &str {
         name.strip_suffix(".exe").unwrap_or(name)
     }
 
-    fn probe_target_triple(cc_path: &Path, cc_kind: CCKind) -> Option<String> {
+    fn probe_target_triple(cc_path: &Path, cc_kind: CCKind) -> std::io::Result<Option<String>> {
         if matches!(cc_kind, CCKind::Msvc | CCKind::ClangCl) {
-            return None;
+            return Ok(None);
         }
-
-        let output = Command::new(cc_path).arg("-dumpmachine").output().ok()?;
+        let output = Command::new(cc_path).arg("-dumpmachine").output()?;
         if !output.status.success() {
-            return None;
+            return Ok(None);
         }
-
-        let triple = String::from_utf8_lossy(&output.stdout);
-        let triple = triple.lines().next()?.trim().to_ascii_lowercase();
-        if triple.is_empty() {
-            None
-        } else {
-            Some(triple)
-        }
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_ascii_lowercase))
     }
 
     fn replace_compiler_suffix(name: &str, from_suffix: &str, to_suffix: &str) -> Option<String> {
@@ -507,7 +524,16 @@ impl CC {
         cc_path: &Path,
         cc_kind: CCKind,
     ) -> anyhow::Result<Self> {
-        let target_triple = CC::probe_target_triple(cc_path, cc_kind);
+        let target = Self::probe_target_triple(cc_path, cc_kind).ok().flatten();
+        Ok(Self::with_archiver(ar_name, cc_path, cc_kind, target))
+    }
+
+    fn with_archiver(
+        ar_name: &str,
+        cc_path: &Path,
+        cc_kind: CCKind,
+        target_triple: Option<String>,
+    ) -> Self {
         let (ar_kind, ar_path) = match cc_kind {
             CCKind::Msvc | CCKind::ClangCl => {
                 (ARKind::MsvcLib, default_librarian(cc_path, cc_kind))
@@ -518,66 +544,47 @@ impl CC {
             ),
             CCKind::Tcc => tcc::default_archiver(cc_path),
         };
-        Ok(CC::new(
+        CC::new(
             cc_kind,
             cc_path.display().to_string(),
             ar_kind,
             ar_path,
             target_triple,
-        ))
+        )
+    }
+
+    fn from_driver(cc: &str, kind: CCKind, target: Option<String>, ar: Option<&str>) -> Self {
+        let path = Path::new(cc);
+        if let Some(ar) = ar {
+            return Self::with_archiver(ar, path, kind, target);
+        }
+        let fallback_ar =
+            |suffix| Self::replace_compiler_suffix(cc, suffix, "ar").unwrap_or_else(|| "ar".into());
+        let ar = match kind {
+            CCKind::Clang => Self::probe_existing_prog_name(path, "ar")
+                .or_else(|| Self::probe_existing_prog_name(path, "llvm-ar"))
+                .unwrap_or_else(|| fallback_ar("clang")),
+            CCKind::Gcc => fallback_ar("gcc"),
+            CCKind::SystemCC => fallback_ar("cc"),
+            CCKind::Msvc | CCKind::ClangCl | CCKind::Tcc => String::new(),
+        };
+        Self::with_archiver(&ar, path, kind, target).with_default_platform_archiver()
     }
 
     pub fn try_from_path_with_ar(cc: &str, ar: &str) -> anyhow::Result<Self> {
-        let path = PathBuf::from(cc);
-        let name = CC::parse_compiler_name(&path)?;
-        let name_lower = name.to_ascii_lowercase();
-        let stem = CC::strip_exe_suffix(&name_lower);
-        if stem.ends_with("clang-cl") {
-            CC::try_from_cc_path_and_kind(ar, &path, CCKind::ClangCl)
-        } else if stem.ends_with("cl") {
-            CC::try_from_cc_path_and_kind(ar, &path, CCKind::Msvc)
-        } else if stem.ends_with("gcc") {
-            CC::try_from_cc_path_and_kind(ar, &path, CCKind::Gcc)
-        } else if stem.ends_with("clang") {
-            CC::try_from_cc_path_and_kind(ar, &path, CCKind::Clang)
-        } else if stem.ends_with("tcc") {
-            CC::try_from_cc_path_and_kind(ar, &path, CCKind::Tcc)
-        } else {
-            // assume it's a system cc
-            CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
-        }
+        let path = Path::new(cc);
+        Self::try_from_cc_path_and_kind(ar, path, Self::compiler_kind(path)?)
     }
 
     pub fn try_from_path(cc: &str) -> anyhow::Result<Self> {
-        let path = PathBuf::from(cc);
-        let name = CC::parse_compiler_name(&path)?;
-        let name_lower = name.to_ascii_lowercase();
-        let stem = CC::strip_exe_suffix(&name_lower);
-        let replaced_ar =
-            |s: &str| CC::replace_compiler_suffix(&name, s, "ar").unwrap_or_else(|| "ar".into());
-        let cc = if stem.ends_with("clang-cl") {
-            CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::ClangCl)
-        } else if stem.ends_with("cl") {
-            CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)
-        } else if stem.ends_with("gcc") {
-            CC::try_from_cc_path_and_kind(&replaced_ar("gcc"), &path, CCKind::Gcc)
-        } else if stem.ends_with("clang") {
-            if let Some(ar) = CC::probe_existing_prog_name(&path, "ar") {
-                CC::try_from_cc_path_and_kind(&ar, &path, CCKind::Clang)
-            } else if let Some(llvm_ar) = CC::probe_existing_prog_name(&path, "llvm-ar") {
-                CC::try_from_cc_path_and_kind(&llvm_ar, &path, CCKind::Clang)
-            } else {
-                CC::try_from_cc_path_and_kind(&replaced_ar("clang"), &path, CCKind::Clang)
-            }
-        } else if stem.ends_with("tcc") {
-            CC::try_from_cc_path_and_kind("", &path, CCKind::Tcc)
-        } else if stem.ends_with("cc") {
-            CC::try_from_cc_path_and_kind(&replaced_ar("cc"), &path, CCKind::SystemCC)
-        } else {
-            // assume it's a system cc
-            CC::try_from_cc_path_and_kind("ar", &path, CCKind::SystemCC)
-        }?;
-        Ok(cc.with_default_platform_archiver())
+        let path = Path::new(cc);
+        let kind = Self::compiler_kind(path)?;
+        Ok(Self::from_driver(
+            cc,
+            kind,
+            Self::probe_target_triple(path, kind).ok().flatten(),
+            None,
+        ))
     }
 
     fn try_from_detected_path(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<Self> {
@@ -592,8 +599,8 @@ impl CC {
             CCKind::Tcc => "",
             CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => "ar",
         };
-        CC::try_from_cc_path_and_kind(ar_name, cc_path, cc_kind)
-            .map(CC::with_default_platform_archiver)
+        Self::try_from_cc_path_and_kind(ar_name, cc_path, cc_kind)
+            .map(Self::with_default_platform_archiver)
     }
 
     pub fn is_gcc_like(&self) -> bool {
@@ -637,12 +644,9 @@ impl CC {
 
     /// Whether the probed triple names this OS, independently of its CPU and ABI.
     pub fn targets_os(&self, os: &str) -> bool {
-        self.target_triple.as_deref().is_some_and(|triple| {
-            triple
-                .split('-')
-                .skip(1)
-                .any(|part| target_os_name(part) == os)
-        })
+        self.target_triple
+            .as_deref()
+            .is_some_and(|triple| target_os_components(triple).any(|component| component == os))
     }
 
     /// Whether the compiler builds for the machine and ABI that run Moon.
@@ -680,24 +684,64 @@ impl CC {
     }
 }
 
-/// Capture the global compiler override and its target probe once per invocation.
-pub fn env_cc() -> anyhow::Result<Option<&'static CC>> {
-    static ENV_CC: std::sync::LazyLock<anyhow::Result<Option<CC>>> =
-        std::sync::LazyLock::new(|| {
-            let Ok(cc) = env::var(ENV_MOON_CC) else {
-                return Ok(None);
-            };
-            let cc = match env::var(ENV_MOON_AR) {
-                Ok(ar) => CC::try_from_path_with_ar(&cc, &ar),
-                Err(_) => CC::try_from_path(&cc),
-            }
-            .with_context(|| format!("failed to parse cc from env {ENV_MOON_CC}"))?;
-            Ok(Some(CC {
-                is_env_override: true,
-                ..cc
-            }))
-        });
-    ENV_CC
+/// A global driver supplies one target for MoonBit sources and for native tool actions.
+pub struct GlobalCompiler {
+    path: String,
+    kind: CCKind,
+    target_triple: Option<String>,
+    cc: OnceLock<CC>,
+}
+
+impl GlobalCompiler {
+    /// The OS of a reported target triple, for the supported native platforms.
+    pub fn target_os(&self) -> Option<&str> {
+        target_os_components(self.target_triple.as_deref()?)
+            .find(|os| matches!(*os, "windows" | "linux" | "macos"))
+    }
+
+    /// Discover the archiver only when planning a native tool action.
+    pub fn cc(&self) -> &CC {
+        self.cc.get_or_init(|| CC {
+            is_env_override: true,
+            ..CC::from_driver(
+                &self.path,
+                self.kind,
+                self.target_triple.clone(),
+                env::var(ENV_MOON_AR).ok().as_deref(),
+            )
+        })
+    }
+}
+
+pub fn global_compiler() -> anyhow::Result<Option<&'static GlobalCompiler>> {
+    static COMPILER: LazyLock<anyhow::Result<Option<GlobalCompiler>>> = LazyLock::new(|| {
+        let path = match env::var(ENV_MOON_CC) {
+            Ok(path) => path,
+            Err(env::VarError::NotPresent) => return Ok(None),
+            Err(err) => return Err(err).context(ENV_MOON_CC),
+        };
+        let kind = CC::compiler_kind(Path::new(&path)).context(ENV_MOON_CC)?;
+        // Bare cl is discovered through Visual Studio when a native action needs it.
+        let target_triple = if cfg!(windows)
+            && (path.eq_ignore_ascii_case("cl") || path.eq_ignore_ascii_case("cl.exe"))
+        {
+            None
+        } else {
+            let executable = crate::toolchain::resolve_executable(&path).with_context(|| {
+                format!("failed to resolve native compiler executable `{path}` from {ENV_MOON_CC}")
+            })?;
+            CC::probe_target_triple(&executable, kind).with_context(|| {
+                format!("failed to probe native compiler executable `{path}` from {ENV_MOON_CC}")
+            })?
+        };
+        Ok(Some(GlobalCompiler {
+            path,
+            kind,
+            target_triple,
+            cc: OnceLock::new(),
+        }))
+    });
+    COMPILER
         .as_ref()
         .map(Option::as_ref)
         .map_err(|err| anyhow::anyhow!("{err:#}"))

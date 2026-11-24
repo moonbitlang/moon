@@ -559,7 +559,8 @@ fn prepare_native_build(
     let configuration = moonbuild::compile::select_configuration(
         TargetBackend::Native,
         moonutil::cond_expr::OptLevel::Release,
-    );
+        RunMode::Build,
+    )?;
     let resolved_project = discovered.resolve_packages(&[configuration.backend], user_log)?;
     let target_dir = package_dirs.target_dir;
 

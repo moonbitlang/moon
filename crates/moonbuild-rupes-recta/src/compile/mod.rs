@@ -21,7 +21,7 @@ use moonutil::target::TargetBackend;
 
 use crate::{
     build_lower::WarningCondition,
-    model::{BackendConfig, DebugInfoRequest, OperatingSystem},
+    model::{BackendConfig, DebugInfoRequest},
     target_layout::ArtifactPathResolver,
 };
 
@@ -59,8 +59,8 @@ impl RunMode {
 pub struct BuildConfiguration {
     pub backend: TargetBackend,
     pub profile: OptLevel,
-    /// Override the native compiler's default platform when crossing the Windows boundary.
-    pub platform_override: Option<OperatingSystem>,
+    /// Source-level `platform="windows"` predicate, when it differs from moonc's default.
+    pub windows_cfg_override: Option<bool>,
 }
 
 impl BuildConfiguration {
@@ -68,7 +68,7 @@ impl BuildConfiguration {
         Self {
             backend,
             profile,
-            platform_override: None,
+            windows_cfg_override: None,
         }
     }
 }

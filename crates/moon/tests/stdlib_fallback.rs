@@ -22,7 +22,7 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
     let core = tempfile::tempdir().unwrap();
     let (predicate, compiler, probe) = if cfg!(windows) {
         (
-            "not(platform=\"windows\")",
+            r#"all(not(platform="windows"), not(platform="linux"), not(platform="macos"))"#,
             "cross-cc.cmd",
             "@echo x86_64-linux-gnu\r\n",
         )
