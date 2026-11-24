@@ -20,11 +20,11 @@ use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
 use crate::async_sys::fs::dir;
 use crate::async_sys::fs::stub;
 #[cfg(target_os = "linux")]
-use crate::async_sys::fs::watch_inotify;
+use crate::filesystem::watch as watch_inotify;
 #[cfg(target_os = "macos")]
-use crate::async_sys::fs::watch_kqueue;
+use crate::filesystem::watch as watch_kqueue;
 #[cfg(windows)]
-use crate::async_sys::fs::watch_windows;
+use crate::filesystem::watch as watch_windows;
 
 use super::context::ImportContext;
 use super::os_string::encode_guest_units;
@@ -150,7 +150,7 @@ pub(super) fn inotify_create(context: &mut ImportContext<'_>) -> u64 {
     match watch_inotify::create() {
         Ok(fd) => context.host.insert_file_resource(fd),
         Err(error) => {
-            context.host.record_error(error);
+            context.host.record_error(error.into());
             context.host.invalid_fd()
         }
     }
@@ -171,7 +171,7 @@ pub(super) fn inotify_remove_file(
     let result = (|| {
         let wd = i32::try_from(wd).map_err(|_| AsyncHostError::Inval)?;
         context.host.with_resource(watcher, |watcher| {
-            watch_inotify::remove_file(watcher.as_fd()?.as_raw_fd(), wd)
+            watch_inotify::remove_file(watcher.as_fd()?.as_raw_fd(), wd).map_err(Into::into)
         })
     })();
     zero_or_minus_one(context, result)
@@ -299,7 +299,7 @@ pub(super) fn kqueue_watcher_create(context: &mut ImportContext<'_>) -> u64 {
     match watch_kqueue::create() {
         Ok(fd) => context.host.insert_file_resource(fd),
         Err(error) => {
-            context.host.record_error(error);
+            context.host.record_error(error.into());
             context.host.invalid_fd()
         }
     }

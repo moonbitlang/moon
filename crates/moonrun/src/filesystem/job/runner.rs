@@ -28,8 +28,6 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-#[cfg(target_os = "linux")]
-use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
@@ -453,21 +451,11 @@ ported_fns! {
         let path = filesystem.resolve_path(&std::mem::take(path));
         let inotify = inotify.take().ok_or(AsyncHostError::Badf)?;
 
-        use std::ffi::CString;
-        use std::os::unix::ffi::OsStringExt;
-
-        let path = CString::new(path.into_vec()).map_err(|_| AsyncHostError::Inval)?;
-        let flags = if is_dir {
-            libc::IN_CREATE | libc::IN_MOVED_FROM | libc::IN_MOVED_TO | libc::IN_DELETE
-        } else {
-            libc::IN_MODIFY
-        };
-        let watch =
-            unsafe { libc::inotify_add_watch(inotify.as_file()?.as_raw_fd(), path.as_ptr(), flags) };
-        if watch < 0 {
-            return Err(last_native_error());
-        }
-        Ok(i64::from(watch))
+        Ok(i64::from(os::watch::add_file(
+            inotify.as_file()?.as_raw_fd(),
+            &path,
+            is_dir,
+        )?))
     }
 
     #[ported(

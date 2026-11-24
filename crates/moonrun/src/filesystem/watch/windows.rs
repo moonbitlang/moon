@@ -16,18 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use super::os::watch::{self, EventLayout};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
-use std::sync::OnceLock;
-use windows_sys::Win32::Foundation::HANDLE;
+use crate::resource::Resource;
+use std::os::windows::io::AsRawHandle;
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ACTION_MODIFIED, FILE_NOTIFY_CHANGE, FILE_NOTIFY_EXTENDED_INFORMATION,
-    FILE_NOTIFY_INFORMATION, READ_DIRECTORY_NOTIFY_INFORMATION_CLASS,
-    ReadDirectoryNotifyExtendedInformation,
+    FILE_ACTION_MODIFIED, FILE_NOTIFY_EXTENDED_INFORMATION, FILE_NOTIFY_INFORMATION,
 };
-use windows_sys::Win32::System::IO::{LPOVERLAPPED_COMPLETION_ROUTINE, OVERLAPPED};
-use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
-use windows_sys::core::BOOL;
+use windows_sys::Win32::System::IO::OVERLAPPED;
 
 const BASIC_EVENT_SIZE: usize = std::mem::size_of::<FILE_NOTIFY_INFORMATION>();
 const EXTENDED_EVENT_SIZE: usize = std::mem::size_of::<FILE_NOTIFY_EXTENDED_INFORMATION>();
@@ -35,67 +32,6 @@ const EXTENDED_EVENT_SIZE: usize = std::mem::size_of::<FILE_NOTIFY_EXTENDED_INFO
 // directories. Use the same capacity everywhere so local and remote watches
 // have identical submission behavior.
 const EVENT_BUFFER_SIZE: usize = 64 * 1024;
-
-type ReadDirectoryChangesExWFn = unsafe extern "system" fn(
-    HANDLE,
-    *mut core::ffi::c_void,
-    u32,
-    BOOL,
-    FILE_NOTIFY_CHANGE,
-    *mut u32,
-    *mut OVERLAPPED,
-    LPOVERLAPPED_COMPLETION_ROUTINE,
-    READ_DIRECTORY_NOTIFY_INFORMATION_CLASS,
-) -> BOOL;
-
-pub(crate) unsafe fn read_directory_changes_extended(
-    directory: HANDLE,
-    buffer: *mut core::ffi::c_void,
-    len: u32,
-    watch_subtree: BOOL,
-    notify_filter: FILE_NOTIFY_CHANGE,
-    bytes_returned: *mut u32,
-    overlapped: *mut OVERLAPPED,
-) -> Option<BOOL> {
-    static FUNCTION: OnceLock<Option<ReadDirectoryChangesExWFn>> = OnceLock::new();
-    let function = FUNCTION
-        .get_or_init(|| unsafe {
-            let kernel32 =
-                GetModuleHandleW("kernel32.dll\0".encode_utf16().collect::<Vec<_>>().as_ptr());
-            if kernel32.is_null() {
-                return None;
-            }
-            GetProcAddress(kernel32, c"ReadDirectoryChangesExW".as_ptr().cast()).map(|function| {
-                // GetProcAddress returned the named Kernel32 export. Windows defines
-                // this exact system-call signature for ReadDirectoryChangesExW.
-                std::mem::transmute::<
-                    unsafe extern "system" fn() -> isize,
-                    ReadDirectoryChangesExWFn,
-                >(function)
-            })
-        })
-        .as_ref()
-        .copied()?;
-    Some(unsafe {
-        function(
-            directory,
-            buffer,
-            len,
-            watch_subtree,
-            notify_filter,
-            bytes_returned,
-            overlapped,
-            None,
-            ReadDirectoryNotifyExtendedInformation,
-        )
-    })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EventLayout {
-    Basic,
-    Extended,
-}
 
 #[derive(Debug)]
 pub(crate) struct EventBuffer {
@@ -119,7 +55,31 @@ impl EventBuffer {
         }
     }
 
-    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
+    /// Submit using this buffer's allocation and record the selected layout.
+    ///
+    /// # Safety
+    /// The caller must retain the authorized directory, this allocation, and
+    /// `overlapped` until completion, without accessing either buffer while
+    /// pending. `overlapped` must be initialized and have no pending operation.
+    pub(crate) unsafe fn submit(
+        &mut self,
+        directory: &Resource,
+        overlapped: *mut OVERLAPPED,
+    ) -> AsyncHostResult<()> {
+        let len = u32::try_from(self.capacity()).map_err(|_| AsyncHostError::Fault)?;
+        let layout = unsafe {
+            watch::submit(
+                directory.as_file()?.as_raw_handle(),
+                self.as_mut_slice().as_mut_ptr(),
+                len,
+                overlapped,
+            )?
+        };
+        self.begin_read(layout);
+        Ok(())
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [u8] {
         // SAFETY: u32 storage is initialized, and this view covers exactly the
         // same allocation without outliving the exclusive borrow.
         unsafe {
@@ -134,7 +94,7 @@ impl EventBuffer {
         self.words.len() * std::mem::size_of::<u32>()
     }
 
-    pub(crate) fn begin_read(&mut self, layout: EventLayout) {
+    fn begin_read(&mut self, layout: EventLayout) {
         self.layout = Some(layout);
         self.completed_len = 0;
     }
@@ -276,6 +236,56 @@ fn event_at<T: Copy>(buffer: &[u8], offset: u32, size: usize) -> AsyncHostResult
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn submitted_directory_watch_decodes_the_completed_native_layout() {
+        use std::os::windows::{
+            fs::OpenOptionsExt,
+            io::{AsRawHandle, FromRawHandle, OwnedHandle},
+        };
+        use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
+            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+        use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
+        use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+
+        let directory = tempfile::tempdir().unwrap();
+        let file = std::fs::OpenOptions::new()
+            .access_mode(FILE_LIST_DIRECTORY)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED)
+            .open(directory.path())
+            .unwrap();
+        let resource = Resource::from_file(file, crate::filesystem::FileGrant::UNTRACKED);
+        let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
+        assert!(!event.is_null());
+        let event = unsafe { OwnedHandle::from_raw_handle(event) };
+        let mut overlapped: Box<OVERLAPPED> = Box::new(unsafe { std::mem::zeroed() });
+        overlapped.hEvent = event.as_raw_handle();
+        let mut buffer = EventBuffer::new();
+        unsafe { buffer.submit(&resource, overlapped.as_mut()).unwrap() };
+
+        let write = std::fs::write(directory.path().join("changed"), b"contents");
+        let wait = unsafe { WaitForSingleObject(event.as_raw_handle(), 5000) };
+        // Drain or cancel before asserting: even a failed write or timeout must
+        // not free storage while Windows can still write to it.
+        let handle = resource.as_file().unwrap().as_raw_handle();
+        unsafe { CancelIoEx(handle, overlapped.as_ref()) };
+        let mut count = 0;
+        let completed = unsafe { GetOverlappedResult(handle, overlapped.as_ref(), &mut count, 1) };
+        let error = std::io::Error::last_os_error();
+        write.unwrap();
+        assert_eq!(wait, WAIT_OBJECT_0);
+        assert_ne!(completed, 0, "{error}");
+        buffer.complete_read(count as usize).unwrap();
+        assert_eq!(
+            event_path_units(&buffer, 0).unwrap(),
+            "changed".encode_utf16().collect::<Vec<_>>()
+        );
+        assert!(event_has_file_ids(&buffer).is_ok());
+    }
 
     #[test]
     fn basic_event_accessors_preserve_raw_utf16_path() {

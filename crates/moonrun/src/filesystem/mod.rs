@@ -24,6 +24,10 @@ mod job;
 mod legacy_metadata;
 mod os;
 mod path;
+#[cfg_attr(target_os = "linux", path = "watch/inotify.rs")]
+#[cfg_attr(target_os = "macos", path = "watch/kqueue.rs")]
+#[cfg_attr(windows, path = "watch/windows.rs")]
+pub(crate) mod watch;
 
 // Discriminants of moonbitlang/async's FileKind ABI.
 const FILE_KIND_UNKNOWN: i32 = 0;
@@ -52,6 +56,9 @@ pub(crate) use os::io::PORTED_SYMBOLS as IO_PORTED_SYMBOLS;
 
 #[cfg(test)]
 pub(crate) use os::lock::PORTED_SYMBOLS as LOCK_PORTED_SYMBOLS;
+
+#[cfg(all(test, unix))]
+pub(crate) use os::watch::PORTED_SYMBOLS as WATCH_PORTED_SYMBOLS;
 
 // Callers authorize the operation before querying. An open Job has already
 // admitted its identity receipt and must not recheck the resource's saved path.
