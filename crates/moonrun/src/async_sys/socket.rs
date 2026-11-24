@@ -22,11 +22,11 @@ use std::ffi::CStr;
 use std::ffi::CString;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
-#[cfg(windows)]
-use windows_sys::Win32::Networking::WinSock as ws;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
+#[cfg(unix)]
+use crate::network::address::{read_sockaddr_in, read_sockaddr_in6, sockaddr_len};
 #[cfg(unix)]
 use std::os::fd::RawFd;
 
@@ -42,44 +42,6 @@ fn last_native_error() -> AsyncHostError {
             .raw_os_error()
             .unwrap_or_else(|| AsyncHostError::Inval.errno()),
     )
-}
-
-#[cfg(unix)]
-fn sockaddr_len(addr: &[u8]) -> AsyncHostResult<libc::socklen_t> {
-    let len = match sockaddr_family(addr)? {
-        libc::AF_INET => std::mem::size_of::<libc::sockaddr_in>(),
-        libc::AF_INET6 => std::mem::size_of::<libc::sockaddr_in6>(),
-        _ => return Err(AsyncHostError::Inval),
-    };
-    if addr.len() < len {
-        return Err(AsyncHostError::Fault);
-    }
-    libc::socklen_t::try_from(len).map_err(|_| AsyncHostError::Fault)
-}
-
-#[cfg(unix)]
-fn sockaddr_family(addr: &[u8]) -> AsyncHostResult<i32> {
-    if addr.len() < std::mem::size_of::<libc::sockaddr>() {
-        return Err(AsyncHostError::Fault);
-    }
-    let family = unsafe { addr.as_ptr().cast::<libc::sockaddr>().read_unaligned() }.sa_family;
-    Ok(i32::from(family))
-}
-
-#[cfg(unix)]
-fn read_sockaddr_in(addr: &[u8]) -> AsyncHostResult<libc::sockaddr_in> {
-    if addr.len() < std::mem::size_of::<libc::sockaddr_in>() {
-        return Err(AsyncHostError::Fault);
-    }
-    Ok(unsafe { addr.as_ptr().cast::<libc::sockaddr_in>().read_unaligned() })
-}
-
-#[cfg(unix)]
-fn read_sockaddr_in6(addr: &[u8]) -> AsyncHostResult<libc::sockaddr_in6> {
-    if addr.len() < std::mem::size_of::<libc::sockaddr_in6>() {
-        return Err(AsyncHostError::Fault);
-    }
-    Ok(unsafe { addr.as_ptr().cast::<libc::sockaddr_in6>().read_unaligned() })
 }
 
 #[cfg(unix)]
@@ -125,17 +87,6 @@ pub(crate) fn copy_sockaddrs_from_getaddrinfo(
     Ok((0, addrs))
 }
 
-#[cfg(unix)]
-fn write_struct<T>(dst: &mut [u8], value: &T) -> AsyncHostResult<()> {
-    let len = std::mem::size_of::<T>();
-    if dst.len() < len {
-        return Err(AsyncHostError::Fault);
-    }
-    let src = unsafe { std::slice::from_raw_parts((value as *const T).cast::<u8>(), len) };
-    dst[..len].copy_from_slice(src);
-    Ok(())
-}
-
 #[cfg(windows)]
 mod win {
     use std::ffi::OsString;
@@ -153,6 +104,7 @@ mod win {
     use windows_sys::Win32::Networking::WinSock as ws;
 
     use super::{AsyncHostError, AsyncHostResult, RawSocket};
+    use crate::network::address::{read_sockaddr_in, read_sockaddr_in6, sockaddr_len};
 
     fn socket(fd: RawSocket) -> ws::SOCKET {
         fd as usize
@@ -191,50 +143,6 @@ mod win {
             6 => Ok(ws::AF_INET6 as i32),
             _ => Err(AsyncHostError::Inval),
         }
-    }
-
-    fn sockaddr_family(addr: &[u8]) -> AsyncHostResult<i32> {
-        if addr.len() < std::mem::size_of::<ws::SOCKADDR>() {
-            return Err(AsyncHostError::Fault);
-        }
-        let family = unsafe { addr.as_ptr().cast::<ws::SOCKADDR>().read_unaligned() }.sa_family;
-        Ok(i32::from(family))
-    }
-
-    fn sockaddr_len(addr: &[u8]) -> AsyncHostResult<i32> {
-        let len = match sockaddr_family(addr)? as u16 {
-            ws::AF_INET => std::mem::size_of::<ws::SOCKADDR_IN>(),
-            ws::AF_INET6 => std::mem::size_of::<ws::SOCKADDR_IN6>(),
-            _ => return Err(AsyncHostError::Inval),
-        };
-        if addr.len() < len {
-            return Err(AsyncHostError::Fault);
-        }
-        i32::try_from(len).map_err(|_| AsyncHostError::Fault)
-    }
-
-    fn read_sockaddr_in(addr: &[u8]) -> AsyncHostResult<ws::SOCKADDR_IN> {
-        if addr.len() < std::mem::size_of::<ws::SOCKADDR_IN>() {
-            return Err(AsyncHostError::Fault);
-        }
-        Ok(unsafe { addr.as_ptr().cast::<ws::SOCKADDR_IN>().read_unaligned() })
-    }
-
-    fn read_sockaddr_in6(addr: &[u8]) -> AsyncHostResult<ws::SOCKADDR_IN6> {
-        if addr.len() < std::mem::size_of::<ws::SOCKADDR_IN6>() {
-            return Err(AsyncHostError::Fault);
-        }
-        Ok(unsafe { addr.as_ptr().cast::<ws::SOCKADDR_IN6>().read_unaligned() })
-    }
-
-    fn write_struct<T>(dst: &mut [u8], value: &T) -> AsyncHostResult<()> {
-        let len = std::mem::size_of::<T>();
-        if dst.len() < len {
-            return Err(AsyncHostError::Fault);
-        }
-        let src = unsafe { std::slice::from_raw_parts((value as *const T).cast::<u8>(), len) };
-        dst[..len].copy_from_slice(src);
-        Ok(())
     }
 
     fn set_socket_int(fd: RawSocket, level: i32, option: i32, value: i32) -> AsyncHostResult<()> {
@@ -295,76 +203,6 @@ mod win {
             ws::FreeAddrInfoW(result);
         }
         Ok((0, addrs))
-    }
-
-    pub(super) fn ipv4_addr_size() -> u32 {
-        u32::try_from(std::mem::size_of::<ws::SOCKADDR_IN>()).expect("socket address size fits u32")
-    }
-
-    pub(super) fn ipv6_addr_size() -> u32 {
-        u32::try_from(std::mem::size_of::<ws::SOCKADDR_IN6>())
-            .expect("socket address size fits u32")
-    }
-
-    pub(super) fn init_ip_addr(addr: &mut [u8], ip: u32, port: u32) -> AsyncHostResult<()> {
-        let mut sockaddr = unsafe { std::mem::zeroed::<ws::SOCKADDR_IN>() };
-        sockaddr.sin_family = ws::AF_INET;
-        sockaddr.sin_port = (port as u16).to_be();
-        sockaddr.sin_addr.S_un.S_addr = ip.to_be();
-        write_struct(addr, &sockaddr)
-    }
-
-    pub(super) fn init_ipv6_addr(
-        addr: &mut [u8],
-        ip: &[u8],
-        port: u32,
-        scope_id: u32,
-    ) -> AsyncHostResult<()> {
-        let ip: [u8; 16] = ip
-            .get(..16)
-            .ok_or(AsyncHostError::Fault)?
-            .try_into()
-            .map_err(|_| AsyncHostError::Fault)?;
-        let mut sockaddr = unsafe { std::mem::zeroed::<ws::SOCKADDR_IN6>() };
-        sockaddr.sin6_family = ws::AF_INET6;
-        sockaddr.sin6_port = (port as u16).to_be();
-        sockaddr.sin6_addr.u.Byte = ip;
-        sockaddr.Anonymous.sin6_scope_id = scope_id;
-        write_struct(addr, &sockaddr)
-    }
-
-    pub(super) fn ip_addr_get_ip(addr: &[u8]) -> AsyncHostResult<u32> {
-        Ok(u32::from_be(unsafe {
-            read_sockaddr_in(addr)?.sin_addr.S_un.S_addr
-        }))
-    }
-
-    pub(super) fn ip_addr_get_port(addr: &[u8]) -> AsyncHostResult<u32> {
-        Ok(u32::from(u16::from_be(read_sockaddr_in(addr)?.sin_port)))
-    }
-
-    pub(super) fn addr_is_ipv6(addr: &[u8]) -> AsyncHostResult<bool> {
-        Ok(sockaddr_family(addr)? as u16 == ws::AF_INET6)
-    }
-
-    pub(super) fn addr_is_multicast(addr: &[u8]) -> AsyncHostResult<bool> {
-        match sockaddr_family(addr)? as u16 {
-            ws::AF_INET => {
-                let first_octet =
-                    u32::from_be(unsafe { read_sockaddr_in(addr)?.sin_addr.S_un.S_addr }) >> 24;
-                Ok((224..240).contains(&first_octet))
-            }
-            ws::AF_INET6 => Ok(unsafe { read_sockaddr_in6(addr)?.sin6_addr.u.Byte[0] } == 0xff),
-            _ => Ok(false),
-        }
-    }
-
-    pub(super) fn addr_get_ipv6_scope_id(addr: &[u8]) -> AsyncHostResult<u32> {
-        Ok(unsafe { read_sockaddr_in6(addr)?.Anonymous.sin6_scope_id })
-    }
-
-    pub(super) fn addr_is_ipv6_wildcard(addr: &[u8]) -> AsyncHostResult<bool> {
-        Ok(unsafe { read_sockaddr_in6(addr)?.sin6_addr.u.Byte } == [0; 16])
     }
 
     pub(super) fn make_tcp_socket(family: i32) -> AsyncHostResult<RawSocket> {
@@ -678,34 +516,6 @@ mod win {
         let len = sockaddr_len(addr)?;
         socket_error(unsafe { ws::connect(socket(fd), addr.as_ptr().cast::<ws::SOCKADDR>(), len) })
     }
-
-    pub(super) fn addrinfo_addr_size(addr: &[u8]) -> u32 {
-        if addr.is_empty() {
-            return 0;
-        }
-        u32::try_from(addr.len()).unwrap_or(0)
-    }
-
-    pub(super) fn addrinfo_fill_addr(
-        addr: &[u8],
-        out: &mut [u8],
-        port: u32,
-    ) -> AsyncHostResult<()> {
-        match sockaddr_family(addr)? as u16 {
-            ws::AF_INET => {
-                let mut sockaddr = read_sockaddr_in(addr)?;
-                sockaddr.sin_port = (port as u16).to_be();
-                write_struct(out, &sockaddr)?;
-            }
-            ws::AF_INET6 => {
-                let mut sockaddr = read_sockaddr_in6(addr)?;
-                sockaddr.sin6_port = (port as u16).to_be();
-                write_struct(out, &sockaddr)?;
-            }
-            _ => return Err(AsyncHostError::Inval),
-        }
-        Ok(())
-    }
 }
 
 #[cfg(windows)]
@@ -717,110 +527,6 @@ pub(crate) fn copy_sockaddrs_from_getaddrinfo(
 
 ported_fns! {
     #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_ipv4_addr_size"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn ipv4_addr_size() -> u32 {
-        u32::try_from(std::mem::size_of::<libc::sockaddr_in>())
-            .expect("socket address size fits u32")
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_ipv4_addr_size"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn ipv4_addr_size() -> u32 {
-        win::ipv4_addr_size()
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_ipv6_addr_size"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn ipv6_addr_size() -> u32 {
-        u32::try_from(std::mem::size_of::<libc::sockaddr_in6>())
-            .expect("socket address size fits u32")
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_ipv6_addr_size"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn ipv6_addr_size() -> u32 {
-        win::ipv6_addr_size()
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_init_ip_addr"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn init_ip_addr(addr: &mut [u8], ip: u32, port: u32) -> AsyncHostResult<()> {
-        let sockaddr = libc::sockaddr_in {
-            sin_family: libc::AF_INET as libc::sa_family_t,
-            sin_port: (port as u16).to_be(),
-            sin_addr: libc::in_addr {
-                s_addr: ip.to_be(),
-            },
-            ..unsafe { std::mem::zeroed() }
-        };
-        write_struct(addr, &sockaddr)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_init_ip_addr"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn init_ip_addr(addr: &mut [u8], ip: u32, port: u32) -> AsyncHostResult<()> {
-        win::init_ip_addr(addr, ip, port)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_init_ipv6_addr"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn init_ipv6_addr(
-        addr: &mut [u8],
-        ip: &[u8],
-        port: u32,
-        scope_id: u32,
-    ) -> AsyncHostResult<()> {
-        let ip: [u8; 16] = ip
-            .get(..16)
-            .ok_or(AsyncHostError::Fault)?
-            .try_into()
-            .map_err(|_| AsyncHostError::Fault)?;
-        let sockaddr = libc::sockaddr_in6 {
-            sin6_family: libc::AF_INET6 as libc::sa_family_t,
-            sin6_port: (port as u16).to_be(),
-            sin6_addr: libc::in6_addr { s6_addr: ip },
-            sin6_scope_id: scope_id,
-            ..unsafe { std::mem::zeroed() }
-        };
-        write_struct(addr, &sockaddr)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_init_ipv6_addr"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn init_ipv6_addr(
-        addr: &mut [u8],
-        ip: &[u8],
-        port: u32,
-        scope_id: u32,
-    ) -> AsyncHostResult<()> {
-        win::init_ipv6_addr(addr, ip, port, scope_id)
-    }
-
-    #[ported(
         source = "src/internal/event_loop/network.wasm.mbt",
         original = "gai_strerror"
     )]
@@ -828,141 +534,6 @@ ported_fns! {
     pub(crate) fn gai_strerror(code: i32) -> Box<[u8]> {
         let ptr = unsafe { libc::gai_strerror(code) };
         unsafe { CStr::from_ptr(ptr) }.to_bytes_with_nul().into()
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_ip_addr_get_ip"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn ip_addr_get_ip(addr: &[u8]) -> AsyncHostResult<u32> {
-        Ok(u32::from_be(read_sockaddr_in(addr)?.sin_addr.s_addr))
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_ip_addr_get_ip"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn ip_addr_get_ip(addr: &[u8]) -> AsyncHostResult<u32> {
-        win::ip_addr_get_ip(addr)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_ip_addr_get_port"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn ip_addr_get_port(addr: &[u8]) -> AsyncHostResult<u32> {
-        Ok(u32::from(u16::from_be(read_sockaddr_in(addr)?.sin_port)))
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_ip_addr_get_port"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn ip_addr_get_port(addr: &[u8]) -> AsyncHostResult<u32> {
-        win::ip_addr_get_port(addr)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_is_ipv6"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn addr_is_ipv6(addr: &[u8]) -> AsyncHostResult<bool> {
-        Ok(sockaddr_family(addr)? == libc::AF_INET6)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_is_ipv6"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn addr_is_ipv6(addr: &[u8]) -> AsyncHostResult<bool> {
-        win::addr_is_ipv6(addr)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_is_multicast"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn addr_is_multicast(addr: &[u8]) -> AsyncHostResult<bool> {
-        match sockaddr_family(addr)? {
-            libc::AF_INET => {
-                let first_octet = u32::from_be(read_sockaddr_in(addr)?.sin_addr.s_addr) >> 24;
-                Ok((224..240).contains(&first_octet))
-            }
-            libc::AF_INET6 => Ok(read_sockaddr_in6(addr)?.sin6_addr.s6_addr[0] == 0xff),
-            _ => Ok(false),
-        }
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_is_multicast"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn addr_is_multicast(addr: &[u8]) -> AsyncHostResult<bool> {
-        win::addr_is_multicast(addr)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_get_ipv6_bytes_offset"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn addr_get_ipv6_bytes_offset() -> u32 {
-        u32::try_from(std::mem::offset_of!(libc::sockaddr_in6, sin6_addr))
-            .expect("socket address offset fits u32")
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_get_ipv6_bytes_offset"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn addr_get_ipv6_bytes_offset() -> u32 {
-        u32::try_from(std::mem::offset_of!(ws::SOCKADDR_IN6, sin6_addr))
-            .expect("socket address offset fits u32")
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_get_ipv6_scope_id"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn addr_get_ipv6_scope_id(addr: &[u8]) -> AsyncHostResult<u32> {
-        Ok(read_sockaddr_in6(addr)?.sin6_scope_id)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_get_ipv6_scope_id"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn addr_get_ipv6_scope_id(addr: &[u8]) -> AsyncHostResult<u32> {
-        win::addr_get_ipv6_scope_id(addr)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_is_ipv6_wildcard"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn addr_is_ipv6_wildcard(addr: &[u8]) -> AsyncHostResult<bool> {
-        Ok(read_sockaddr_in6(addr)?.sin6_addr.s6_addr == [0; 16])
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_is_ipv6_wildcard"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn addr_is_ipv6_wildcard(addr: &[u8]) -> AsyncHostResult<bool> {
-        win::addr_is_ipv6_wildcard(addr)
     }
 
     #[ported(
@@ -1770,58 +1341,6 @@ ported_fns! {
             usize::try_from(ret).map_err(|_| AsyncHostError::Fault)
         }
     }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addrinfo_addr_size"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn addrinfo_addr_size(addr: &[u8]) -> u32 {
-        if addr.is_empty() {
-            return 0;
-        }
-        u32::try_from(addr.len()).unwrap_or(0)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addrinfo_addr_size"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn addrinfo_addr_size(addr: &[u8]) -> u32 {
-        win::addrinfo_addr_size(addr)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addrinfo_fill_addr"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn addrinfo_fill_addr(addr: &[u8], out: &mut [u8], port: u32) -> AsyncHostResult<()> {
-        match sockaddr_family(addr)? {
-            libc::AF_INET => {
-                let mut sockaddr = read_sockaddr_in(addr)?;
-                sockaddr.sin_port = (port as u16).to_be();
-                write_struct(out, &sockaddr)?;
-            }
-            libc::AF_INET6 => {
-                let mut sockaddr = read_sockaddr_in6(addr)?;
-                sockaddr.sin6_port = (port as u16).to_be();
-                write_struct(out, &sockaddr)?;
-            }
-            _ => return Err(AsyncHostError::Inval),
-        }
-        Ok(())
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_addrinfo_fill_addr"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn addrinfo_fill_addr(addr: &[u8], out: &mut [u8], port: u32) -> AsyncHostResult<()> {
-        win::addrinfo_fill_addr(addr, out, port)
-    }
 }
 
 #[cfg(all(
@@ -1893,20 +1412,5 @@ mod tests {
     #[test]
     fn if_nametoindex_rejects_unpaired_surrogate() {
         assert_eq!(if_nametoindex(&[0xd800]), Err(AsyncHostError::Inval));
-    }
-
-    #[test]
-    fn addr_get_ipv6_bytes_offset_uses_sin6_addr_offset() {
-        let ip = [
-            0x20, 0x01, 0x0d, 0xb8, 0x85, 0xa3, 0x00, 0x00, 0x00, 0x00, 0x8a, 0x2e, 0x03, 0x70,
-            0x73, 0x34,
-        ];
-        let mut addr = vec![0; ipv6_addr_size() as usize];
-        init_ipv6_addr(&mut addr, &ip, 443, 0).unwrap();
-
-        let offset = std::mem::offset_of!(libc::sockaddr_in6, sin6_addr);
-        assert_eq!(addr_get_ipv6_bytes_offset(), u32::try_from(offset).unwrap());
-        let len = std::mem::size_of::<libc::in6_addr>();
-        assert_eq!(&addr[offset..offset + len], &ip);
     }
 }
