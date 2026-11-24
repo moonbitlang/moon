@@ -66,6 +66,11 @@ impl<T> Handles<T> {
         self.entries.get_mut(key)
     }
 
+    #[cfg(windows)]
+    pub(crate) fn values(&self) -> impl Iterator<Item = &T> {
+        self.entries.values()
+    }
+
     /// Visit owned values for domain cleanup, including invalidated entries.
     #[cfg(unix)]
     pub(crate) fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {

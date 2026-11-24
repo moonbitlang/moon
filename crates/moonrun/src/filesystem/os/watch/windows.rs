@@ -130,7 +130,11 @@ pub(in crate::filesystem) unsafe fn submit(
             }
             // The extended request was rejected, so no operation owns the
             // OVERLAPPED. Reset it before retrying with the basic layout.
-            unsafe { overlapped.write(std::mem::zeroed()) };
+            unsafe {
+                let event = (*overlapped).hEvent;
+                overlapped.write(std::mem::zeroed());
+                (*overlapped).hEvent = event;
+            };
             bytes_returned = 0;
         }
         None => {}

@@ -38,6 +38,29 @@ impl CompletionPort {
     pub(crate) fn from_poll(poll: &PollInstance) -> Self {
         Self(Arc::clone(&poll.fd))
     }
+
+    /// Dequeue one completion during shutdown, including failed I/O results.
+    /// Callers retain all request allocations until their packets are drained.
+    pub(crate) fn wait_for_io(
+        &self,
+    ) -> AsyncHostResult<*mut windows_sys::Win32::System::IO::OVERLAPPED> {
+        let mut entry = empty_overlapped_entry();
+        let mut count = 0;
+        if unsafe {
+            windows_sys::Win32::System::IO::GetQueuedCompletionStatusEx(
+                self.0.as_raw_handle(),
+                &mut entry,
+                1,
+                &mut count,
+                windows_sys::Win32::System::Threading::INFINITE,
+                0,
+            )
+        } == 0
+        {
+            return Err(last_native_error());
+        }
+        Ok(entry.lpOverlapped)
+    }
 }
 
 ported_fns! {

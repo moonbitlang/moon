@@ -63,6 +63,14 @@ lease restores the bytes only if the original entry still exists and is leased.
 Generation checks prevent a late return from restoring a freed entry or
 overwriting a replacement Handle.
 
+Windows I/OResults own their Handle registrations, stable `OVERLAPPED` storage,
+buffers, and acquired Resources in `async_host::windows_io`. Pending requests
+also retain their completion port after its Poll Handle is destroyed. Polling
+resolves native completion addresses once into generational keys; reading a
+cached event cannot complete a later submission or identify a replacement Handle.
+Cancellation retains requests until completion, and shutdown cancels all requests
+before draining them and releasing their storage.
+
 Unix process launch validates its argument and environment inputs before
 consuming either Handle. Transferring an environment block validates the
 destination Handle before consuming the source; insufficient destination
