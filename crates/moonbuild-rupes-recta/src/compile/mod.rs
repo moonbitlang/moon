@@ -59,11 +59,17 @@ impl RunMode {
 pub struct BuildConfiguration {
     pub backend: TargetBackend,
     pub profile: OptLevel,
+    /// Source-level `platform="windows"` predicate, when it differs from moonc's default.
+    pub windows_cfg_override: Option<bool>,
 }
 
 impl BuildConfiguration {
     pub fn new(backend: TargetBackend, profile: OptLevel) -> Self {
-        Self { backend, profile }
+        Self {
+            backend,
+            profile,
+            windows_cfg_override: None,
+        }
     }
 }
 

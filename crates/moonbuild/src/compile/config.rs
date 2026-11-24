@@ -26,8 +26,31 @@ use moonbuild_rupes_recta::{
     },
     target_layout::{ArtifactPathResolver, TargetLayout, stdlib_core_path, stdlib_mi_path},
 };
-use moonutil::{compiler_flags, resolution::ModuleSourceKind, target::TargetBackend};
+use moonutil::{
+    compiler_flags, cond_expr::OptLevel, resolution::ModuleSourceKind, target::TargetBackend,
+};
 use std::path::Path;
+
+/// Select source-visible configuration before resolving packages. Only a global
+/// compiler override can select the platform for both application and core.
+pub fn select_configuration(
+    backend: TargetBackend,
+    profile: OptLevel,
+    action: RunMode,
+) -> anyhow::Result<BuildConfiguration> {
+    let mut config = BuildConfiguration::new(backend, profile);
+    // TODO: Include test and bench once moonc gen-test-info accepts the same source cfg.
+    if backend == TargetBackend::Native
+        && matches!(action, RunMode::Check | RunMode::Build | RunMode::Run)
+    {
+        // TODO: Select a named platform once moonc defines defaults beyond Windows.
+        config.windows_cfg_override = compiler_flags::global_compiler()?
+            .and_then(|compiler| compiler.target_os())
+            .map(|os| os == "windows")
+            .filter(|windows| *windows != cfg!(windows));
+    }
+    Ok(config)
+}
 
 /// Capture only the environment inputs used by the selected backend.
 pub fn prepare_backend(
@@ -99,6 +122,10 @@ pub fn prepare_config(
     // RR then provides the required interfaces using the normal dependency
     // layout, without writing into the toolchain or observing the filesystem.
     let stdlib_path = stdlib_path.filter(|root| {
+        // Installed native bundles were compiled with moonc's host platform.
+        if configuration.windows_cfg_override.is_some() {
+            return false;
+        }
         resolved_project
             .pkg_dirs
             .all_packages(false)

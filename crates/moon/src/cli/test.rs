@@ -587,7 +587,7 @@ fn run_test_in_single_file_rr(
     let configurations = target_backends
         .iter()
         .map(|&backend| build_flags.configuration(backend, RunMode::Test))
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
@@ -775,7 +775,7 @@ pub(super) fn plan_test_or_bench_rr_from_discovered(
     let configurations = selections
         .iter()
         .map(|&(backend, _, _)| build_flags.configuration(backend, cmd.run_mode))
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let target_backends = configurations
         .iter()
         .map(|configuration| configuration.backend)

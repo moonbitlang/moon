@@ -463,9 +463,21 @@ then uses those bindings together with the requested artifacts, build profile,
 and direct-object candidate. This selection does not read the process environment
 or probe compilers; it consumes the earlier resolution result. The planner stores
 the final mode once in its Backend Plan, and action construction and lowering
-consume that mode. Commands without native toolchain actions, including
-`moon check`, builds requesting only `.core`/`.mi` artifacts, and `moon test --outline`,
-do not probe compilers.
+consume that mode.
+
+For Native check and build actions (including the build for `moon run`), Moon
+uses an explicit `MOON_CC` to determine the source-level Windows predicate.
+Source-only actions need the driver target, and native tool actions reuse that
+probe and resolve the archiver. A recognized target across the Windows boundary
+selects `-cfg platform=windows` when targeting Windows or `-cfg platform=`
+when targeting Linux or macOS from Windows. Both the application and core use
+this override, so Moon builds core from source even if the host bundle is
+complete. An unknown target or one with the same Windows predicate keeps
+moonc's default. Test and bench use the default for compilation and discovery.
+When a native test needs a toolchain, Moon rejects a known `MOON_CC` target OS
+that differs from the host OS before resolving the archiver. This includes
+`moon test --build-only`, which also generates a test driver. `moon test --outline`
+lists tests for the host and needs no C compiler.
 
 Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
 They also remain on the compiler-driver link invocation for compatibility with

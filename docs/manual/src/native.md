@@ -77,8 +77,14 @@ panics do not print a backtrace.
 
 Cross-compiling is best effort and works only through the global `MOON_CC`.
 A package-level `cc` does not change the target of the shared runtime or of the
-C stubs of other packages, so it cannot be used to cross-compile. The
-`platform` cfg and the prebuilt `core` library still follow the host.
+C stubs of other packages, so it cannot be used to cross-compile. For `moon check` and
+`moon build`, the source condition `#cfg(platform="windows")` follows the target when crossing
+between Windows and Linux or macOS. Moon rebuilds core from source in the
+project's build directory whenever it overrides the compiler's platform.
+Run `moon clean` when switching the target of `MOON_CC` in the same project.
+Native tests use the host platform for compilation and test discovery. If
+`MOON_CC` reports a different OS, `moon test --target native` fails during
+planning, including with `--build-only`. Use `--outline` to list tests for the host.
 
 ## Reference cycle collection
 

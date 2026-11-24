@@ -251,6 +251,8 @@ impl TargetLayout {
     }
 
     pub fn run_mode_dir(&self) -> PathBuf {
+        // FIXME: Account for the native compiler target in artifact reuse. Changing
+        // the default target of the same MOON_CC wrapper currently requires moon clean.
         self.target_base_dir
             .join(self.configuration.backend.to_dir_name())
             .join(self.configuration.profile.as_str())

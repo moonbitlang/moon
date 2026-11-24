@@ -276,7 +276,7 @@ pub(super) fn run_info(
     let configurations = execution_targets
         .iter()
         .map(|&(backend, _)| build_flags.configuration(backend, RunMode::Check))
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let target_backends = configurations
         .iter()
         .map(|configuration| configuration.backend)

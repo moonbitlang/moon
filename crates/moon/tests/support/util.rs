@@ -207,9 +207,9 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         dunce::canonicalize(moon_home).unwrap().to_str().unwrap(),
         "$MOON_HOME",
     );
-    let s = if let Ok(toolchain) =
-        compiler_flags::effective_native_toolchain(compiler_flags::ENV_CC.as_ref(), None)
-    {
+    let s = if let Ok(toolchain) = compiler_flags::global_compiler().and_then(|global| {
+        compiler_flags::effective_native_toolchain(global.map(|compiler| compiler.cc()), None)
+    }) {
         let cc = toolchain.cc();
         let s = s.replace(&cc.ar_path, cc.ar_name());
         s.replace(&cc.cc_path, cc.cc_name())

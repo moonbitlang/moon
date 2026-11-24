@@ -168,7 +168,7 @@ fn run_build_for_single_file_rr(
     let configurations = target_backends
         .iter()
         .map(|&backend| cmd.build_flags.configuration(backend, RunMode::Build))
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
@@ -470,7 +470,7 @@ pub(super) fn plan_build_rr_from_discovered(
     let configurations = requests
         .iter()
         .map(|(backend, _)| cmd.build_flags.configuration(*backend, RunMode::Build))
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let target_backends = configurations
         .iter()
         .map(|configuration| configuration.backend)

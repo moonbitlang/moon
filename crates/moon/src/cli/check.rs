@@ -704,7 +704,7 @@ fn run_check_for_single_file_rr(
     let configurations = target_backends
         .iter()
         .map(|&backend| cmd.build_flags.configuration(backend, RunMode::Check))
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log).with_context(|| {
@@ -1047,7 +1047,7 @@ pub(super) fn plan_check_rr_from_discovered(
             cmd.build_flags
                 .configuration(selection.target_backend, RunMode::Check)
         })
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let target_backends = configurations
         .iter()
         .map(|configuration| configuration.backend)

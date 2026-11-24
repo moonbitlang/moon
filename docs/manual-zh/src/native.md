@@ -64,8 +64,14 @@ MoonBit lib 目录中的预编译目标文件（`libmoonbitrun.o`、SIMDUTF 目�
 UTF 代码路径，且 panic 时不打印调用栈。
 
 交叉编译仅为尽力支持，且只能通过全局的 `MOON_CC` 进行。包级别的 `cc` 不会改变
-共享运行时或其他包的 C stub 的目标，因此不能用于交叉编译。`platform` cfg
-以及预编译的 `core` 库仍然跟随主机。
+共享运行时或其他包的 C stub 的目标，因此不能用于交叉编译。在 Windows 与 Linux
+或 macOS 之间交叉编译时，`moon check` 和 `moon build` 会按目标平台判断
+`#cfg(platform="windows")`。
+当 Moon 覆盖编译器的默认平台时，它会从源码构建 core，产物放在项目的构建目录中。
+在同一项目中切换 `MOON_CC` 的目标时，请先运行 `moon clean`。
+native 测试的源码编译和测试发现都使用宿主平台条件。如果 `MOON_CC` 报告的目标
+OS 与宿主不同，`moon test --target native` 会在规划阶段报错，`--build-only`
+也遵循此规则。`--outline` 仍可列出宿主平台的测试。
 
 ## 引用环回收
 

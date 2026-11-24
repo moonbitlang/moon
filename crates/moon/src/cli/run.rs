@@ -548,7 +548,9 @@ pub(super) fn plan_run_rr_from_discovered(
         &discovered,
         cmd.build_flags.enable_value_tracing,
     )?;
-    let configuration = cmd.build_flags.configuration(target_backend, RunMode::Run);
+    let configuration = cmd
+        .build_flags
+        .configuration(target_backend, RunMode::Run)?;
     let resolved_project = discovered.resolve_packages(&[configuration.backend], user_log)?;
     let compile_config = cmd.build_flags.compile_config(
         cli,
@@ -711,7 +713,7 @@ fn build_single_file_executable(
         .unwrap_or(options.default_target_backend);
     let configuration = cmd
         .build_flags
-        .configuration(selected_target_backend, RunMode::Run);
+        .configuration(selected_target_backend, RunMode::Run)?;
     let resolved = discovered.resolve_packages(&[configuration.backend], user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
