@@ -8381,6 +8381,80 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn reading_an_old_completion_does_not_complete_a_resubmitted_io_result() {
+        use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
+        use windows_sys::Win32::Storage::FileSystem::WriteFile;
+
+        let host = default_host();
+        let poll = host.poll_create().unwrap();
+        let [read, write] = host.pipe(true, false).unwrap();
+        host.poll_register(poll, read, true).unwrap();
+        let writer = host.acquire_resource(write).unwrap();
+        let result = host.make_file_read_io_result(1, 0).unwrap();
+
+        assert_eq!(
+            host.read_io_result(read, result),
+            Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
+        );
+        let mut written = 0;
+        assert_ne!(
+            unsafe {
+                WriteFile(
+                    writer.as_file().unwrap().as_raw_handle(),
+                    b"a".as_ptr(),
+                    1,
+                    &mut written,
+                    std::ptr::null_mut(),
+                )
+            },
+            0
+        );
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
+        let old_event = host.poll_get_event(poll, 0).unwrap();
+        assert_eq!(host.poll_event_io_result(old_event).unwrap(), result);
+
+        assert_eq!(
+            host.read_io_result(read, result),
+            Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
+        );
+        assert_eq!(host.poll_event_io_result(old_event).unwrap(), result);
+        let still_pending = host
+            .io_results
+            .borrow()
+            .io_results
+            .get(io_result_key(&host, result))
+            .unwrap()
+            .is_pending();
+
+        // Finish the real second read before asserting: even the broken host
+        // must not drop storage that Windows is still writing into.
+        assert_ne!(
+            unsafe {
+                WriteFile(
+                    writer.as_file().unwrap().as_raw_handle(),
+                    b"b".as_ptr(),
+                    1,
+                    &mut written,
+                    std::ptr::null_mut(),
+                )
+            },
+            0
+        );
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+        host.poll_event_io_result(event).unwrap();
+        host.free_io_result(result).unwrap();
+        host.close_fd(read).unwrap();
+        host.close_fd(write).unwrap();
+        host.poll_destroy(poll).unwrap();
+        assert!(
+            still_pending,
+            "reading an old event must not retire the new submission"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn unregistered_iocp_completion_key_is_returned() {
         use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
