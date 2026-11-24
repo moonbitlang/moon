@@ -660,7 +660,7 @@ pub fn build_plan(
     info!("Constructing build plan");
     debug!(
         "Compile configuration: backend={:?}, opt_level={:?}",
-        config.configuration().target_backend(),
+        config.configuration().legacy_backend(),
         config.configuration().profile
     );
 

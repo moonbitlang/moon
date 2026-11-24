@@ -61,6 +61,8 @@ pub fn prepare_backend(
             BackendConfig::Native {
                 direct_object_candidate,
                 allocator: compiler_flags::NativeAllocator::from_env()?,
+                // Preserve the LLVM path's existing runtime configuration:
+                // it has never enabled cycle collection through this setting.
                 collect_ref_cycle: codegen == NativeCodegenRequest::Auto && collect_ref_cycle,
                 os: std::env::consts::OS
                     .parse::<OperatingSystem>()
@@ -84,7 +86,7 @@ pub fn prepare_config(
     action: RunMode,
     debug_info: DebugInfoRequest,
 ) -> CompileConfig {
-    let target_backend = configuration.target_backend();
+    let target_backend = configuration.legacy_backend();
     // Module preparation has already selected the stdlib used for discovery.
     // Reuse its root for artifacts; a local core project has no injected stdlib.
     let modules = &resolved_project.module_graph;

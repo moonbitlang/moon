@@ -101,7 +101,7 @@ impl<'a> LoweringContext<'a> {
             source_map: self
                 .opt
                 .configuration()
-                .target_backend()
+                .legacy_backend()
                 .supports_source_map()
                 && debug_info,
             enable_coverage: false,
@@ -340,7 +340,7 @@ impl<'a> LoweringContext<'a> {
             | TargetKind::InlineTest
             | TargetKind::SubPackage => package.raw.is_main,
         };
-        let backend = self.opt.configuration().target_backend();
+        let backend = self.opt.configuration().legacy_backend();
         let cmd = compiler::MooncCheck {
             required: BuildCommonInput::new(
                 &files_vec,
@@ -392,7 +392,7 @@ impl<'a> LoweringContext<'a> {
 
         let files_vec = self.compiler_source_files(info);
 
-        let backend = self.opt.configuration().target_backend();
+        let backend = self.opt.configuration().legacy_backend();
         let whyml_output = artifacts.single_output_path_matching(|artifact| {
             matches!(
                 artifact,
@@ -495,7 +495,7 @@ impl<'a> LoweringContext<'a> {
             TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
-        let backend = self.opt.configuration().target_backend();
+        let backend = self.opt.configuration().legacy_backend();
         let mut cmd = compiler::MooncBuildPackage {
             required: BuildCommonInput::new(
                 &files,
@@ -574,13 +574,13 @@ impl<'a> LoweringContext<'a> {
             pkg_config_path: Some(config_path.clone().into()),
             package_sources: &package_sources,
             stdlib_core_source: None,
-            target_backend: self.opt.configuration().target_backend(),
+            target_backend: self.opt.configuration().legacy_backend(),
             native_target: self.plan.backend_plan().direct_native_target(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(target, package),
             js_config: self.get_js_config(target, package),
-            exports: package.exported_functions(self.opt.configuration().target_backend()),
+            exports: package.exported_functions(self.opt.configuration().legacy_backend()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
             #[cfg(target_os = "windows")]
             native_toolchain_is_msvc: native_toolchain
@@ -809,7 +809,7 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         pkg: &'b DiscoveredPackage,
     ) -> compiler::WasmConfig<'b> {
-        let mut wasm_config = if self.opt.configuration().target_backend() == TargetBackend::Wasm
+        let mut wasm_config = if self.opt.configuration().legacy_backend() == TargetBackend::Wasm
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref())
         {
             WasmConfig {
@@ -824,7 +824,7 @@ impl<'a> LoweringContext<'a> {
                 new_allocator: false,
                 collect_ref_cycle: false,
             }
-        } else if self.opt.configuration().target_backend() == TargetBackend::WasmGC
+        } else if self.opt.configuration().legacy_backend() == TargetBackend::WasmGC
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
         {
             WasmConfig {
@@ -890,7 +890,7 @@ impl<'a> LoweringContext<'a> {
     }
 
     fn get_js_config(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> Option<JsConfig> {
-        let backend = self.opt.configuration().target_backend();
+        let backend = self.opt.configuration().legacy_backend();
         if backend != TargetBackend::Js {
             return None;
         }

@@ -244,9 +244,12 @@ fn run_build_script_for_module(
         .env("MOON_BUILD_DIR", &input.paths.out_dir)
         .env("MOON_HOST_OS", std::env::consts::OS)
         .env("MOON_HOST_ARCH", std::env::consts::ARCH)
+        // FIXME: MOON_BACKEND exposes the legacy selector, including "llvm".
+        // Revisit this protocol when LLVM is removed from the backend choices
+        // and represented as Native code generation; preserve its values until then.
         .env(
             "MOON_BACKEND",
-            cx.configuration().target_backend().to_flag(),
+            cx.configuration().legacy_backend().to_flag(),
         )
         .env("MOON_PROFILE", cx.configuration().profile.as_str())
         .env("MOON_JOBS", jobs.to_string())

@@ -561,7 +561,7 @@ fn prepare_native_build(
         moonutil::cond_expr::OptLevel::Release,
     );
     let resolved_project =
-        discovered.resolve_packages(&[configuration.target_backend()], user_log)?;
+        discovered.resolve_packages(&[configuration.legacy_backend()], user_log)?;
     let target_dir = package_dirs.target_dir;
 
     let main_module_id = resolved_project

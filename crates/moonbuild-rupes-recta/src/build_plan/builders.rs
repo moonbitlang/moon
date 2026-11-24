@@ -316,7 +316,7 @@ impl<'a> BuildPlanConstructor<'a> {
         importer_target: BuildTarget,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        let selected_backend = self.config.configuration().target_backend();
+        let selected_backend = self.config.configuration().legacy_backend();
         let importer_pkg = self.input.pkg_dirs.get_package(importer_target.package);
         let dependency_pkg = self.input.pkg_dirs.get_package(dep.package);
 
@@ -392,7 +392,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let Some(stdlib) = self.input.module_graph.stdlib() else {
             return;
         };
-        let backend = self.config.configuration().target_backend();
+        let backend = self.config.configuration().legacy_backend();
         for &id in self
             .input
             .pkg_dirs
@@ -766,7 +766,7 @@ impl<'a> BuildPlanConstructor<'a> {
             &pkg.raw,
             source_iter,
             self.config.configuration().profile,
-            self.config.configuration().target_backend(),
+            self.config.configuration().legacy_backend(),
         ) {
             match file_kind {
                 NoTest => no_test_files.insert(file.into_owned()),
@@ -1956,7 +1956,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Documentation starts from backend-compatible packages in the
         // selected module. Their Check MI requirements expand the same
         // dependency closure used by ordinary package checks.
-        let target_backend = self.config.configuration().target_backend();
+        let target_backend = self.config.configuration().legacy_backend();
         let packages = self
             .input
             .pkg_dirs

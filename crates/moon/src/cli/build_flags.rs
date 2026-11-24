@@ -146,7 +146,7 @@ impl BuildFlags {
         user_log: &UserLog,
         resolved_project: &ResolvedProject,
     ) -> anyhow::Result<CompileConfig> {
-        let target_backend = configuration.target_backend();
+        let target_backend = configuration.legacy_backend();
         let opt_level = configuration.profile;
         // A couple of debug things:
         if cli.unstable_feature.rr_export_module_graph {

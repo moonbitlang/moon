@@ -76,7 +76,7 @@ pub fn lower_build_plan(
     info!("Starting action plan lowering to execution plan");
     debug!(
         "Lowering build: backend={:?}, opt_level={:?}, moonc_debug_info={}",
-        opt.configuration().target_backend(),
+        opt.configuration().legacy_backend(),
         opt.configuration().profile,
         plan.backend_plan().moonc_debug_info()
     );

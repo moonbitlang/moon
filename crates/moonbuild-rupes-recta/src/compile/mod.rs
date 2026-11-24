@@ -78,7 +78,7 @@ pub enum NativeCodegenRequest {
 }
 
 impl TargetConfiguration {
-    /// The backend family sharing prepared resources and artifact forms.
+    /// The backend family used to prepare shared settings and resources.
     pub fn backend_family(self) -> TargetBackend {
         match self {
             Self::Wasm => TargetBackend::Wasm,
@@ -105,11 +105,11 @@ impl BuildConfiguration {
         Self { target, profile }
     }
 
-    /// Project the normalized request onto existing compiler, manifest and path
-    /// conventions. No independent legacy selection is stored.
+    /// Compatibility selector for existing compiler, manifest and path protocols.
+    /// Unlike the backend family, this preserves LLVM as a distinct choice.
     // TODO: Remove this projection as those protocols adopt native codegen
     // configuration; LLVM-only conditions and artifact paths must stay distinct.
-    pub fn target_backend(self) -> TargetBackend {
+    pub fn legacy_backend(self) -> TargetBackend {
         match self.target {
             TargetConfiguration::Native {
                 codegen: NativeCodegenRequest::Llvm,

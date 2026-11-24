@@ -100,7 +100,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Self {
         Self {
             input: resolved,
-            rel: &resolved.package_relations[&config.configuration().target_backend()],
+            rel: &resolved.package_relations[&config.configuration().legacy_backend()],
             config,
             input_directive,
             prebuild_config,

@@ -100,7 +100,7 @@ pub fn gen_metadata_json(
     configuration: crate::BuildConfiguration,
     check_commands: &CheckCommandMap<'_>,
 ) -> impl Serialize + use<> {
-    let backend = configuration.target_backend();
+    let backend = configuration.legacy_backend();
     let opt_level = configuration.profile;
     let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
