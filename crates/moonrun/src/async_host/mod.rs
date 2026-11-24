@@ -52,8 +52,6 @@ use crate::async_sys::internal::event_loop::{
     },
 };
 use crate::async_sys::socket::RawSocket;
-#[cfg(target_os = "macos")]
-use crate::filesystem::FsTarget;
 use crate::filesystem::HostFs;
 use crate::filesystem::RawFile as RawFd;
 use crate::filesystem::{FsOperation, FsPath};
@@ -2003,20 +2001,10 @@ impl AsyncHost {
         &self,
         kqueue_handle: HostHandle,
         file_handle: HostHandle,
-        is_dir: bool,
     ) -> AsyncHostResult<()> {
-        use std::os::fd::AsRawFd;
-
         let kqueue = self.acquire_resource(kqueue_handle)?;
         let file = self.acquire_resource(file_handle)?;
-        self.filesystem
-            .authorize(FsOperation::Watch(FsTarget::File(file.file_grant())))?;
-        crate::filesystem::watch::add_file(
-            kqueue.as_fd()?.as_raw_fd(),
-            file.as_fd()?.as_raw_fd(),
-            is_dir,
-            file_handle,
-        )
+        crate::filesystem::watch::add_file(&self.filesystem, &kqueue, &file, file_handle)
     }
 
     #[cfg(all(test, unix))]
@@ -3052,7 +3040,7 @@ mod tests {
         assert!(host.leak_summary().is_none());
     }
 
-    fn host_with_policy(path: &std::path::Path) -> AsyncHost {
+    pub(super) fn host_with_policy(path: &std::path::Path) -> AsyncHost {
         let (policy, env) = policy::load_file(path).unwrap();
         test_host(Some(policy), env.realize().unwrap())
     }
@@ -5621,7 +5609,7 @@ mod tests {
         let kqueue_handle = host.insert_file_resource(crate::filesystem::watch::create().unwrap());
 
         assert_eq!(
-            host.kqueue_watcher_add_file(kqueue_handle, file_handle, false),
+            host.kqueue_watcher_add_file(kqueue_handle, file_handle),
             Err(AsyncHostError::PermissionDenied)
         );
 

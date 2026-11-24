@@ -19,6 +19,9 @@
 use super::os::{RawFile, watch};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
+use crate::filesystem::{FsOperation, FsTarget, HostFs};
+use crate::resource::Resource;
+use std::os::fd::AsRawFd;
 pub(crate) use watch::create;
 
 const EVENT_COUNT: usize = 1024;
@@ -38,11 +41,14 @@ ported_fns! {
         original = "moonbitlang_async_kqueue_watcher_add_file"
     )]
     pub(crate) fn add_file(
-        kqueue: RawFile,
-        file: RawFile,
-        _is_dir: bool,
+        filesystem: &HostFs,
+        kqueue: &Resource,
+        file: &Resource,
         file_handle: u64,
     ) -> AsyncHostResult<()> {
+        filesystem.authorize(FsOperation::Watch(FsTarget::File(file.file_grant())))?;
+        let kqueue = kqueue.as_fd()?.as_raw_fd();
+        let file = file.as_fd()?.as_raw_fd();
         let token = usize::try_from(file_handle).map_err(|_| AsyncHostError::Fault)?;
         Ok(watch::add_file(kqueue, file, token)?)
     }
@@ -103,19 +109,24 @@ fn event_at(buffer: &[u8], index: u32) -> AsyncHostResult<libc::kevent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::filesystem::FileGrant;
     use std::io::Write;
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
     #[test]
     fn extending_a_file_reports_only_the_write_event() {
-        let kqueue = unsafe { OwnedFd::from_raw_fd(create().unwrap()) };
+        let kqueue = Resource::new(create().unwrap());
         let mut file = tempfile::tempfile().unwrap();
-        add_file(kqueue.as_raw_fd(), file.as_raw_fd(), false, 7).unwrap();
+        let watched = Resource::from_file(file.try_clone().unwrap(), FileGrant::UNTRACKED);
+        add_file(&HostFs::default(), &kqueue, &watched, 7).unwrap();
 
         file.write_all(b"extended").unwrap();
         let mut buffer = vec![0; buffer_size() as usize];
         assert_eq!(
-            fetch_event(kqueue.as_raw_fd(), &mut buffer, buffer_size()),
+            fetch_event(
+                kqueue.as_fd().unwrap().as_raw_fd(),
+                &mut buffer,
+                buffer_size()
+            ),
             Ok(1)
         );
         assert_eq!(event_get_fd(&buffer, 0), Ok(7));
@@ -123,7 +134,11 @@ mod tests {
         assert_eq!(event_at(&buffer, 0).unwrap().fflags, libc::NOTE_WRITE);
 
         assert_eq!(
-            fetch_event(kqueue.as_raw_fd(), &mut buffer, buffer_size()),
+            fetch_event(
+                kqueue.as_fd().unwrap().as_raw_fd(),
+                &mut buffer,
+                buffer_size()
+            ),
             Ok(0)
         );
     }

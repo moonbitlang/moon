@@ -332,13 +332,12 @@ pub(super) fn kqueue_watcher_add_file(
     context: &mut ImportContext<'_>,
     kqueue: u64,
     file: u64,
-    is_dir: i32,
+    // Retained for the guest ABI; kqueue registers NOTE_WRITE for both kinds.
+    _is_dir: i32,
 ) -> i32 {
     zero_or_minus_one(
         context,
-        context
-            .host
-            .kqueue_watcher_add_file(kqueue, file, is_dir != 0),
+        context.host.kqueue_watcher_add_file(kqueue, file),
     )
 }
 

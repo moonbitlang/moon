@@ -72,14 +72,11 @@ policy is present. There is no absent-base target state.
 
 The authorizer interprets operation options, selects object or entry resolution,
 and applies resource exemptions before matching resolved read/write requirements.
-`FileGrant` distinguishes stdio, path-backed and untracked resources. Path-backed
-resources retain their saved canonical path and re-resolution; callers do not
-inspect path availability. Kind queries on handles and shared locks remain
-independent of path policy. Metadata and macOS watching require read policy;
-exclusive locks require write policy. Watching is an explicit operation on every
-platform: Linux inotify supplies a path, macOS kqueue supplies a file grant, and
-Windows retains its existing handle-only admission. Directory-derived authority
-is unchanged.
+`FileGrant` distinguishes stdio, acquired access rights, and untracked resources.
+Acquired grants retain the target's policy access at acquisition. Later Resource
+operations check those rights without re-resolving the opening pathname; native
+access modes and ABI descriptor rights remain additional constraints. New path
+lookups, including children of an acquired directory, require path authorization.
 
 `OpenAsync` retains scalar access/create modes and a positioning-only append flag.
 `OpenWithOptions` retains the std::OpenOptions contract, where append implies
@@ -97,26 +94,18 @@ Exclusions constrain each authorized path; recursive removal and directory renam
 currently authorize directory endpoints without visiting descendants. They do
 not yet guarantee protection of excluded descendants from ancestor operations.
 
-### Implementation responsibilities
+### Operation ownership
 
-| Module | Responsibility |
-| --- | --- |
-| `filesystem/host/` | HostFs state and operations grouped by pathname, acquired Resource, directory handle, and Runtime Env |
-| `filesystem/authorization/mod.rs` | Operation interpretation, authority selection, lazy directory-base lookup, and the common authorization entry point |
-| `filesystem/authorization/grant.rs` | Opaque acquired-file grant, private to the authorizer |
-| `filesystem/authorization/path.rs` | Object/entry resolution, including symlink and missing-prefix behavior |
-| `filesystem/metadata/` | Shared Resource stat queries, file-kind encoding, and legacy metadata compatibility |
-| `filesystem/directory_entries.rs` | Checked interpretation of native directory-result records |
-| `filesystem/watch/` | Watcher event buffers and decoding |
-| `filesystem/job/` | Filesystem Job payloads, execution, and result ownership |
-| `std::fs` and `filesystem/os.rs` | OS mechanisms; the custom modules accept host paths, handles, and typed operation options, return `io::Result`, and have no Runtime, policy, or ABI dependency |
-| `unstable_api/filesystem.rs` | Legacy error strings, status codes, and per-run getter state |
-| WASI and async adapters | Their own rights, ABI values, and error representation |
+Host Filesystem keeps operation interpretation, authorization, and effects
+together. Jobs and synchronous operations share its domain rules. The async
+runtime owns scheduling and outstanding request lifetimes; filesystem operations
+may borrow request-owned resources without taking over their lifecycle. Raw
+Operations supply OS mechanisms, and ABI adapters own guest representation.
+This separation does not make pathname authorization and native lookup atomic.
 
-`filesystem/mod.rs` declares modules and exports. `FileOpenOptions` supplies
-both OS options and authorization intent; callers cannot pass a separate
-permission description that disagrees with execution. `FsError` distinguishes
-policy denial from I/O failure.
+Operation inputs determine both authorization intent and execution; callers
+cannot supply a separate permission description that disagrees with the effects.
+Policy denial remains distinguishable from I/O failure.
 
 A lazy write payload is authorized before decoding and decoded before file
 creation or truncation. Guest conversion remains in the adapter. WASI does not
