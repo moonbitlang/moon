@@ -137,8 +137,9 @@ mod tests {
     fn destroying_or_dropping_workers_retires_their_handles() {
         for destroy_explicitly in [true, false] {
             let keys = Rc::new(RefCell::new(HostKeys::default()));
+            let mut jobs = Handles::new(keys.clone(), HostResourceKind::Job);
             let workers = InstanceWorkers::new(keys.clone());
-            let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+            let job_key = jobs.insert(());
             let worker = workers.spawn(
                 job(11, job_key),
                 |_| {},
@@ -161,8 +162,9 @@ mod tests {
         use std::sync::Arc;
 
         let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let mut jobs = Handles::new(keys.clone(), HostResourceKind::Job);
         let workers = InstanceWorkers::new(keys.clone());
-        let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+        let job_key = jobs.insert(());
         let (_sender, receiver) = crate::signal_channel();
         let (notifier, notifier_fd): (_, RawFd) =
             crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier::new().unwrap();
@@ -215,6 +217,7 @@ mod tests {
         use std::time::Instant;
 
         let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let mut jobs = Handles::new(keys.clone(), HostResourceKind::Job);
         let workers = InstanceWorkers::new(keys.clone());
         let (first_cancelled, wait_for_first) = mpsc::channel();
         let (second_cancelled, wait_for_second) = mpsc::channel();
@@ -226,7 +229,7 @@ mod tests {
             (first_cancelled, wait_for_second),
             (second_cancelled, wait_for_first),
         ] {
-            let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+            let job_key = jobs.insert(());
             let started = started.clone();
             let finished = finished.clone();
             workers.spawn(
@@ -261,10 +264,11 @@ mod tests {
     #[test]
     fn worker_handles_are_scoped_to_one_instance() {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let mut jobs = Handles::new(keys.clone(), HostResourceKind::Job);
         let first = InstanceWorkers::new(keys.clone());
         let second = InstanceWorkers::new(keys.clone());
-        let first_job = keys.borrow_mut().insert(HostResourceKind::Job);
-        let second_job = keys.borrow_mut().insert(HostResourceKind::Job);
+        let first_job = jobs.insert(());
+        let second_job = jobs.insert(());
         let (first_sender, first_receiver) = mpsc::channel();
         let (second_sender, second_receiver) = mpsc::channel();
 
@@ -310,6 +314,7 @@ mod tests {
 
         for destroy_explicitly in [true, false] {
             let keys = Rc::new(RefCell::new(HostKeys::default()));
+            let mut jobs = Handles::new(keys.clone(), HostResourceKind::Job);
             let workers = InstanceWorkers::new(keys.clone());
             let (first_interrupted, wait_for_first) = mpsc::channel();
             let (second_interrupted, wait_for_second) = mpsc::channel();
@@ -321,7 +326,7 @@ mod tests {
                 (first_interrupted, wait_for_second),
                 (second_interrupted, wait_for_first),
             ] {
-                let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+                let job_key = jobs.insert(());
                 let started = started.clone();
                 let finished = finished.clone();
                 workers.spawn(

@@ -6478,18 +6478,18 @@ mod tests {
     }
 
     #[test]
-    fn missing_worker_registration_preserves_ready_job() {
+    fn foreign_worker_handle_preserves_ready_job() {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let host = default_host_with_keys(keys.clone());
-        // Exercise registry lookup failure after the Handle itself validates.
-        let worker_key = keys.borrow_mut().insert(HandleKind::Worker);
+        // A live Worker key from another owning table must not consume the Job.
+        let mut other_workers = Handles::new(keys, HandleKind::Worker);
+        let worker_key = other_workers.insert(());
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
 
         assert_eq!(
             host.wake_worker(handle_from_key(worker_key), 42, job),
             Err(AsyncHostError::Badf)
         );
-        keys.borrow_mut().remove(worker_key);
         host.run_job(job).unwrap();
         assert_eq!(host.with_job(job, |job| job.err()), Ok(0));
         host.free_job(job).unwrap();

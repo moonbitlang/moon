@@ -211,7 +211,9 @@ dependency may still deliberately expose process-global behavior.
 _Avoid_: Host, Engine, V8 Run Context, service locator
 
 **Host Key**:
-The internal generational key behind a Handle. One primary Host Key table records only liveness and resource kind; domain payloads live in secondary maps keyed by Host Key.
+The internal generational key behind a Handle. One shared Host Key table records
+liveness and resource kind; owning tables manage domain payloads together with
+their registrations. Only the owning-table implementation allocates or retires keys.
 Nullable host objects use the encoded slotmap null Host Key, which has no table entry and cannot equal a live key. Guest code recognizes it through host null predicates or SQLite's null-handle import. Optional Resource arguments use the reserved Handle returned by `invalid_fd()`. Owning-table lookup validates ordinary Handles. See [Host handles](docs/dev/host-handles.md).
 _Avoid_: resource payload, raw pointer, per-API key
 

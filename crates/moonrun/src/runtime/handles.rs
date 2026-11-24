@@ -19,9 +19,24 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use slotmap::SecondaryMap;
+use slotmap::{SecondaryMap, SlotMap};
 
-use super::{HostKey, HostKeys, HostResourceKind};
+use super::{HostKey, HostResourceKind};
+
+/// The shared Handle namespace. Only owning tables can allocate or retire keys.
+/// Domains receive it during construction and keep their payloads in `Handles`.
+#[derive(Default)]
+pub(crate) struct HostKeys {
+    kinds: SlotMap<HostKey, HostResourceKind>,
+}
+
+#[cfg(test)]
+impl HostKeys {
+    // Read-only observation for domain teardown tests.
+    pub(crate) fn kind(&self, key: HostKey) -> Option<HostResourceKind> {
+        self.kinds.get(key).copied()
+    }
+}
 
 /// Owns one family's entries and their registrations in the shared namespace.
 ///
@@ -44,23 +59,22 @@ impl<T> Handles<T> {
     }
 
     pub(crate) fn insert(&mut self, value: T) -> HostKey {
-        let key = self.keys.borrow_mut().insert(self.kind);
+        let key = self.keys.borrow_mut().kinds.insert(self.kind);
         let replaced = self.entries.insert(key, value);
         debug_assert!(replaced.is_none());
         key
     }
 
     pub(crate) fn get(&self, key: HostKey) -> Option<&T> {
-        // Families with separate payload tables also mutate HostKeys. Validate
-        // central registration as well as membership in this owning table.
-        if self.keys.borrow().kind(key) != Some(self.kind) {
+        // Validate generation and kind, then membership in this owning table.
+        if self.keys.borrow().kinds.get(key) != Some(&self.kind) {
             return None;
         }
         self.entries.get(key)
     }
 
     pub(crate) fn get_mut(&mut self, key: HostKey) -> Option<&mut T> {
-        if self.keys.borrow().kind(key) != Some(self.kind) {
+        if self.keys.borrow().kinds.get(key) != Some(&self.kind) {
             return None;
         }
         self.entries.get_mut(key)
@@ -75,18 +89,18 @@ impl<T> Handles<T> {
         self.entries.values()
     }
 
-    /// Visit owned values for domain cleanup, including invalidated entries.
+    /// Visit owned values for domain cleanup.
     pub(crate) fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.entries.values_mut()
     }
 
     pub(crate) fn remove(&mut self, key: HostKey) -> Option<T> {
         let mut keys = self.keys.borrow_mut();
-        if keys.kind(key) != Some(self.kind) {
+        if keys.kinds.get(key) != Some(&self.kind) {
             return None;
         }
         let value = self.entries.remove(key)?;
-        let removed = keys.remove(key);
+        let removed = keys.kinds.remove(key);
         debug_assert_eq!(removed, Some(self.kind));
         Some(value)
     }
@@ -98,7 +112,7 @@ impl<T> Handles<T> {
         self.entries
             .drain()
             .map(|(key, value)| {
-                keys.remove(key);
+                keys.kinds.remove(key);
                 value
             })
             .collect()
@@ -117,7 +131,7 @@ impl<T> Drop for Handles<T> {
     fn drop(&mut self) {
         let mut keys = self.keys.borrow_mut();
         for key in self.entries.keys() {
-            keys.remove(key);
+            keys.kinds.remove(key);
         }
         // Release the allocator borrow before Rust drops the entry values.
     }
@@ -126,8 +140,32 @@ impl<T> Drop for Handles<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slotmap::Key;
+    use slotmap::{Key, KeyData};
     use std::cell::Cell;
+
+    #[test]
+    fn keys_are_typed_and_generational() {
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let mut jobs = Handles::new(keys.clone(), HostResourceKind::Job);
+        let mut polls = Handles::new(keys, HostResourceKind::Poll);
+        let job = jobs.insert(1);
+        let poll = polls.insert(2);
+        let job_handle = job.data().as_ffi();
+        let poll_handle = poll.data().as_ffi();
+        let null = HostKey::from(KeyData::from_ffi(crate::runtime::null_handle()));
+
+        assert_eq!(null, HostKey::null());
+        assert_ne!(job, null);
+        assert_eq!(jobs.get(null), None);
+        assert_ne!(job_handle, poll_handle);
+        assert_eq!(jobs.get(KeyData::from_ffi(job_handle).into()), Some(&1));
+        assert_eq!(polls.get(KeyData::from_ffi(job_handle).into()), None);
+
+        assert_eq!(polls.remove(poll), Some(2));
+        let replacement = polls.insert(3);
+        assert_ne!(poll_handle, replacement.data().as_ffi());
+        assert_eq!(polls.get(KeyData::from_ffi(poll_handle).into()), None);
+    }
 
     #[test]
     fn lookup_and_removal_require_membership_in_the_owning_table() {
@@ -163,12 +201,12 @@ mod tests {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let mut entries = Handles::new(keys.clone(), HostResourceKind::CBuffer);
         let key = entries.insert(1);
-        keys.borrow_mut().remove(key);
+        keys.borrow_mut().kinds.remove(key);
 
         assert_eq!(entries.get(key), None);
         assert_eq!(entries.get_mut(key), None);
         assert_eq!(entries.remove(key), None);
-        let replacement = keys.borrow_mut().insert(HostResourceKind::AddrInfo);
+        let replacement = keys.borrow_mut().kinds.insert(HostResourceKind::AddrInfo);
         drop(entries);
         assert_eq!(
             keys.borrow().kind(replacement),
@@ -188,8 +226,8 @@ mod tests {
             for key in self.retired.borrow().iter() {
                 assert_eq!(keys.kind(*key), None);
             }
-            let key = keys.insert(HostResourceKind::Job);
-            keys.remove(key);
+            let key = keys.kinds.insert(HostResourceKind::Job);
+            keys.kinds.remove(key);
             self.count.set(self.count.get() + 1);
         }
     }
