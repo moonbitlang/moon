@@ -276,7 +276,7 @@ mod tests {
     use slotmap::SlotMap;
 
     use super::*;
-    use crate::build_plan::BuildPlan;
+    use crate::build_plan::{ArtifactKey, BuildPlan};
 
     #[test]
     fn foreign_library_link_core_uses_the_archive_toolchain() {
@@ -302,6 +302,10 @@ mod tests {
         plan.test_insert_foreign_library_info(
             package,
             ForeignLibraryInfo {
+                program_object: ArtifactKey::LinkedCore {
+                    package,
+                    target_kind: target.kind,
+                },
                 effective_native_toolchain: msvc,
                 c_stub_packages: Vec::new(),
                 native_allocator: NativeAllocator::Default,

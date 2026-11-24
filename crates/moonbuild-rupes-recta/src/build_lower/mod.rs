@@ -646,6 +646,12 @@ mod tests {
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {
+                program_object: ArtifactKey::LinkedCore {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
+                forward_driver_settings: false,
+                link_msvc_default_libraries: true,
                 native: PackageNativeConfig {
                     effective_native_toolchain: toolchain.clone(),
                     driver_debug_info: false,
@@ -894,6 +900,36 @@ mod tests {
         let mut plan = BuildPlan::default();
         plan.test_add_node(executable_node);
         plan.test_add_node(dsym_node);
+        let build_core_node = BuildPlanNode::BuildCore(target);
+        let link_core_node = BuildPlanNode::LinkCore(target);
+        let program_object = ArtifactKey::LinkedCore {
+            package: target.package,
+            target_kind: target.kind,
+        };
+        plan.test_add_node(build_core_node);
+        plan.test_add_node(link_core_node);
+        plan.test_insert_build_target_info(target, build_target_info());
+        plan.test_insert_link_core_info(
+            target,
+            LinkCoreInfo {
+                linked_order: vec![target],
+            },
+        );
+        connect_artifact(
+            &mut plan,
+            link_core_node,
+            build_core_node,
+            ArtifactKey::CoreIr {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+        connect_artifact(
+            &mut plan,
+            executable_node,
+            link_core_node,
+            program_object.clone(),
+        );
         connect_artifact(
             &mut plan,
             dsym_node,
@@ -910,6 +946,9 @@ mod tests {
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {
+                program_object,
+                forward_driver_settings: true,
+                link_msvc_default_libraries: false,
                 native: PackageNativeConfig {
                     driver_debug_info: true,
                     driver_opt_level: crate::model::CCOptLevel::Debug,
@@ -1000,6 +1039,9 @@ mod tests {
                 link_args.first().map(String::as_str),
                 Some("/toolchain/bin/clang")
             );
+            // The same action settings must survive lowering regardless of
+            // whether LLVM or direct-object codegen produced the input.
+            assert!(link_args.iter().any(|arg| arg == "-g"));
             assert!(!link_args.iter().any(|arg| arg == "&&"));
             assert!(link_args.contains(&libbacktrace.display().to_string()));
             let link_inputs = input_paths_for_command(&lowered, |command| {

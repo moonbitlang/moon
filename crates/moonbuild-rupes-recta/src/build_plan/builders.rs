@@ -1360,7 +1360,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 target_kind: target.kind,
             }
         };
-        self.require_artifact(node, payload);
+        self.require_artifact(node, payload.clone());
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
@@ -1428,7 +1428,14 @@ impl<'a> BuildPlanConstructor<'a> {
             );
         }
 
+        // Interpret the existing Native/LLVM policy here. Lowering consumes
+        // the resolved link requirements without inspecting the generator.
+        let direct_object = self.res.backend.direct_native_target().is_some();
         let v = MakeExecutableInfo {
+            program_object: payload,
+            forward_driver_settings: !direct_object,
+            link_msvc_default_libraries: direct_object
+                && native.effective_native_toolchain.uses_msvc_cli(),
             link_c_stubs: c_stub_deps.clone(),
             native,
             link_args,
@@ -1569,7 +1576,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 target_kind: target.kind,
             }
         };
-        self.require_artifact(node, payload);
+        self.require_artifact(node, payload.clone());
 
         // Static archives cannot nest, so C stubs and the runtime contribute
         // their objects directly instead of their intermediate archives.
@@ -1589,6 +1596,7 @@ impl<'a> BuildPlanConstructor<'a> {
         self.res.backend.foreign_library_info.insert(
             package,
             ForeignLibraryInfo {
+                program_object: payload,
                 effective_native_toolchain,
                 c_stub_packages: c_stub_packages.into_iter().collect(),
                 native_allocator,

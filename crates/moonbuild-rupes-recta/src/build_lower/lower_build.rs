@@ -49,7 +49,7 @@ use crate::{
         LinkCoreInfo, MakeExecutableInfo, PackageNativeConfig, WasmLinkInfo,
     },
     discover::DiscoveredPackage,
-    model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind, WasmObject},
+    model::{BackendConfig, BuildTarget, PackageId, TargetKind, WasmObject},
     pkg_name::{PackageFQN, PackagePath},
     special_cases::self_coverage,
     target_layout::proof_artifact_stem,
@@ -1051,20 +1051,67 @@ impl<'a> LoweringContext<'a> {
                 })
         });
 
-        match self.opt.backend() {
-            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
-                unreachable!("non-native plans do not contain MakeExecutable actions")
+        let compiler_paths = self
+            .opt
+            .backend()
+            .compiler_paths()
+            .expect("native lowering requires compiler paths");
+        let sources = self.native_executable_dependency_paths(artifacts, info);
+        let source_args = sources
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>();
+        let native = &info.native;
+        let dest = artifacts.single_output_path().display().to_string();
+
+        let command = if info.link_msvc_default_libraries {
+            debug_assert!(native.effective_native_toolchain.uses_msvc_cli());
+            debug_assert!(!info.forward_driver_settings);
+            BuildCommand {
+                extra_inputs: vec![],
+                commandline: compiler::native::msvc::link_executable_command(
+                    &native.effective_native_toolchain,
+                    &source_args,
+                    &info.link_args,
+                    &dest,
+                    &compiler_paths.lib_path,
+                )
+                .into(),
             }
-            BackendConfig::Native { .. } => match self.plan.backend_plan().native_mode() {
-                NativeBackendMode::DirectObject(_) => {
-                    self.lower_link_new_native_exe(artifacts, target, info)
-                }
-                NativeBackendMode::GeneratedC => {
-                    self.lower_link_exe_regular(artifacts, target, info)
-                }
-            },
-            BackendConfig::Llvm { .. } => self.lower_link_exe_regular(artifacts, target, info),
-        }
+        } else {
+            let config = LinkerConfig::<&Path> {
+                driver_flags: if info.forward_driver_settings {
+                    native.cc_flags.clone()
+                } else {
+                    Vec::new()
+                },
+                opt_level: info
+                    .forward_driver_settings
+                    .then_some(native.driver_opt_level),
+                debug_info: info.forward_driver_settings && native.driver_debug_info,
+                link_moonbitrun: true,
+                link_libbacktrace: true,
+                native_allocator: native.native_allocator,
+                ..Default::default()
+            };
+            // Keep MSVC intermediate files in the package's own directory.
+            let pkg_dir = self
+                .artifact_paths
+                .target_layout()
+                .package_dir(&self.get_package(target).fqn)
+                .display()
+                .to_string();
+            make_linker_command(
+                native.effective_native_toolchain.cc().clone(),
+                config,
+                &info.link_args,
+                &source_args,
+                &pkg_dir,
+                &dest,
+                compiler_paths,
+            )
+        };
+        command.with_msvc_env(&native.effective_native_toolchain)
     }
 
     /// Compile a target's generated C into its payload object, e.g.
@@ -1157,12 +1204,9 @@ impl<'a> LoweringContext<'a> {
 
         // The MoonBit payload comes first, followed by the C stubs that may
         // reference runtime symbols, and then the runtime itself.
-        let mut members = artifacts.dependency_paths_matching(|artifact| {
-            matches!(
-                artifact,
-                ArtifactKey::LinkedCore { .. } | ArtifactKey::GeneratedCObject { .. }
-            )
-        });
+        let mut members = vec![
+            artifacts.single_dependency_path_matching(|artifact| artifact == &info.program_object),
+        ];
         for package in &info.c_stub_packages {
             members.extend(artifacts.dependency_paths_matching(|artifact| {
                 matches!(artifact, ArtifactKey::CStubObject { package: actual, .. } if actual == package)
@@ -1221,16 +1265,11 @@ impl<'a> LoweringContext<'a> {
         artifacts: &ActionArtifacts,
         info: &MakeExecutableInfo,
     ) -> Vec<PathBuf> {
-        let mut sources = Vec::new();
-
         // Runtime is a static archive for regular builds, so place it after the
         // linked core and C stub archives that may introduce runtime symbols.
-        sources.extend(artifacts.dependency_paths_matching(|artifact| {
-            matches!(
-                artifact,
-                ArtifactKey::LinkedCore { .. } | ArtifactKey::GeneratedCObject { .. }
-            )
-        }));
+        let mut sources = vec![
+            artifacts.single_dependency_path_matching(|artifact| artifact == &info.program_object),
+        ];
 
         for package in &info.link_c_stubs {
             sources.extend(artifacts.dependency_paths_matching(|artifact| {
@@ -1245,122 +1284,6 @@ impl<'a> LoweringContext<'a> {
         );
 
         sources
-    }
-
-    fn lower_link_exe_regular(
-        &mut self,
-        artifacts: &ActionArtifacts,
-        target: BuildTarget,
-        info: &MakeExecutableInfo,
-    ) -> BuildCommand {
-        // The generated-C payload is already compiled. Preserve the historical
-        // driver flags here because they can also affect linking (e.g. LTO).
-
-        let sources = self.native_executable_dependency_paths(artifacts, info);
-        let native = &info.native;
-
-        let config = LinkerConfig::<&Path> {
-            driver_flags: native.cc_flags.clone(),
-            opt_level: Some(native.driver_opt_level),
-            debug_info: native.driver_debug_info,
-            link_moonbitrun: true,
-            link_libbacktrace: true,
-            native_allocator: native.native_allocator,
-            ..Default::default()
-        };
-
-        let dest = artifacts.single_output_path().display().to_string();
-
-        // This directory is used for MSVC to place intermediate files.
-        // Each package should use their own to minimize conflicts.
-        let pkg_dir = self
-            .artifact_paths
-            .target_layout()
-            .package_dir(&self.get_package(target).fqn)
-            .display()
-            .to_string();
-
-        let cc_cmd = make_linker_command(
-            native.effective_native_toolchain.cc().clone(),
-            config,
-            &info.link_args,
-            &sources
-                .iter()
-                .map(|x| x.display().to_string())
-                .collect::<Vec<_>>(),
-            &pkg_dir,
-            &dest,
-            self.opt
-                .backend()
-                .compiler_paths()
-                .expect("native lowering requires compiler paths"),
-        );
-
-        cc_cmd.with_msvc_env(&native.effective_native_toolchain)
-    }
-
-    fn lower_link_new_native_exe(
-        &mut self,
-        artifacts: &ActionArtifacts,
-        target: BuildTarget,
-        info: &MakeExecutableInfo,
-    ) -> BuildCommand {
-        let compiler_paths = self
-            .opt
-            .backend()
-            .compiler_paths()
-            .expect("native lowering requires compiler paths");
-        let sources = self.native_executable_dependency_paths(artifacts, info);
-        let native = &info.native;
-        let cc = native.effective_native_toolchain.cc().clone();
-
-        let dest = artifacts.single_output_path().display().to_string();
-
-        let pkg_dir = self
-            .artifact_paths
-            .target_layout()
-            .package_dir(&self.get_package(target).fqn)
-            .display()
-            .to_string();
-
-        let config = LinkerConfig::<&Path> {
-            link_moonbitrun: true,
-            link_libbacktrace: true,
-            output_ty: CCOutputType::Executable,
-            native_allocator: native.native_allocator,
-            ..Default::default()
-        };
-
-        let source_args = sources
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>();
-        let command = if native.effective_native_toolchain.uses_msvc_cli() {
-            let commandline = compiler::native::msvc::link_executable_command(
-                &native.effective_native_toolchain,
-                &source_args,
-                &info.link_args,
-                &dest,
-                &compiler_paths.lib_path,
-            )
-            .into();
-            BuildCommand {
-                extra_inputs: vec![],
-                commandline,
-            }
-        } else {
-            make_linker_command(
-                cc,
-                config,
-                &info.link_args,
-                &source_args,
-                &pkg_dir,
-                &dest,
-                compiler_paths,
-            )
-        };
-
-        command.with_msvc_env(&native.effective_native_toolchain)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts))]

@@ -99,6 +99,15 @@ configurations. Generated-C and LLVM executable links retain `cc-flags`
 forwarding for effects such as sanitizers and LTO. Direct-object links do not
 consume those driver settings.
 
+Executable-link and foreign-library action metadata identify the required program
+object by its artifact key. Planning selects its provider; lowering resolves that
+specific artifact's path without inferring the input from the code generator.
+Executable-link metadata also records whether to forward package driver settings
+and whether to supply the MSVC console subsystem and default libraries explicitly.
+These preserve the existing generated-C/LLVM and direct-object command forms.
+Link lowering consumes these requirements without reselecting behavior from
+`BackendConfig` or the Native backend mode.
+
 Package C stubs are handled separately:
 
 1. each `stub.c` is compiled to an object file

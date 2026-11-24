@@ -473,8 +473,17 @@ pub struct BuildCStubsInfo {
 
 #[derive(Debug)]
 pub struct MakeExecutableInfo {
+    /// The program object required by this action, independent of its producer.
+    pub(crate) program_object: ArtifactKey,
     /// Package settings shared with generated-C compilation, when present.
     pub(crate) native: PackageNativeConfig,
+    /// Forward the package's driver flags, debug information, and optimization.
+    /// TODO: Unify link-driver policy before removing the historical difference
+    /// between generated-C/LLVM links and direct-object links.
+    pub(crate) forward_driver_settings: bool,
+    /// Preserve the explicit console subsystem and default libraries used by
+    /// MSVC direct-object links.
+    pub(crate) link_msvc_default_libraries: bool,
     /// Ordered link inputs, rendered by the selected driver during command lowering.
     pub(crate) link_args: Vec<NativeLinkArg>,
     /// The C stub targets to link with.
@@ -501,6 +510,8 @@ pub struct PackageNativeConfig {
 
 #[derive(Debug)]
 pub struct ForeignLibraryInfo {
+    /// The program object required by this action, independent of its producer.
+    pub(crate) program_object: ArtifactKey,
     /// The toolchain whose archiver creates the library.
     pub(crate) effective_native_toolchain: Toolchain,
     /// The packages whose C stub objects become members, in link order.

@@ -61,9 +61,13 @@ backend actions, without copying that state into another configuration.
 The CLI also supplies a `DebugInfoRequest`, separating requested symbol detail
 from native runtime backtrace support. After selecting the payload form, Backend
 Plan resolves and stores whether MoonBit compilation emits debug information.
-`BuildCStubsInfo` and `CompileGeneratedCInfo` separately own their native compiler
-debug and optimization settings. A backtrace-only request may require debug
-information for generated C without changing C stubs. Runtime backtrace support
+`BuildCStubsInfo` and `PackageNativeConfig` separately own their native compiler
+debug and optimization settings. Executable linking shares `PackageNativeConfig`
+and records whether to forward its driver settings, together with its program
+object artifact requirement and explicit MSVC default-library requirement.
+Link lowering consumes those action inputs without inspecting the code generator.
+A backtrace-only request may require debug information for generated C without
+changing C stubs. Runtime backtrace support
 is resolved into `BuildRuntimeInfo`, and dSYM requirements become `GenerateDsym`
 actions. Lowering consumes these resolved decisions from the plan.
 
