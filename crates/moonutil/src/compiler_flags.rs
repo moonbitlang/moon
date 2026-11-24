@@ -285,6 +285,16 @@ const CAN_USE_MOONBITRUN: bool = false;
 // backend still needs a no-stdlib runtime build there, plus an /MT vs /MD call.
 const CAN_USE_SIMDUTF: bool = cfg!(any(target_os = "linux", target_os = "macos"));
 
+/// Normalize OS spellings reported by compiler drivers, including versioned
+/// components such as `darwin25.6.0` and the MinGW target `mingw32`.
+fn target_os_name(component: &str) -> &str {
+    match component.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
+        "darwin" | "macosx" => "macos",
+        "mingw" | "cygwin" => "windows",
+        os => os,
+    }
+}
+
 /// Whether a target triple names the given host architecture and operating
 /// system, as reported by `std::env::consts::{ARCH, OS}`, with the default
 /// ABI of that host.
@@ -300,16 +310,10 @@ fn triple_matches_host(triple: &str, host_arch: &str, host_os: &str) -> bool {
     if arch != host_arch {
         return false;
     }
-    // OS components can carry a version, as in `darwin25.6.0` or `mingw32`.
-    let os_matches = components.by_ref().any(|component| {
-        let os = match component.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
-            "darwin" | "macos" | "macosx" => "macos",
-            "mingw" | "cygwin" => "windows",
-            os => os,
-        };
-        os == host_os
-    });
-    if !os_matches {
+    if !components
+        .by_ref()
+        .any(|part| target_os_name(part) == host_os)
+    {
         return false;
     }
     // The component after the OS names the ABI, as in `gnu`, `gnux32` or
@@ -629,6 +633,16 @@ impl CC {
         self.target_triple
             .as_deref()
             .is_some_and(|target| target.contains("apple-darwin"))
+    }
+
+    /// Whether the probed triple names this OS, independently of its CPU and ABI.
+    pub fn targets_os(&self, os: &str) -> bool {
+        self.target_triple.as_deref().is_some_and(|triple| {
+            triple
+                .split('-')
+                .skip(1)
+                .any(|part| target_os_name(part) == os)
+        })
     }
 
     /// Whether the compiler builds for the machine and ABI that run Moon.
@@ -1179,6 +1193,22 @@ mod tests {
         assert!(!fake_cc(CCKind::Tcc, Some("x86_64-unknown-linux-gnu")).can_use_simdutf());
         assert!(!fake_cc(CCKind::Msvc, None).can_use_simdutf());
         assert!(!fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")).can_use_simdutf());
+    }
+
+    #[test]
+    fn compiler_target_os_is_independent_of_arch_and_abi() {
+        for triple in [
+            "x86_64-w64-mingw32",
+            "aarch64-pc-windows-msvc",
+            "i686-w64-windows-gnu",
+            "x86_64-pc-cygwin",
+        ] {
+            assert!(fake_cc(CCKind::Gcc, Some(triple)).targets_os("windows"));
+        }
+        let darwin = fake_cc(CCKind::Clang, Some("arm64-apple-darwin25.6.0"));
+        assert!(darwin.targets_os("macos"));
+        assert!(!darwin.targets_os("windows"));
+        assert!(!fake_cc(CCKind::Gcc, None).targets_os("windows"));
     }
 
     #[test]
