@@ -57,7 +57,7 @@ use super::{
     TLS_RENEGOTIATION_STATUS, TLS_SUCCESS_STATUS, TLS_WOULD_BLOCK_STATUS, TlsConfig, TlsTrust,
 };
 
-pub(crate) struct TlsConnection {
+pub(super) struct TlsConnection {
     schannel: SchannelContext,
     plain_input: RingBuffer,
     custom_root_verifier_host: Option<String>,
@@ -132,7 +132,7 @@ enum SchannelPhase {
 }
 
 impl TlsConnection {
-    pub(crate) fn client(host: &str, _sni: bool, config: TlsConfig) -> Result<Self, String> {
+    pub(super) fn client(host: &str, _sni: bool, config: TlsConfig) -> Result<Self, String> {
         let TlsConfig::Client {
             trust,
             root_certificates,
@@ -158,7 +158,7 @@ impl TlsConnection {
         Ok(Self::new(schannel, custom_root_verifier_host))
     }
 
-    pub(crate) fn server(config: TlsConfig) -> Result<Self, String> {
+    pub(super) fn server(config: TlsConfig) -> Result<Self, String> {
         let pfx_content = match config {
             TlsConfig::ServerPfx { pfx_content } => pfx_content,
             TlsConfig::ServerFiles {
@@ -195,7 +195,7 @@ impl TlsConnection {
         }
     }
 
-    pub(crate) fn read_plain(
+    pub(super) fn read_plain(
         &mut self,
         input: &mut [u8],
         dst: &mut [u8],
@@ -290,7 +290,7 @@ impl TlsConnection {
         }
     }
 
-    pub(crate) fn write_plain(&mut self, _input: &mut [u8], src: &[u8], output: &mut [u8]) -> i32 {
+    pub(super) fn write_plain(&mut self, _input: &mut [u8], src: &[u8], output: &mut [u8]) -> i32 {
         self.schannel.bytes_read = 0;
         self.schannel.bytes_to_write = 0;
         if src.is_empty() {
@@ -319,19 +319,19 @@ impl TlsConnection {
         }
     }
 
-    pub(crate) fn wants_read(&self) -> bool {
+    pub(super) fn wants_read(&self) -> bool {
         self.last_want_read
     }
 
-    pub(crate) fn wants_write(&self) -> bool {
+    pub(super) fn wants_write(&self) -> bool {
         self.last_want_write
     }
 
-    pub(crate) fn is_handshaking(&self) -> bool {
+    fn is_handshaking(&self) -> bool {
         self.phase == SchannelPhase::Handshaking
     }
 
-    pub(crate) fn shutdown(&mut self) -> i32 {
+    pub(super) fn shutdown(&mut self) -> i32 {
         if self.local_shutdown_complete {
             return TLS_SUCCESS_STATUS;
         }
@@ -344,29 +344,29 @@ impl TlsConnection {
         TLS_SUCCESS_STATUS
     }
 
-    pub(crate) fn connect(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
+    pub(super) fn connect(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
         if !self.schannel.is_client() {
             return self.error("TLS connect requires a client handle".to_string());
         }
         self.advance_state(input, output)
     }
 
-    pub(crate) fn accept(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
+    pub(super) fn accept(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
         if self.schannel.is_client() {
             return self.error("TLS accept requires a server handle".to_string());
         }
         self.advance_state(input, output)
     }
 
-    pub(crate) fn bytes_read(&self) -> usize {
+    pub(super) fn bytes_read(&self) -> usize {
         self.schannel.bytes_read
     }
 
-    pub(crate) fn bytes_to_write(&self) -> usize {
+    pub(super) fn bytes_to_write(&self) -> usize {
         self.schannel.bytes_to_write
     }
 
-    pub(crate) fn peer_certificate(&mut self) -> Result<Option<Vec<u8>>, ()> {
+    pub(super) fn peer_certificate(&mut self) -> Result<Option<Vec<u8>>, ()> {
         match self.peer_certificate_der() {
             Ok(certificate) => Ok(certificate),
             Err(error) => {
@@ -376,7 +376,7 @@ impl TlsConnection {
         }
     }
 
-    pub(crate) fn unique_channel_binding(&mut self) -> Result<Option<Vec<u8>>, ()> {
+    pub(super) fn unique_channel_binding(&mut self) -> Result<Option<Vec<u8>>, ()> {
         match self.unique_channel_binding_bytes() {
             Ok(binding) => Ok(binding),
             Err(error) => {
@@ -386,7 +386,7 @@ impl TlsConnection {
         }
     }
 
-    pub(crate) fn server_endpoint_channel_binding(&mut self) -> Result<Option<Vec<u8>>, ()> {
+    pub(super) fn server_endpoint_channel_binding(&mut self) -> Result<Option<Vec<u8>>, ()> {
         match self.server_endpoint_channel_binding_bytes() {
             Ok(binding) => Ok(binding),
             Err(error) => {
@@ -396,7 +396,7 @@ impl TlsConnection {
         }
     }
 
-    pub(crate) fn take_error(&mut self) -> Option<String> {
+    pub(super) fn take_error(&mut self) -> Option<String> {
         self.last_error.take()
     }
 
