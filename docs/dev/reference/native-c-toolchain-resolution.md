@@ -472,8 +472,12 @@ probe and resolve the archiver. A recognized target across the Windows boundary
 selects `-cfg platform=windows` when targeting Windows or `-cfg platform=`
 when targeting Linux or macOS from Windows. Both the application and core use
 this override, so Moon builds core from source even if the host bundle is
-complete. An unknown target or one with the same Windows predicate keeps
-moonc's default. Test and bench use the default for compilation and discovery.
+complete. Project artifacts for this override are placed under `native-windows`
+when targeting Windows and `native-unix` when targeting non-Windows. An unknown
+target or one with the same Windows predicate keeps moonc's default and the
+`native` directory. Switching architecture or ABI within the same directory
+with the same compiler wrapper can still require `moon clean`.
+Test and bench use the default for compilation and discovery.
 When a native test needs a toolchain, Moon rejects a known `MOON_CC` target OS
 that differs from the host OS before resolving the archiver. This includes
 `moon test --build-only`, which also generates a test driver. `moon test --outline`

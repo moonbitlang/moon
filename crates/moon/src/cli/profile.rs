@@ -29,7 +29,7 @@ use std::{
 use anyhow::{Context, bail};
 use chrono::Local;
 use moonbuild::BuildMeta;
-use moonbuild_rupes_recta::RunMode;
+use moonbuild_rupes_recta::{RunMode, target_layout::TargetLayout};
 use moonutil::{
     command_output::CommandOutput, cond_expr::OptLevel, target::TargetBackend, toolchain::BINARIES,
 };
@@ -294,16 +294,13 @@ fn run_profile_materialized(
     )?;
     built.ensure_build_success()?;
 
-    let target_backend = built.target_backend;
+    let target_backend = built.configuration.backend;
     if target_backend != TargetBackend::Native {
         bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend");
     }
 
     let output_dir = default_output_dir(
-        &built.target_dir,
-        target_backend,
-        built.opt_level,
-        RunMode::Run,
+        &TargetLayout::configuration_dir(&built.target_dir, built.configuration),
         &built.executable,
     );
     if !cli.dry_run {
@@ -312,7 +309,7 @@ fn run_profile_materialized(
     let request = ProfileRequest {
         run_mode: RunMode::Run,
         target_backend,
-        opt_level: built.opt_level,
+        opt_level: built.configuration.profile,
         executable: built.executable,
         display_executable: None,
         args: cmd.args,
@@ -566,11 +563,9 @@ fn profile_test_invocations(
         return Ok(0);
     }
 
-    let session_dir = default_test_profile_session_dir(
-        target_dir,
-        build_meta.target_backend(),
-        build_meta.configuration().profile,
-    );
+    let session_dir = TargetLayout::configuration_dir(target_dir, build_meta.configuration())
+        .join("profile/test")
+        .join(profile_timestamp());
     // Each selected test executable is a separate process and therefore a
     // separate profiler recording. Keep raw artifacts separated, then merge
     // the parsed profile statistics into one aggregate report.
@@ -640,16 +635,6 @@ fn profile_test_invocations(
     Ok(0)
 }
 
-fn default_test_profile_session_dir(
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
-) -> PathBuf {
-    output_kind_dir(target_dir, target_backend, opt_level, "profile")
-        .join("test")
-        .join(profile_timestamp())
-}
-
 fn test_profile_output_dir_for_executable(
     session_dir: &Path,
     index: usize,
@@ -678,38 +663,10 @@ fn sanitize_path_component(input: &str) -> String {
     }
 }
 
-/// Place profile output beside the canonical artifact layout for the run mode.
-pub(super) fn default_output_dir(
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
-    artifact_run_mode: RunMode,
-    executable: &Path,
-) -> PathBuf {
-    default_output_parent_dir(
-        target_dir,
-        target_backend,
-        opt_level,
-        artifact_run_mode,
-        executable,
-    )
-    .join(profile_timestamp())
-}
-
-fn default_output_parent_dir(
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
-    artifact_run_mode: RunMode,
-    executable: &Path,
-) -> PathBuf {
-    let build_root = output_kind_dir(
-        target_dir,
-        target_backend,
-        opt_level,
-        artifact_run_mode.to_dir_name(),
-    );
-    let mut profile_dir = output_kind_dir(target_dir, target_backend, opt_level, "profile");
+/// Place the recording beside the executable's build tree, preserving its package path.
+fn default_output_dir(configuration_dir: &Path, executable: &Path) -> PathBuf {
+    let build_root = configuration_dir.join(RunMode::Run.to_dir_name());
+    let mut profile_dir = configuration_dir.join("profile");
     let executable_dir = executable.parent().unwrap_or(executable);
     if let Some(package_dir) = strip_prefix_lenient(executable_dir, &build_root)
         && !package_dir.as_os_str().is_empty()
@@ -722,27 +679,11 @@ fn default_output_parent_dir(
             .unwrap_or("profile");
         profile_dir.push(sanitize_path_component(stem));
     }
-    profile_dir
+    profile_dir.join(profile_timestamp())
 }
 
 fn profile_timestamp() -> String {
     Local::now().format("%Y%m%d-%H%M%S").to_string()
-}
-
-fn output_kind_dir(
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
-    kind: &str,
-) -> PathBuf {
-    let profile = match opt_level {
-        OptLevel::Debug => "debug",
-        OptLevel::Release => "release",
-    };
-    target_dir
-        .join(target_backend.to_dir_name())
-        .join(profile)
-        .join(kind)
 }
 
 fn strip_prefix_lenient<'a>(path: &'a Path, prefix: &Path) -> Option<&'a Path> {
@@ -2225,10 +2166,7 @@ mod tests {
     #[test]
     fn profile_output_reuses_run_artifact_package_dir() {
         let dir = default_output_dir(
-            Path::new("./_build"),
-            TargetBackend::Native,
-            OptLevel::Release,
-            RunMode::Run,
+            Path::new("./_build/native/release"),
             Path::new("./_build/native/release/build/cmd/main/main.exe"),
         );
 

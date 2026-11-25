@@ -251,12 +251,20 @@ impl TargetLayout {
     }
 
     pub fn run_mode_dir(&self) -> PathBuf {
-        // FIXME: Account for the native compiler target in artifact reuse. Changing
-        // the default target of the same MOON_CC wrapper currently requires moon clean.
-        self.target_base_dir
-            .join(self.configuration.backend.to_dir_name())
-            .join(self.configuration.profile.as_str())
+        Self::configuration_dir(&self.target_base_dir, self.configuration)
             .join(self.run_mode.to_dir_name())
+    }
+
+    /// The shared parent of this configuration's build and profiling outputs.
+    pub fn configuration_dir(base: &Path, configuration: crate::BuildConfiguration) -> PathBuf {
+        // FIXME: Distinguish targets within one Windows predicate when the
+        // configuration also identifies architecture and ABI.
+        let backend_dir = match (configuration.backend, configuration.windows_cfg_override) {
+            (TargetBackend::Native, Some(true)) => "native-windows",
+            (TargetBackend::Native, Some(false)) => "native-unix",
+            (backend, _) => backend.to_dir_name(),
+        };
+        base.join(backend_dir).join(configuration.profile.as_str())
     }
 
     pub fn core_of_build_target(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
@@ -644,7 +652,13 @@ impl TargetLayout {
 
     /// Returns the backend/profile/run-mode-scoped `packages.json` path.
     pub fn packages_json_path(&self) -> PathBuf {
-        self.run_mode_dir().join(PACKAGES_JSON)
+        // IDEs resolve this document from the public backend/profile selector.
+        // Its artifact and compiler-command paths use the selected configuration.
+        self.target_base_dir
+            .join(self.configuration.backend.to_dir_name())
+            .join(self.configuration.profile.as_str())
+            .join(self.run_mode.to_dir_name())
+            .join(PACKAGES_JSON)
     }
 }
 
@@ -1722,6 +1736,24 @@ mod tests {
     fn native_executable_artifacts_keep_stable_suffix() {
         assert_eq!(ExecutableArtifact::NativeExecutable.extension(), ".exe");
         assert_eq!(ExecutableArtifact::LlvmExecutable.extension(), ".exe");
+    }
+
+    #[test]
+    fn native_artifact_directories_follow_the_selected_windows_predicate() {
+        let base = Path::new("_build");
+        let mut configuration =
+            crate::BuildConfiguration::new(TargetBackend::Native, OptLevel::Release);
+        for (predicate, directory) in [
+            (None, "native"),
+            (Some(true), "native-windows"),
+            (Some(false), "native-unix"),
+        ] {
+            configuration.windows_cfg_override = predicate;
+            assert_eq!(
+                TargetLayout::configuration_dir(base, configuration),
+                base.join(directory).join("release")
+            );
+        }
     }
 
     #[test]

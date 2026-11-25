@@ -877,6 +877,10 @@ _build/index.json
 _build/<backend>/<profile>/check/packages.json
 ```
 
+For a Native check across the Windows boundary, the selector still names the
+`native` backend. Its scoped document stays at the path above and points to
+interfaces in the `native-windows` or `native-unix` artifact directory.
+
 The scoped document retains the complete legacy single-module-oriented shape,
 including its top-level `backend` and `opt_level` fields, all resolved packages,
 and conditional metadata for all package files. This first migration step only

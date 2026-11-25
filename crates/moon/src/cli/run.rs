@@ -26,7 +26,7 @@ use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    DiscoveredProject, RunMode,
+    BuildConfiguration, DiscoveredProject, RunMode,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
     model::PackageId,
@@ -183,9 +183,8 @@ pub(super) struct EmbeddedMbtxPolicy {
 pub(super) struct RunExecutable {
     /// Path to the executable-like artifact that should be launched or reported.
     pub(super) executable: PathBuf,
-    /// Target backend used for runtime selection and profiling.
-    pub(super) target_backend: TargetBackend,
-    pub(super) opt_level: moonutil::cond_expr::OptLevel,
+    /// Selected configuration used for runtime selection and profiling.
+    pub(super) configuration: BuildConfiguration,
     pub(super) target_dir: PathBuf,
     pub(super) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
     source_dir: PathBuf,
@@ -352,8 +351,10 @@ fn build_wasm_file_executable_from_arg(
 
     Ok(RunExecutable {
         executable: wasm_path,
-        target_backend: TargetBackend::WasmGC,
-        opt_level: moonutil::cond_expr::OptLevel::Debug,
+        configuration: BuildConfiguration::new(
+            TargetBackend::WasmGC,
+            moonutil::cond_expr::OptLevel::Debug,
+        ),
         target_dir: print_dir.clone(),
         embedded_mbtx_policy: None,
         source_dir: print_dir,
@@ -812,8 +813,7 @@ fn build_executable_from_plan(
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
-        target_backend: build_meta.target_backend(),
-        opt_level: build_meta.configuration().profile,
+        configuration: build_meta.configuration(),
         target_dir: build_meta
             .artifact_paths()
             .target_layout()
@@ -862,7 +862,7 @@ fn run_executable(
         return Ok(0);
     }
     let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
-        crate::run::ExecutionMode::from(executable.target_backend),
+        crate::run::ExecutionMode::from(executable.configuration.backend),
         executable.executable.as_path(),
         None,
         moonrun_policy,
