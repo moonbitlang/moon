@@ -748,7 +748,7 @@ pub(super) fn make_spawn_job_unix(
     cwd_len: u32,
     has_cwd: i32,
 ) -> AsyncHostResult<u64> {
-    let (args, env) = context.host.take_legacy_process_spawn_inputs(
+    let (args, env) = context.host.process_inputs().take_legacy_spawn_inputs(
         args,
         env,
         inherited_env_entry_count,
@@ -789,8 +789,8 @@ pub(super) fn spawn_job_unix(
     stderr: u64,
 ) -> AsyncHostResult<u64> {
     let (args, env) = context
-        .host
-        .take_process_spawn_inputs(args, env)?;
+        .host.process_inputs()
+        .take_spawn_inputs(args, env)?;
     let path = read_guest_os_string(context, path, path_len)?;
     let stdin = optional_resource(context, stdin)?;
     let stdout = optional_resource(context, stdout)?;
@@ -842,7 +842,7 @@ pub(super) fn make_spawn_job_windows(
     no_console_window: i32,
     is_orphan: i32,
 ) -> AsyncHostResult<u64> {
-    let env = context.host.take_process_env(env)?;
+    let env = context.host.process_inputs().take_legacy_env(env)?;
     let command_line = read_guest_os_string(context, command_line, command_line_len)?;
     let cwd = if has_cwd == 0 {
         None
@@ -885,7 +885,7 @@ pub(super) fn spawn_job_windows(
     stderr: u64,
     is_orphan: i32,
 ) -> AsyncHostResult<u64> {
-    let env = context.host.take_process_env_builder(env)?;
+    let env = context.host.process_inputs().take_env(env)?;
     let command_line = read_guest_os_string(context, command_line, command_line_len)?;
     let stdin = optional_resource(context, stdin)?;
     let stdout = optional_resource(context, stdout)?;

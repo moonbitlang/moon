@@ -55,7 +55,7 @@ use crate::filesystem::HostFs;
 use crate::filesystem::RawFile as RawFd;
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
-use crate::process::HostProcess;
+use crate::process::{HostProcess, ProcessInputs};
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 use crate::run_signal::SignalReceiver;
 use crate::run_termination::TerminationRequest;
@@ -145,14 +145,6 @@ impl WindowsWatcherBufferLease {
         (self.key, self.buffer)
     }
 }
-#[cfg(unix)]
-type HostProcessArgv = Vec<Option<OsString>>;
-#[cfg(unix)]
-type HostProcessEnv = Vec<Option<crate::async_sys::process::LegacyProcessEnvEntry>>;
-#[cfg(windows)]
-type HostProcessEnv = Vec<u16>;
-type HostProcessEnvBuilder = crate::async_sys::process::ProcessEnvBuilder;
-
 #[cfg(unix)]
 mod native_errno {
     pub(crate) const BADF: i32 = libc::EBADF;
@@ -551,17 +543,13 @@ pub(crate) struct AsyncHost {
     // that ownership; worker threads own their Jobs and return them through the
     // completion channel instead of sharing the host's tables.
     filesystem: Arc<HostFs>,
-    environment: Arc<Env>,
     network: HostNetwork,
     errno: Cell<i32>,
     addr_infos: RefCell<Handles<HostAddrInfo>>,
     c_buffers: RefCell<Handles<HostCBuffer>>,
     #[cfg(windows)]
     windows_watcher_buffers: RefCell<Handles<HostWindowsWatcherBuffer>>,
-    #[cfg(unix)]
-    process_argvs: RefCell<Handles<HostProcessArgv>>,
-    process_envs: RefCell<Handles<HostProcessEnv>>,
-    process_env_builders: RefCell<Handles<HostProcessEnvBuilder>>,
+    process_inputs: ProcessInputs,
     process: HostProcess,
     #[cfg(unix)]
     child_signal_mask: libc::sigset_t,
@@ -593,7 +581,6 @@ impl AsyncHost {
         Self {
             tls: HostTls::new(Arc::clone(&filesystem), keys.clone()),
             filesystem,
-            environment,
             network,
             errno: Cell::new(0),
             addr_infos: RefCell::new(Handles::new(keys.clone(), HandleKind::AddrInfo)),
@@ -603,13 +590,7 @@ impl AsyncHost {
                 keys.clone(),
                 HandleKind::WindowsWatcherBuffer,
             )),
-            #[cfg(unix)]
-            process_argvs: RefCell::new(Handles::new(keys.clone(), HandleKind::ProcessArgv)),
-            process_envs: RefCell::new(Handles::new(keys.clone(), HandleKind::ProcessEnv)),
-            process_env_builders: RefCell::new(Handles::new(
-                keys.clone(),
-                HandleKind::ProcessEnvBuilder,
-            )),
+            process_inputs: ProcessInputs::new(environment, keys.clone()),
             process,
             #[cfg(unix)]
             child_signal_mask,
@@ -786,27 +767,8 @@ impl AsyncHost {
                     leaks.push(format!("polls={}", polls.polls.len()));
                 }
             }
-            #[cfg(unix)]
-            {
-                let process_argvs = self.process_argvs.borrow();
-                if !process_argvs.is_empty() {
-                    leaks.push(format!("process_argvs={}", process_argvs.len()));
-                }
-            }
-            {
-                let process_envs = self.process_envs.borrow();
-                if !process_envs.is_empty() {
-                    leaks.push(format!("process_envs={}", process_envs.len()));
-                }
-            }
-            {
-                let process_env_builders = self.process_env_builders.borrow();
-                if !process_env_builders.is_empty() {
-                    leaks.push(format!(
-                        "process_env_builders={}",
-                        process_env_builders.len()
-                    ));
-                }
+            if let Some(summary) = self.process_inputs.leak_summary() {
+                leaks.push(summary);
             }
             {
                 let completions = self.thread_pool_registration.borrow();
@@ -1390,284 +1352,6 @@ impl AsyncHost {
         }
     }
 
-    #[cfg(unix)]
-    pub(crate) fn insert_process_argv(&self, len: u32) -> AsyncHostResult<u64> {
-        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        let key = self.process_argvs.borrow_mut().insert(vec![None; len]);
-        Ok(handle_from_key(key))
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn process_argv_add_entry(
-        &self,
-        handle: u64,
-        index: u32,
-        value: OsString,
-    ) -> AsyncHostResult<()> {
-        let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-        let key = key_from_handle(handle);
-        let mut process_argvs = self.process_argvs.borrow_mut();
-        let argv = process_argvs.get_mut(key).ok_or(AsyncHostError::Badf)?;
-        let slot = argv.get_mut(index).ok_or(AsyncHostError::Fault)?;
-        *slot = Some(value);
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn take_legacy_process_spawn_inputs(
-        &self,
-        argv_handle: u64,
-        env_handle: u64,
-        inherited_env_entry_count: u32,
-    ) -> AsyncHostResult<(Vec<OsString>, Vec<OsString>)> {
-        let inherited_env_entry_count =
-            usize::try_from(inherited_env_entry_count).map_err(|_| AsyncHostError::Inval)?;
-
-        // Validate both buffers before consuming either handle. A malformed
-        // spawn request must not partially transfer ownership.
-        let argv_key = key_from_handle(argv_handle);
-        let env_key = key_from_handle(env_handle);
-        let mut process_argvs = self.process_argvs.borrow_mut();
-        let argv = process_argvs.get(argv_key).ok_or(AsyncHostError::Badf)?;
-        let mut process_envs = self.process_envs.borrow_mut();
-        let env = process_envs.get(env_key).ok_or(AsyncHostError::Badf)?;
-        if inherited_env_entry_count > env.len()
-            || argv.iter().any(Option::is_none)
-            || env.iter().any(Option::is_none)
-        {
-            return Err(AsyncHostError::Inval);
-        }
-
-        let argv = process_argvs
-            .remove(argv_key)
-            .ok_or(AsyncHostError::Badf)?
-            .into_iter()
-            .map(Option::unwrap)
-            .collect();
-        let env = process_envs
-            .remove(env_key)
-            .ok_or(AsyncHostError::Badf)?
-            .into_iter()
-            .map(Option::unwrap)
-            .collect();
-        // The legacy ABI materializes inherited entries first and appends
-        // extras. Convert that layout into the current builder model so both
-        // ABIs use the same override and ordering semantics from here on.
-        let env = HostProcessEnvBuilder::from_legacy_env(env, inherited_env_entry_count);
-        let env = crate::async_sys::process::finish_process_env_builder(env);
-        Ok((argv, env))
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn take_process_spawn_inputs(
-        &self,
-        argv_handle: u64,
-        env_handle: u64,
-    ) -> AsyncHostResult<(Vec<OsString>, Vec<OsString>)> {
-        // Validate both inputs before consuming either handle.
-        let argv_key = key_from_handle(argv_handle);
-        let env_key = key_from_handle(env_handle);
-        let mut process_argvs = self.process_argvs.borrow_mut();
-        let argv = process_argvs.get(argv_key).ok_or(AsyncHostError::Badf)?;
-        let mut process_env_builders = self.process_env_builders.borrow_mut();
-        process_env_builders
-            .get(env_key)
-            .ok_or(AsyncHostError::Badf)?;
-        if argv.iter().any(Option::is_none) {
-            return Err(AsyncHostError::Inval);
-        }
-
-        let argv = process_argvs
-            .remove(argv_key)
-            .ok_or(AsyncHostError::Badf)?
-            .into_iter()
-            .map(Option::unwrap)
-            .collect();
-        let env = process_env_builders
-            .remove(env_key)
-            .ok_or(AsyncHostError::Badf)?;
-        let env = crate::async_sys::process::finish_process_env_builder(env);
-        Ok((argv, env))
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn insert_process_env(&self, entries: Vec<Option<OsString>>) -> u64 {
-        let key = self.process_envs.borrow_mut().insert(
-            entries
-                .into_iter()
-                .map(|entry| {
-                    entry.map(crate::async_sys::process::LegacyProcessEnvEntry::Materialized)
-                })
-                .collect(),
-        );
-        handle_from_key(key)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn insert_process_env(&self, env: Vec<u16>) -> u64 {
-        let key = self.process_envs.borrow_mut().insert(env);
-        handle_from_key(key)
-    }
-
-    pub(crate) fn insert_process_env_builder(&self, inherited: Vec<OsString>) -> u64 {
-        let key = self
-            .process_env_builders
-            .borrow_mut()
-            .insert(HostProcessEnvBuilder::new(inherited));
-        handle_from_key(key)
-    }
-
-    pub(crate) fn process_env_builder_add_entry(
-        &self,
-        handle: u64,
-        key: OsString,
-        value: OsString,
-    ) -> AsyncHostResult<()> {
-        let builder_key = key_from_handle(handle);
-        let mut builders = self.process_env_builders.borrow_mut();
-        let builder = builders.get_mut(builder_key).ok_or(AsyncHostError::Badf)?;
-        crate::async_sys::process::process_env_builder_add_entry(builder, key, value);
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn process_env_length(&self, handle: u64) -> AsyncHostResult<u32> {
-        let key = key_from_handle(handle);
-        let process_envs = self.process_envs.borrow();
-        let env = process_envs.get(key).ok_or(AsyncHostError::Badf)?;
-        u32::try_from(env.len()).map_err(|_| AsyncHostError::Fault)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn process_env_length(&self, handle: u64) -> AsyncHostResult<u32> {
-        let key = key_from_handle(handle);
-        let process_envs = self.process_envs.borrow();
-        let env = process_envs.get(key).ok_or(AsyncHostError::Badf)?;
-        let len = env.len().checked_sub(1).ok_or(AsyncHostError::Fault)?;
-        u32::try_from(len).map_err(|_| AsyncHostError::Fault)
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn transfer_process_env_block(
-        &self,
-        dst_handle: u64,
-        src_handle: u64,
-    ) -> AsyncHostResult<()> {
-        if dst_handle == src_handle {
-            return Err(AsyncHostError::Inval);
-        }
-        let dst_key = key_from_handle(dst_handle);
-        if self.process_envs.borrow().get(dst_key).is_none() {
-            return Err(AsyncHostError::Badf);
-        }
-        let src = self.take_process_env_buffer(src_handle)?;
-        // The source is the temporary snapshot returned by get_curr_env.
-        // Consume it here so its lifetime does not depend on deprecated free_env.
-        let mut process_envs = self.process_envs.borrow_mut();
-        let dst = process_envs.get_mut(dst_key).ok_or(AsyncHostError::Badf)?;
-        if dst.len() < src.len() {
-            return Err(AsyncHostError::Fault);
-        }
-        for (index, entry) in src.into_iter().enumerate() {
-            dst[index] = entry;
-        }
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn transfer_process_env_block(
-        &self,
-        dst_handle: u64,
-        src_handle: u64,
-    ) -> AsyncHostResult<()> {
-        if dst_handle == src_handle {
-            return Err(AsyncHostError::Inval);
-        }
-        let dst_key = key_from_handle(dst_handle);
-        if self.process_envs.borrow().get(dst_key).is_none() {
-            return Err(AsyncHostError::Badf);
-        }
-        let src = self.take_process_env_buffer(src_handle)?;
-        // The source is the temporary snapshot returned by get_curr_env.
-        // Consume it here so its lifetime does not depend on deprecated free_env.
-        let mut process_envs = self.process_envs.borrow_mut();
-        let dst = process_envs.get_mut(dst_key).ok_or(AsyncHostError::Badf)?;
-        let src_len = src.len().checked_sub(1).ok_or(AsyncHostError::Fault)?;
-        if dst.len() <= src_len {
-            return Err(AsyncHostError::Fault);
-        }
-        dst[..src_len].copy_from_slice(&src[..src_len]);
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn process_env_add_entry(
-        &self,
-        handle: u64,
-        index: u32,
-        key: OsString,
-        value: OsString,
-    ) -> AsyncHostResult<()> {
-        let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-        let env_key = key_from_handle(handle);
-        let mut process_envs = self.process_envs.borrow_mut();
-        let env = process_envs.get_mut(env_key).ok_or(AsyncHostError::Badf)?;
-        let slot = env.get_mut(index).ok_or(AsyncHostError::Fault)?;
-        *slot = Some(crate::async_sys::process::LegacyProcessEnvEntry::Added { key, value });
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn process_env_add_entry(
-        &self,
-        handle: u64,
-        offset: u32,
-        key: &[u16],
-        value: &[u16],
-    ) -> AsyncHostResult<()> {
-        let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
-        let handle = key_from_handle(handle);
-        let mut process_envs = self.process_envs.borrow_mut();
-        let env = process_envs.get_mut(handle).ok_or(AsyncHostError::Badf)?;
-        let value_start = offset
-            .checked_add(key.len())
-            .and_then(|index| index.checked_add(1))
-            .ok_or(AsyncHostError::Fault)?;
-        let end = value_start
-            .checked_add(value.len())
-            .and_then(|index| index.checked_add(1))
-            .ok_or(AsyncHostError::Fault)?;
-        if end > env.len() {
-            return Err(AsyncHostError::Fault);
-        }
-        env[offset..offset + key.len()].copy_from_slice(key);
-        env[offset + key.len()] = b'=' as u16;
-        env[value_start..value_start + value.len()].copy_from_slice(value);
-        env[value_start + value.len()] = 0;
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn take_process_env(&self, handle: u64) -> AsyncHostResult<Vec<u16>> {
-        self.take_process_env_buffer(handle)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn take_process_env_builder(&self, handle: u64) -> AsyncHostResult<Vec<u16>> {
-        self.process_env_builders
-            .borrow_mut()
-            .remove(key_from_handle(handle))
-            .map(crate::async_sys::process::finish_process_env_builder)
-            .ok_or(AsyncHostError::Badf)
-    }
-
-    fn take_process_env_buffer(&self, handle: u64) -> AsyncHostResult<HostProcessEnv> {
-        self.process_envs
-            .borrow_mut()
-            .remove(key_from_handle(handle))
-            .ok_or(AsyncHostError::Badf)
-    }
-
     pub(crate) fn insert_job(&self, job: impl Into<Job>) -> AsyncHostResult<u64> {
         let key = self.jobs.borrow_mut().insert_job(job.into());
         Ok(handle_from_key(key))
@@ -1992,8 +1676,8 @@ impl AsyncHost {
         &self.process
     }
 
-    pub(crate) fn environment(&self) -> &Env {
-        &self.environment
+    pub(crate) fn process_inputs(&self) -> &ProcessInputs {
+        &self.process_inputs
     }
 
     #[cfg(test)]
@@ -3427,332 +3111,6 @@ mod tests {
             Err(AsyncHostError::Badf)
         );
         host.free_job(job).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn process_env_builder_places_extra_entries_before_filtered_inherited_entries() {
-        let mut builder = HostProcessEnvBuilder::new(vec![
-            OsString::from("OVERRIDE=old"),
-            OsString::from("KEEP=value"),
-            OsString::from("WITHOUT_SEPARATOR"),
-        ]);
-        crate::async_sys::process::process_env_builder_add_entry(
-            &mut builder,
-            OsString::from("OVERRIDE"),
-            OsString::from("new"),
-        );
-
-        assert_eq!(
-            crate::async_sys::process::finish_process_env_builder(builder),
-            vec![
-                OsString::from("OVERRIDE=new"),
-                OsString::from("KEEP=value"),
-                OsString::from("WITHOUT_SEPARATOR"),
-            ]
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn process_env_builder_filters_inherited_entries_case_insensitively() {
-        fn block(entries: &[&str]) -> Vec<u16> {
-            let mut block = Vec::new();
-            for entry in entries {
-                block.extend(entry.encode_utf16());
-                block.push(0);
-            }
-            block.push(0);
-            block
-        }
-
-        let mut builder = HostProcessEnvBuilder::new(vec![
-            OsString::from("Path=old"),
-            OsString::from("KEEP=value"),
-            OsString::from("WITHOUT_SEPARATOR"),
-            OsString::from("=PSEUDO"),
-        ]);
-        crate::async_sys::process::process_env_builder_add_entry(
-            &mut builder,
-            OsString::from("PATH"),
-            OsString::from("new"),
-        );
-
-        assert_eq!(
-            crate::async_sys::process::finish_process_env_builder(builder),
-            block(&["PATH=new", "KEEP=value"])
-        );
-    }
-
-    #[test]
-    fn invalid_process_environment_handles_are_rejected() {
-        let host = default_host();
-
-        for handle in [0, null_handle(), host.invalid_fd()] {
-            assert_eq!(
-                host.take_process_env_buffer(handle),
-                Err(AsyncHostError::Badf)
-            );
-            #[cfg(windows)]
-            assert_eq!(
-                host.take_process_env_builder(handle),
-                Err(AsyncHostError::Badf)
-            );
-        }
-        assert!(host.leak_summary().is_none());
-    }
-
-    #[test]
-    fn process_env_block_transfer_consumes_source() {
-        let host = default_host();
-        #[cfg(unix)]
-        let src = host.insert_process_env(vec![Some(OsString::from("A=B"))]);
-        #[cfg(windows)]
-        let src = host.insert_process_env(vec![b'A' as u16, b'=' as u16, b'B' as u16, 0, 0]);
-        #[cfg(unix)]
-        let dst = host.insert_process_env(vec![None, None]);
-        #[cfg(windows)]
-        let dst = host.insert_process_env(vec![0; 7]);
-
-        host.transfer_process_env_block(dst, src).unwrap();
-
-        assert_eq!(host.process_env_length(src), Err(AsyncHostError::Badf));
-        #[cfg(unix)]
-        assert_eq!(
-            host.take_process_env_buffer(dst).unwrap().as_slice(),
-            &[
-                Some(
-                    crate::async_sys::process::LegacyProcessEnvEntry::Materialized(OsString::from(
-                        "A=B"
-                    ))
-                ),
-                None,
-            ]
-        );
-        #[cfg(windows)]
-        assert_eq!(
-            host.take_process_env_buffer(dst).unwrap().as_slice(),
-            &[b'A' as u16, b'=' as u16, b'B' as u16, 0, 0, 0, 0]
-        );
-    }
-
-    #[test]
-    fn process_env_block_transfer_consumes_source_on_failure() {
-        let host = default_host();
-        #[cfg(unix)]
-        let src = host.insert_process_env(vec![Some(OsString::from("A=B"))]);
-        #[cfg(windows)]
-        let src = host.insert_process_env(vec![b'A' as u16, b'=' as u16, b'B' as u16, 0, 0]);
-        #[cfg(unix)]
-        let dst = host.insert_process_env(vec![]);
-        #[cfg(windows)]
-        let dst = host.insert_process_env(vec![0]);
-
-        assert_eq!(
-            host.transfer_process_env_block(dst, src),
-            Err(AsyncHostError::Fault)
-        );
-        assert_eq!(host.process_env_length(src), Err(AsyncHostError::Badf));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn legacy_process_spawn_inputs_use_inherited_count_to_build_environment() {
-        let host = default_host();
-        let argv = host.insert_process_argv(2).unwrap();
-        host.process_argv_add_entry(argv, 0, OsString::from("command"))
-            .unwrap();
-        host.process_argv_add_entry(argv, 1, OsString::from("argument"))
-            .unwrap();
-        let env = host.insert_process_env(vec![
-            Some(OsString::from("OVERRIDE=old")),
-            Some(OsString::from("KEEP=value")),
-            Some(OsString::from("OVERRIDE=new")),
-        ]);
-
-        let (args, entries) = host.take_legacy_process_spawn_inputs(argv, env, 2).unwrap();
-
-        assert_eq!(
-            args,
-            vec![OsString::from("command"), OsString::from("argument")]
-        );
-        assert_eq!(
-            entries,
-            vec![OsString::from("OVERRIDE=new"), OsString::from("KEEP=value")]
-        );
-        assert_eq!(
-            host.process_argv_add_entry(argv, 0, OsString::from("command")),
-            Err(AsyncHostError::Badf)
-        );
-        assert_eq!(host.process_env_length(env), Err(AsyncHostError::Badf));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn legacy_process_spawn_inputs_apply_current_nul_handling() {
-        let host = default_host();
-        let argv = host.insert_process_argv(1).unwrap();
-        host.process_argv_add_entry(argv, 0, OsString::from("command"))
-            .unwrap();
-        let env = host.insert_process_env(vec![None, None]);
-        host.process_env_add_entry(
-            env,
-            0,
-            OsString::from("BAD=PREFIX\0KEY"),
-            OsString::from("value"),
-        )
-        .unwrap();
-        host.process_env_add_entry(
-            env,
-            1,
-            OsString::from("GOOD"),
-            OsString::from("before\0INJECTED=value"),
-        )
-        .unwrap();
-
-        let (_, entries) = host.take_legacy_process_spawn_inputs(argv, env, 0).unwrap();
-
-        assert_eq!(entries, vec![OsString::from("GOOD=before")]);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn invalid_legacy_process_spawn_inherited_count_does_not_consume_buffers() {
-        let host = default_host();
-        let argv = host.insert_process_argv(1).unwrap();
-        host.process_argv_add_entry(argv, 0, OsString::from("command"))
-            .unwrap();
-        let env = host.insert_process_env(vec![Some(OsString::from("A=B"))]);
-
-        assert_eq!(
-            host.take_legacy_process_spawn_inputs(argv, env, 2),
-            Err(AsyncHostError::Inval)
-        );
-        assert_eq!(
-            host.take_legacy_process_spawn_inputs(argv, env, 1).unwrap(),
-            (vec![OsString::from("command")], vec![OsString::from("A=B")])
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn invalid_process_spawn_buffers_are_not_partially_consumed() {
-        let host = default_host();
-        let argv = host.insert_process_argv(1).unwrap();
-        host.process_argv_add_entry(argv, 0, OsString::from("command"))
-            .unwrap();
-        let env = host.insert_process_env(vec![None]);
-
-        assert_eq!(
-            host.take_legacy_process_spawn_inputs(argv, env, 0),
-            Err(AsyncHostError::Inval)
-        );
-        host.process_env_add_entry(env, 0, OsString::from("A"), OsString::from("B"))
-            .unwrap();
-        assert_eq!(
-            host.take_legacy_process_spawn_inputs(argv, env, 0).unwrap(),
-            (vec![OsString::from("command")], vec![OsString::from("A=B")])
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn process_spawn_inputs_preserve_incomplete_argv_for_retry() {
-        let host = default_host();
-        let argv = host.insert_process_argv(2).unwrap();
-        host.process_argv_add_entry(argv, 0, OsString::from("command"))
-            .unwrap();
-        let env = host.insert_process_env_builder(vec![OsString::from("A=old")]);
-        host.process_env_builder_add_entry(env, OsString::from("A"), OsString::from("new"))
-            .unwrap();
-
-        assert_eq!(
-            host.take_process_spawn_inputs(argv, env),
-            Err(AsyncHostError::Inval)
-        );
-        host.process_argv_add_entry(argv, 1, OsString::from("argument"))
-            .unwrap();
-        assert_eq!(
-            host.take_process_spawn_inputs(argv, env).unwrap(),
-            (
-                vec![OsString::from("command"), OsString::from("argument")],
-                vec![OsString::from("A=new")],
-            )
-        );
-        assert_eq!(
-            host.take_process_spawn_inputs(argv, env),
-            Err(AsyncHostError::Badf)
-        );
-        assert!(host.leak_summary().is_none());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn process_spawn_abis_reject_the_other_environment_handle_kind() {
-        let host = default_host();
-        let argv = host.insert_process_argv(1).unwrap();
-        host.process_argv_add_entry(argv, 0, OsString::from("command"))
-            .unwrap();
-        let builder = host.insert_process_env_builder(Vec::new());
-
-        assert_eq!(
-            host.take_legacy_process_spawn_inputs(argv, builder, 0),
-            Err(AsyncHostError::Badf)
-        );
-        let legacy = host.insert_process_env(vec![Some(OsString::from("A=B"))]);
-        assert_eq!(
-            host.take_process_spawn_inputs(argv, legacy),
-            Err(AsyncHostError::Badf)
-        );
-        assert_eq!(
-            host.take_process_spawn_inputs(argv, builder).unwrap(),
-            (vec![OsString::from("command")], Vec::new())
-        );
-        let argv = host.insert_process_argv(0).unwrap();
-        assert_eq!(
-            host.take_legacy_process_spawn_inputs(argv, legacy, 0)
-                .unwrap(),
-            (Vec::new(), vec![OsString::from("A=B")])
-        );
-        assert!(host.leak_summary().is_none());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn process_spawn_environment_transfers_ownership() {
-        let host = default_host();
-        let block = vec![b'A' as u16, b'=' as u16, b'B' as u16, 0, 0];
-        let env = host.insert_process_env(block.clone());
-
-        assert_eq!(host.take_process_env(env).unwrap(), block);
-        assert_eq!(host.process_env_length(env), Err(AsyncHostError::Badf));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn process_spawn_abis_reject_the_other_environment_handle_kind() {
-        let host = default_host();
-        let builder = host.insert_process_env_builder(vec![OsString::from("A=B")]);
-        assert_eq!(host.take_process_env(builder), Err(AsyncHostError::Badf));
-
-        let legacy = host.insert_process_env(vec![0, 0]);
-        assert_eq!(
-            host.take_process_env_builder(legacy),
-            Err(AsyncHostError::Badf)
-        );
-        assert_eq!(host.take_process_env(legacy).unwrap(), vec![0, 0]);
-        assert_eq!(
-            host.take_process_env_builder(builder).unwrap(),
-            vec![b'A' as u16, b'=' as u16, b'B' as u16, 0, 0]
-        );
-        let replacement = host.insert_process_env_builder(Vec::new());
-        assert_ne!(builder, replacement);
-        assert_eq!(
-            host.take_process_env_builder(builder),
-            Err(AsyncHostError::Badf)
-        );
-        host.take_process_env_builder(replacement).unwrap();
-        assert!(host.leak_summary().is_none());
     }
 
     #[cfg(windows)]
@@ -5383,6 +4741,40 @@ mod tests {
         host.free_job(flock_job).unwrap();
         host.close_fd(fd).unwrap();
         host.free_job(open_job).unwrap();
+    }
+
+    #[test]
+    fn dropping_host_retires_pending_process_inputs() {
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let host = default_host_with_keys(keys.clone());
+        let env = host.process_inputs().make_env(false);
+        let legacy = host.process_inputs().allocate_legacy_env(0).unwrap();
+        #[cfg(unix)]
+        let argv = host.process_inputs().allocate_argv(0).unwrap();
+
+        assert_eq!(
+            keys.borrow().kind(key_from_handle(env)),
+            Some(HandleKind::ProcessEnvBuilder)
+        );
+        assert_eq!(
+            keys.borrow().kind(key_from_handle(legacy)),
+            Some(HandleKind::ProcessEnv)
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            keys.borrow().kind(key_from_handle(argv)),
+            Some(HandleKind::ProcessArgv)
+        );
+        assert!(
+            host.leak_summary()
+                .unwrap()
+                .contains("process_env_builders=1")
+        );
+        drop(host);
+        assert!(keys.borrow().kind(key_from_handle(env)).is_none());
+        assert!(keys.borrow().kind(key_from_handle(legacy)).is_none());
+        #[cfg(unix)]
+        assert!(keys.borrow().kind(key_from_handle(argv)).is_none());
     }
 
     #[test]

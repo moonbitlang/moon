@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
@@ -36,15 +35,13 @@ ported_imports! {
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(unix)]
 pub(super) fn get_curr_env(context: &mut ImportContext<'_>) -> u64 {
-    let env = inherited_unix_env(context).into_iter().map(Some).collect();
-    context.host.insert_process_env(env)
+    context.host.process_inputs().capture_legacy_env()
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(windows)]
 pub(super) fn get_curr_env(context: &mut ImportContext<'_>) -> AsyncHostResult<u64> {
-    let env = windows_env_block(inherited_windows_env(context));
-    Ok(context.host.insert_process_env(env))
+    Ok(context.host.process_inputs().capture_legacy_env())
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_env_block_length")]
@@ -53,7 +50,7 @@ pub(super) fn env_block_length(
     context: &mut ImportContext<'_>,
     env: u64,
 ) -> AsyncHostResult<u32> {
-    context.host.process_env_length(env)
+    context.host.process_inputs().legacy_env_length(env)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_env_block_length")]
@@ -62,7 +59,7 @@ pub(super) fn env_block_length(
     context: &mut ImportContext<'_>,
     env: u64,
 ) -> AsyncHostResult<u32> {
-    context.host.process_env_length(env)
+    context.host.process_inputs().legacy_env_length(env)
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_allocate_env_block")]
@@ -71,8 +68,7 @@ pub(super) fn allocate_env_block(
     context: &mut ImportContext<'_>,
     size: u32,
 ) -> AsyncHostResult<u64> {
-    let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
-    Ok(context.host.insert_process_env(vec![None; size]))
+    context.host.process_inputs().allocate_legacy_env(size)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_allocate_env_block")]
@@ -81,9 +77,7 @@ pub(super) fn allocate_env_block(
     context: &mut ImportContext<'_>,
     size: u32,
 ) -> AsyncHostResult<u64> {
-    let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
-    let size = size.checked_add(1).ok_or(AsyncHostError::Fault)?;
-    Ok(context.host.insert_process_env(vec![0; size]))
+    context.host.process_inputs().allocate_legacy_env(size)
 }
 
 #[compat(
@@ -116,7 +110,7 @@ pub(super) fn write_env_block(
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
-    context.host.transfer_process_env_block(dst, src)
+    context.host.process_inputs().transfer_legacy_env(dst, src)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_write_env_block")]
@@ -126,7 +120,7 @@ pub(super) fn write_env_block(
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
-    context.host.transfer_process_env_block(dst, src)
+    context.host.process_inputs().transfer_legacy_env(dst, src)
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_env_block_add_entry")]
@@ -142,7 +136,7 @@ pub(super) fn env_block_add_entry(
 ) -> AsyncHostResult<()> {
     let key = read_guest_os_string(context, key, key_len)?;
     let value = read_guest_os_string(context, value, value_len)?;
-    context.host.process_env_add_entry(env, index, key, value)
+    context.host.process_inputs().add_legacy_env(env, index, key, value)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_env_block_add_entry")]
@@ -159,8 +153,8 @@ pub(super) fn env_block_add_entry(
     let key = read_guest_u16(context, key, key_len)?;
     let value = read_guest_u16(context, value, value_len)?;
     context
-        .host
-        .process_env_add_entry(env, offset, &key, &value)
+        .host.process_inputs()
+        .add_legacy_env(env, offset, &key, &value)
 }
 
 #[ported(source = "src/process/wasm.mbt", original = "process/make_env")]
@@ -169,12 +163,7 @@ pub(super) fn make_env(
     context: &mut ImportContext<'_>,
     inherit_env: i32,
 ) -> AsyncHostResult<u64> {
-    let inherited = if inherit_env == 0 {
-        Vec::new()
-    } else {
-        inherited_unix_env(context)
-    };
-    Ok(context.host.insert_process_env_builder(inherited))
+    Ok(context.host.process_inputs().make_env(inherit_env != 0))
 }
 
 #[ported(source = "src/process/wasm.mbt", original = "process/make_env")]
@@ -183,12 +172,7 @@ pub(super) fn make_env(
     context: &mut ImportContext<'_>,
     inherit_env: i32,
 ) -> AsyncHostResult<u64> {
-    let inherited = if inherit_env == 0 {
-        Vec::new()
-    } else {
-        inherited_windows_env(context)
-    };
-    Ok(context.host.insert_process_env_builder(inherited))
+    Ok(context.host.process_inputs().make_env(inherit_env != 0))
 }
 
 #[ported(
@@ -206,7 +190,7 @@ pub(super) fn env_add_entry(
 ) -> AsyncHostResult<()> {
     let key = read_guest_os_string(context, key, key_len)?;
     let value = read_guest_os_string(context, value, value_len)?;
-    context.host.process_env_builder_add_entry(env, key, value)
+    context.host.process_inputs().add_env(env, key, value)
 }
 
 #[ported(
@@ -225,8 +209,8 @@ pub(super) fn env_add_entry(
     let key = read_guest_os_string(context, key, key_len)?;
     let value = read_guest_os_string(context, value, value_len)?;
     context
-        .host
-        .process_env_builder_add_entry(env, key, value)
+        .host.process_inputs()
+        .add_env(env, key, value)
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_make_argv_array")]
@@ -235,7 +219,7 @@ pub(super) fn make_argv_array_unix(
     context: &mut ImportContext<'_>,
     len: u32,
 ) -> AsyncHostResult<u64> {
-    context.host.insert_process_argv(len)
+    context.host.process_inputs().allocate_argv(len)
 }
 
 #[ported(
@@ -251,7 +235,7 @@ pub(super) fn argv_array_add_encoded_entry_unix(
     arg_len: u32,
 ) -> AsyncHostResult<()> {
     let arg = read_guest_os_string(context, arg, arg_len)?;
-    context.host.process_argv_add_entry(argv, index, arg)
+    context.host.process_inputs().add_argv(argv, index, arg)
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_argv_array_add_entry")]
@@ -264,7 +248,7 @@ pub(super) fn argv_array_add_entry_unix(
     arg_len: u32,
 ) -> AsyncHostResult<()> {
     let arg = read_guest_os_string(context, arg, arg_len)?;
-    context.host.process_argv_add_entry(argv, index, arg)
+    context.host.process_inputs().add_argv(argv, index, arg)
 }
 
 #[cfg(all(unix, not(target_os = "linux")))]
@@ -449,52 +433,6 @@ pub(super) fn kill(context: &mut ImportContext<'_>, pid: i32) -> AsyncHostResult
 pub(super) fn kill(context: &mut ImportContext<'_>, pid: i32) -> AsyncHostResult<()> {
     context.host.process().kill(pid)
 }
-}
-
-#[cfg(unix)]
-fn inherited_unix_env(context: &ImportContext<'_>) -> Vec<OsString> {
-    context
-        .host
-        .environment()
-        .inherited_entries()
-        .into_iter()
-        .map(|(mut name, value)| {
-            name.push("=");
-            name.push(value);
-            name
-        })
-        .collect()
-}
-
-#[cfg(windows)]
-fn inherited_windows_env(context: &ImportContext<'_>) -> Vec<OsString> {
-    context
-        .host
-        .environment()
-        .inherited_entries()
-        .into_iter()
-        .map(|(mut name, value)| {
-            name.push("=");
-            name.push(value);
-            name
-        })
-        .collect()
-}
-
-#[cfg(windows)]
-fn windows_env_block(entries: Vec<OsString>) -> Vec<u16> {
-    use std::os::windows::ffi::OsStrExt;
-
-    let mut block = Vec::new();
-    for entry in entries {
-        block.extend(entry.encode_wide());
-        block.push(0);
-    }
-    if block.is_empty() {
-        block.push(0);
-    }
-    block.push(0);
-    block
 }
 
 #[cfg(windows)]

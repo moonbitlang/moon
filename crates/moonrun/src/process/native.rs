@@ -64,7 +64,7 @@ ported_fns! {
         });
         let inherited = transfer_fd.map(os::duplicate_inherited_file).transpose()?;
         if let Some(file) = &inherited {
-            crate::async_sys::process::overwrite_process_env_var(
+            super::environment::overwrite(
                 &mut env,
                 OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
                 OsStr::new(&file.as_raw_fd().to_string()),
@@ -119,7 +119,7 @@ ported_fns! {
             .map(|file| os::duplicate_inheritable_handle(file.as_raw_handle()))
             .transpose()?;
         if let Some(handle) = &inherited {
-            crate::async_sys::process::overwrite_process_env_var(
+            super::environment::overwrite(
                 &mut env,
                 OsStr::new(moonutil::constants::MOONRUN_INHERITED_POLICY),
                 OsStr::new(&(handle.as_raw_handle() as usize).to_string()),
