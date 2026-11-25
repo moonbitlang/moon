@@ -81,10 +81,8 @@ C stubs of other packages, so it cannot be used to cross-compile. For `moon chec
 `moon build`, the source condition `#cfg(platform="windows")` follows the target when crossing
 between Windows and Linux or macOS. Moon rebuilds core from source in the
 project's build directory whenever it overrides the compiler's platform.
-Cross builds targeting Windows use `_build/native-windows`. Builds from Windows
-targeting Linux or macOS use `_build/native-unix`. Both can coexist with host
-artifacts in `_build/native`. If you change a compiler wrapper's target and
-both targets use the same directory, run `moon clean`.
+When switching a compiler wrapper between a Windows target and a Linux or macOS
+target, you can rebuild directly. For other target changes, run `moon clean` first.
 Native tests use the host platform for compilation and test discovery. If
 `MOON_CC` reports a different OS, `moon test --target native` fails during
 planning, including with `--build-only`. Use `--outline` to list tests for the host.

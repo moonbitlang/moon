@@ -68,10 +68,8 @@ UTF 代码路径，且 panic 时不打印调用栈。
 或 macOS 之间交叉编译时，`moon check` 和 `moon build` 会按目标平台判断
 `#cfg(platform="windows")`。
 当 Moon 覆盖编译器的默认平台时，它会从源码构建 core，产物放在项目的构建目录中。
-交叉构建 Windows 目标时，产物写入 `_build/native-windows`；从 Windows 构建
-Linux 或 macOS 目标时，产物写入 `_build/native-unix`。它们都可以与
-`_build/native` 中的宿主产物共存。如果更改了编译器 wrapper 的目标，且两个目标
-使用同一目录，请运行 `moon clean`。
+如果编译器 wrapper 在 Windows 目标与 Linux 或 macOS 目标之间切换，可以直接重新构建。
+其他情况下，更改 wrapper 的目标时请先运行 `moon clean`。
 native 测试的源码编译和测试发现都使用宿主平台条件。如果 `MOON_CC` 报告的目标
 OS 与宿主不同，`moon test --target native` 会在规划阶段报错，`--build-only`
 也遵循此规则。`--outline` 仍可列出宿主平台的测试。

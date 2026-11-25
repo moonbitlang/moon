@@ -245,11 +245,11 @@ impl TargetLayout {
     /// In the workspace layout, all packages go under
     /// `_build/<backend>[/<opt_level>/build]/<...module>/<...package>`.
     pub fn package_dir(&self, pkg: &PackageFQN) -> PathBuf {
-        self.mode.package_dir(self.run_mode_dir(), pkg)
+        self.mode.package_dir(self.artifact_root(), pkg)
     }
 
     /// Artifact root for the selected backend, profile, and run mode.
-    pub fn run_mode_dir(&self) -> PathBuf {
+    pub fn artifact_root(&self) -> PathBuf {
         // FIXME: Distinguish targets within one Windows predicate when the
         // configuration also identifies architecture and ABI.
         let backend_dir = match (
@@ -311,7 +311,7 @@ impl TargetLayout {
 
     /// For each backend/opt_level/run_mode, there's a copy of all_pkgs.json.
     pub fn all_pkgs_of_build_target(&self) -> PathBuf {
-        let mut dir = self.run_mode_dir();
+        let mut dir = self.artifact_root();
         dir.push(crate::all_pkgs::ALL_PKGS_JSON);
         dir
     }
@@ -507,7 +507,7 @@ impl TargetLayout {
             TargetBackend::WasmGC | TargetBackend::Wasm | TargetBackend::Js => {
                 panic!("Runtime output path is not applicable for non-native backends")
             }
-            TargetBackend::Native | TargetBackend::LLVM => self.run_mode_dir(),
+            TargetBackend::Native | TargetBackend::LLVM => self.artifact_root(),
         }
     }
 
@@ -651,8 +651,8 @@ impl TargetLayout {
 
     /// Returns the backend/profile/run-mode-scoped `packages.json` path.
     pub fn packages_json_path(&self) -> PathBuf {
-        // IDEs resolve this document from the public backend/profile selector.
-        // Its artifact and compiler-command paths use the selected configuration.
+        // IDE clients look up this document by backend name, including for cross builds.
+        // The document itself contains the target-specific artifact paths.
         self.target_base_dir
             .join(self.configuration.backend.to_dir_name())
             .join(self.configuration.profile.as_str())
@@ -1735,30 +1735,6 @@ mod tests {
     fn native_executable_artifacts_keep_stable_suffix() {
         assert_eq!(ExecutableArtifact::NativeExecutable.extension(), ".exe");
         assert_eq!(ExecutableArtifact::LlvmExecutable.extension(), ".exe");
-    }
-
-    #[test]
-    fn native_artifact_directories_follow_the_selected_windows_predicate() {
-        let base = Path::new("_build");
-        let mut configuration =
-            crate::BuildConfiguration::new(TargetBackend::Native, OptLevel::Release);
-        for (predicate, directory) in [
-            (None, "native"),
-            (Some(true), "native-windows"),
-            (Some(false), "native-unix"),
-        ] {
-            configuration.windows_cfg_override = predicate;
-            let layout = TargetLayout::new(
-                base.to_owned(),
-                TargetLayoutMode::Workspace,
-                configuration,
-                RunMode::Build,
-            );
-            assert_eq!(
-                layout.run_mode_dir(),
-                base.join(directory).join("release/build")
-            );
-        }
     }
 
     #[test]

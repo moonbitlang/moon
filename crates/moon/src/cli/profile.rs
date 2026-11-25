@@ -301,7 +301,7 @@ fn run_profile_materialized(
         _ => bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend"),
     };
     let configuration = layout.configuration();
-    let output_dir = default_output_dir(&layout.run_mode_dir(), &built.executable);
+    let output_dir = default_output_dir(&layout.artifact_root(), &built.executable);
     if !cli.dry_run {
         built.release_lock();
     }
@@ -562,7 +562,7 @@ fn profile_test_invocations(
     let session_dir = build_meta
         .artifact_paths()
         .target_layout()
-        .run_mode_dir()
+        .artifact_root()
         .with_file_name("profile")
         .join("test")
         .join(profile_timestamp());

@@ -86,7 +86,7 @@ pub(super) fn run_prebuild_config(
     let build_dir = cx
         .artifact_paths()
         .target_layout()
-        .run_mode_dir()
+        .artifact_root()
         .join("prebuild");
     let mut output = PrebuildOutput::default();
     for (m, ms) in resolved_project.module_graph.all_modules_and_id() {

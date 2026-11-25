@@ -76,7 +76,7 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
     std::fs::write(core.path().join("prelude/prelude.mbt"), format!(
         "pub using @builtin {{type Unit}}\n#cfg({predicate})\npub fn cross_only() -> Unit {{ () }}\n"
     )).unwrap();
-    for verb in ["check", "build"] {
+    for (verb, profile) in [("check", "--debug"), ("build", "--release")] {
         snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
             .current_dir(project.path())
             .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
@@ -84,7 +84,7 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
             .env("MOON_CC", &compiler)
             .env("MOON_DEP_CACHE", "off")
             .env("MOON_WORK", "off")
-            .args([verb, "--target", "native", "--release"])
+            .args([verb, "--target", "native", profile])
             .assert()
             .success();
     }
@@ -102,13 +102,12 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
             .is_file()
     );
 
-    // IDEs follow the backend/profile selector, even when the referenced interface
-    // belongs to a cross build.
+    // IDEs open the native debug inventory and use the interface path it records.
     let packages: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(build.join("native/release/check/packages.json")).unwrap(),
+        &std::fs::read(build.join("native/debug/check/packages.json")).unwrap(),
     )
     .unwrap();
-    let interface = std::path::Path::new(platform).join("release/check/cross.mi");
+    let interface = std::path::Path::new(platform).join("debug/check/cross.mi");
     assert!(build.join(&interface).is_file());
     assert!(packages["packages"].as_array().unwrap().iter().any(|pkg| {
         pkg["artifact"]
