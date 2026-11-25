@@ -37,7 +37,8 @@ freeing a null buffer as a no-op. An operation that requires a live object
 validates it through its owning table. Zero is subject to ordinary validation.
 These Handle values are separate from raw OS descriptors, where zero can be valid.
 
-TLS connection creation returns a live Handle containing pending configuration.
+Host TLS owns its connection table. Creation returns a live Handle containing
+pending configuration.
 Client and server setup keep the same Handle. Initialization failures retain the
 pending configuration and report the failure through their status and the object's
 error message. Freeing a TLS connection accepts the shared null Handle as a no-op;

@@ -18,19 +18,35 @@
 
 use std::path::PathBuf;
 
-use crate::async_host::{
-    AsyncHostError, AsyncHostResult, read_u16,
-    tls::{TlsFileType, TlsTrust},
-};
+use crate::async_host::{AsyncHostError, AsyncHostResult, read_u16};
 use crate::guest_memory::GuestMemory;
+use crate::runtime::null_handle;
+use crate::tls::{TlsFileType, TlsTrust};
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;
 
+#[cfg(unix)]
+fn error_message_buffer(message: String) -> Box<[u8]> {
+    let mut bytes = message.into_bytes();
+    bytes.push(0);
+    bytes.into_boxed_slice()
+}
+
+#[cfg(windows)]
+fn error_message_buffer(message: String) -> Box<[u8]> {
+    let mut bytes = Vec::with_capacity((message.len() + 1) * std::mem::size_of::<u16>());
+    for unit in message.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+    bytes.into_boxed_slice()
+}
+
 ported_imports! {
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/new")]
 pub(super) fn new(context: &mut ImportContext<'_>) -> u64 {
-    context.host.tls_new()
+    context.host.tls().new_connection()
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/set_client")]
@@ -45,7 +61,7 @@ pub(super) fn set_client(
     context.with_host_and_memory_mut(|host_state, memory| {
         let hostname = read_guest_string(memory, host, host_len)?;
         let trust = TlsTrust::from_abi(trust_abi)?;
-        host_state.tls_set_client(tls, hostname, sni != 0, trust)
+        host_state.tls().set_client(tls, &hostname, sni != 0, trust)
     })
 }
 
@@ -58,7 +74,7 @@ pub(super) fn add_root_certificate(
 ) -> AsyncHostResult<i32> {
     context.with_host_and_memory_mut(|host, memory| {
         let root = memory.read_exact(root, root_len)?;
-        host.tls_add_root_certificate(tls, root)
+        host.tls().add_root_certificate(tls, root)
     })
 }
 
@@ -77,7 +93,7 @@ pub(super) fn set_server_files(
     context.with_host_and_memory_mut(|host, memory| {
         let private_key_file = read_guest_os_path(memory, private_key_file, private_key_file_len)?;
         let certificate_file = read_guest_os_path(memory, certificate_file, certificate_file_len)?;
-        host.tls_set_server_files(
+        host.tls().set_server_files(
             tls,
             private_key_file,
             TlsFileType::from_abi(private_key_type_abi)?,
@@ -95,7 +111,7 @@ pub(super) fn set_server_pfx(
     pfx_content_len: u32,
 ) -> AsyncHostResult<i32> {
     context.with_host_and_memory_mut(|host, memory| {
-        host.tls_set_server_pfx(
+        host.tls().set_server_pfx(
             tls,
             memory.read_exact(pfx_content, pfx_content_len)?.to_vec(),
         )
@@ -104,12 +120,14 @@ pub(super) fn set_server_pfx(
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/free")]
 pub(super) fn free(context: &mut ImportContext<'_>, tls: u64) -> AsyncHostResult<()> {
-    context.host.tls_free(tls)
+    context.host.tls().free(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/take_error")]
 pub(super) fn take_error(context: &mut ImportContext<'_>, tls: u64) -> AsyncHostResult<u64> {
-    context.host.tls_take_error(tls)
+    let message = context.host.tls().take_error(tls)?
+        .unwrap_or_else(|| "unknown TLS error".to_string());
+    Ok(context.host.insert_c_buffer(error_message_buffer(message)))
 }
 
 #[compat(
@@ -120,7 +138,7 @@ pub(super) fn take_error(context: &mut ImportContext<'_>, tls: u64) -> AsyncHost
     api_only = true
 )]
 pub(super) fn take_global_error(context: &mut ImportContext<'_>) -> u64 {
-    context.host.tls_take_global_error()
+    context.host.insert_c_buffer(error_message_buffer("unknown TLS error".to_string()))
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/read_plain")]
@@ -148,7 +166,7 @@ pub(super) fn read_plain(
             guest_offset(plain_buffer, plain_buffer_offset)?,
             plain_buffer_len,
         )?;
-        host.tls_read_plain(tls, input, plain, output)
+        host.tls().read_plain(tls, input, plain, output)
     })
 }
 
@@ -177,7 +195,7 @@ pub(super) fn write_plain(
             guest_offset(plain_buffer, plain_buffer_offset)?,
             plain_buffer_len,
         )?;
-        host.tls_write_plain(tls, input, plain, output)
+        host.tls().write_plain(tls, input, plain, output)
     })
 }
 
@@ -201,7 +219,7 @@ pub(super) fn connect(
             guest_offset(out_buffer, out_buffer_offset)?,
             out_buffer_len,
         )?;
-        host.tls_connect(tls, input, output)
+        host.tls().connect(tls, input, output)
     })
 }
 
@@ -225,13 +243,13 @@ pub(super) fn accept(
             guest_offset(out_buffer, out_buffer_offset)?,
             out_buffer_len,
         )?;
-        host.tls_accept(tls, input, output)
+        host.tls().accept(tls, input, output)
     })
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/bytes_read")]
 pub(super) fn bytes_read(context: &mut ImportContext<'_>, tls: u64) -> AsyncHostResult<u32> {
-    context.host.tls_bytes_read(tls)
+    context.host.tls().bytes_read(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/bytes_to_write")]
@@ -239,17 +257,17 @@ pub(super) fn bytes_to_write(
     context: &mut ImportContext<'_>,
     tls: u64,
 ) -> AsyncHostResult<u32> {
-    context.host.tls_bytes_to_write(tls)
+    context.host.tls().bytes_to_write(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/wants_read")]
 pub(super) fn wants_read(context: &mut ImportContext<'_>, tls: u64) -> AsyncHostResult<i32> {
-    context.host.tls_wants_read(tls)
+    context.host.tls().wants_read(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/wants_write")]
 pub(super) fn wants_write(context: &mut ImportContext<'_>, tls: u64) -> AsyncHostResult<i32> {
-    context.host.tls_wants_write(tls)
+    context.host.tls().wants_write(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/shutdown")]
@@ -257,7 +275,7 @@ pub(super) fn shutdown(
     context: &mut ImportContext<'_>,
     tls: u64,
 ) -> AsyncHostResult<i32> {
-    context.host.tls_shutdown(tls)
+    context.host.tls().shutdown(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/peer_certificate")]
@@ -265,7 +283,13 @@ pub(super) fn peer_certificate(
     context: &mut ImportContext<'_>,
     tls: u64,
 ) -> AsyncHostResult<u64> {
-    context.host.tls_peer_certificate(tls)
+    match context.host.tls().peer_certificate(tls)? {
+        Ok(Some(buffer)) => Ok(context.host.insert_c_buffer(buffer.into_boxed_slice())),
+        // The guest distinguishes an absent certificate (an empty buffer) from
+        // a TLS error (null). The connection retains the error diagnostic.
+        Ok(None) => Ok(context.host.insert_c_buffer(Box::default())),
+        Err(()) => Ok(null_handle()),
+    }
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/unique_channel_binding")]
@@ -273,7 +297,10 @@ pub(super) fn unique_channel_binding(
     context: &mut ImportContext<'_>,
     tls: u64,
 ) -> AsyncHostResult<u64> {
-    context.host.tls_unique_channel_binding(tls)
+    match context.host.tls().unique_channel_binding(tls)? {
+        Ok(Some(buffer)) => Ok(context.host.insert_c_buffer(buffer.into_boxed_slice())),
+        Ok(None) | Err(()) => Ok(null_handle()),
+    }
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/server_endpoint_channel_binding")]
@@ -281,7 +308,10 @@ pub(super) fn server_endpoint_channel_binding(
     context: &mut ImportContext<'_>,
     tls: u64,
 ) -> AsyncHostResult<u64> {
-    context.host.tls_server_endpoint_channel_binding(tls)
+    match context.host.tls().server_endpoint_channel_binding(tls)? {
+        Ok(Some(buffer)) => Ok(context.host.insert_c_buffer(buffer.into_boxed_slice())),
+        Ok(None) | Err(()) => Ok(null_handle()),
+    }
 }
 }
 
@@ -422,6 +452,103 @@ pub(super) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tls_buffers_preserve_error_and_null_conventions() {
+        use crate::runtime::{Executable, Runtime, RuntimeConfig};
+
+        let runtime = Runtime::new(
+            RuntimeConfig::default(),
+            Executable::unavailable(),
+            crate::signal_channel().1,
+        )
+        .unwrap();
+        let termination_request = crate::run_termination::TerminationRequest::default();
+        let host = runtime.async_host();
+        let mut context = ImportContext {
+            host,
+            filesystem: runtime.filesystem(),
+            memory: Err(AsyncHostError::Fault),
+            termination_request: &termination_request,
+        };
+        let tls = new(&mut context);
+
+        // An unconfigured connection reports a TLS error through null and
+        // keeps the diagnostic until the guest takes it.
+        assert_eq!(peer_certificate(&mut context, tls), Ok(null_handle()));
+        assert_eq!(unique_channel_binding(&mut context, tls), Ok(null_handle()));
+        assert_eq!(
+            server_endpoint_channel_binding(&mut context, tls),
+            Ok(null_handle())
+        );
+        let error = take_error(&mut context, tls).unwrap();
+        host.with_c_buffer(error, |buffer| {
+            assert_eq!(
+                buffer,
+                &*error_message_buffer("TLS handle is not configured".to_string())
+            );
+            Ok(())
+        })
+        .unwrap();
+        host.free_c_buffer(error).unwrap();
+
+        // Taking an empty diagnostic and the legacy global-error import both
+        // retain the ABI's fallback, with separately owned buffers.
+        for error in [
+            take_error(&mut context, tls).unwrap(),
+            take_global_error(&mut context),
+        ] {
+            host.with_c_buffer(error, |buffer| {
+                assert_eq!(
+                    buffer,
+                    &*error_message_buffer("unknown TLS error".to_string())
+                );
+                Ok(())
+            })
+            .unwrap();
+            host.free_c_buffer(error).unwrap();
+        }
+
+        // A configured connection without a peer certificate succeeds with
+        // a valid empty buffer; absent channel bindings still return null.
+        assert_eq!(
+            host.tls()
+                .set_client(tls, "localhost", false, TlsTrust::NoVerification),
+            Ok(0)
+        );
+        let certificate = peer_certificate(&mut context, tls).unwrap();
+        assert_ne!(certificate, null_handle());
+        host.with_c_buffer(certificate, |buffer| {
+            assert!(buffer.is_empty());
+            Ok(())
+        })
+        .unwrap();
+        host.free_c_buffer(certificate).unwrap();
+        assert_eq!(unique_channel_binding(&mut context, tls), Ok(null_handle()));
+        assert_eq!(
+            server_endpoint_channel_binding(&mut context, tls),
+            Ok(null_handle())
+        );
+        free(&mut context, tls).unwrap();
+        free(&mut context, null_handle()).unwrap();
+        assert_eq!(free(&mut context, 0), Err(AsyncHostError::Badf));
+        assert!(host.leak_summary().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn error_message_buffer_uses_native_string_encoding_on_unix() {
+        assert_eq!(error_message_buffer("ab".to_string()).as_ref(), b"ab\0");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn error_message_buffer_uses_native_string_encoding_on_windows() {
+        assert_eq!(
+            error_message_buffer("ab".to_string()).as_ref(),
+            &[b'a', 0, b'b', 0, 0, 0]
+        );
+    }
 
     #[test]
     fn input_output_split_allows_input_before_output() {

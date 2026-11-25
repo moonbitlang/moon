@@ -169,6 +169,13 @@ Resource Handles, and asynchronous lifecycle; the thread pool only schedules
 Network Jobs and delivers their Completions.
 _Avoid_: V8 network, Async Host network
 
+**Host TLS**:
+The Runtime-owned, backend-neutral owner of TLS connection lifetime and
+cryptographic operations, using shared filesystem authority for certificate-file
+access. The guest owns transport; the Async API owns guest buffer encoding and
+publication.
+_Avoid_: Host Network, TLS transport, Async Host TLS state
+
 **Host Process**:
 The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed process operations. It owns Process Job payloads,

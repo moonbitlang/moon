@@ -53,7 +53,6 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::filesystem::HostFs;
 use crate::filesystem::RawFile as RawFd;
-use crate::filesystem::{FsOperation, FsPath};
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
 use crate::process::HostProcess;
@@ -64,6 +63,7 @@ pub(crate) use crate::runtime::HostKey as HandleKey;
 use crate::runtime::{
     Env, Handles, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream, null_handle,
 };
+use crate::tls::HostTls;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -76,7 +76,6 @@ mod windows_io;
 #[cfg(windows)]
 use windows_io::IoResultTable;
 
-pub(crate) mod tls;
 mod workers;
 
 use workers::InstanceWorkers;
@@ -263,23 +262,6 @@ fn handle_from_key(key: HandleKey) -> HostHandle {
 /// Decode an untrusted Handle; the owning table validates the resulting key.
 fn key_from_handle(handle: HostHandle) -> HandleKey {
     KeyData::from_ffi(handle).into()
-}
-
-#[cfg(unix)]
-fn error_message_buffer(message: String) -> Box<[u8]> {
-    let mut bytes = message.into_bytes();
-    bytes.push(0);
-    bytes.into_boxed_slice()
-}
-
-#[cfg(windows)]
-fn error_message_buffer(message: String) -> Box<[u8]> {
-    let mut bytes = Vec::with_capacity((message.len() + 1) * std::mem::size_of::<u16>());
-    for unit in message.encode_utf16() {
-        bytes.extend_from_slice(&unit.to_le_bytes());
-    }
-    bytes.extend_from_slice(&0u16.to_le_bytes());
-    bytes.into_boxed_slice()
 }
 
 struct ResourceHandles {
@@ -593,8 +575,7 @@ pub(crate) struct AsyncHost {
     #[cfg(unix)]
     signal_handler: RefCell<Option<crate::run_signal::SignalTargetGuard>>,
     resources: RefCell<ResourceHandles>,
-    tls_connections: RefCell<Handles<tls::TlsHandle>>,
-    tls_error: RefCell<Option<String>>,
+    tls: HostTls,
 }
 
 impl AsyncHost {
@@ -610,6 +591,7 @@ impl AsyncHost {
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> Self {
         Self {
+            tls: HostTls::new(Arc::clone(&filesystem), keys.clone()),
             filesystem,
             environment,
             network,
@@ -640,9 +622,7 @@ impl AsyncHost {
             signals,
             #[cfg(unix)]
             signal_handler: RefCell::new(None),
-            resources: RefCell::new(ResourceHandles::new(keys.clone(), stdio.raw_handles())),
-            tls_connections: RefCell::new(Handles::new(keys, HandleKind::TlsConnection)),
-            tls_error: RefCell::new(None),
+            resources: RefCell::new(ResourceHandles::new(keys, stdio.raw_handles())),
         }
     }
 
@@ -844,11 +824,8 @@ impl AsyncHost {
                     }
                 }
             }
-            {
-                let tls_connections = self.tls_connections.borrow();
-                if !tls_connections.is_empty() {
-                    leaks.push(format!("tls_connections={}", tls_connections.len()));
-                }
+            if let Some(summary) = self.tls.leak_summary() {
+                leaks.push(summary);
             }
             if let Some(resources) = self.resources.borrow().leak_summary() {
                 leaks.push(resources);
@@ -1998,6 +1975,10 @@ impl AsyncHost {
         crate::filesystem::watch::add_file(&self.filesystem, &kqueue, &file, file_handle)
     }
 
+    pub(crate) fn tls(&self) -> &HostTls {
+        &self.tls
+    }
+
     pub(crate) fn network(&self) -> &HostNetwork {
         &self.network
     }
@@ -2506,301 +2487,6 @@ impl AsyncHost {
         Ok(bytes_i32)
     }
 
-    pub(crate) fn tls_take_error(&self, handle: HostHandle) -> AsyncHostResult<HostHandle> {
-        let message = self.with_tls_handle_mut(handle, |handle| {
-            Ok(match handle {
-                tls::TlsHandle::Connection(tls) => tls
-                    .take_error()
-                    .unwrap_or_else(|| "unknown TLS error".to_string()),
-                tls::TlsHandle::Empty(pending) => pending
-                    .take_error()
-                    .unwrap_or_else(|| "unknown TLS error".to_string()),
-            })
-        })?;
-        Ok(self.insert_c_buffer(error_message_buffer(message)))
-    }
-
-    pub(crate) fn tls_take_global_error(&self) -> HostHandle {
-        let message = self
-            .tls_error
-            .borrow_mut()
-            .take()
-            .unwrap_or_else(|| "unknown TLS error".to_string());
-        self.insert_c_buffer(error_message_buffer(message))
-    }
-
-    pub(crate) fn tls_new(&self) -> HostHandle {
-        let key = self
-            .tls_connections
-            .borrow_mut()
-            .insert(tls::TlsHandle::Empty(tls::TlsPending::new()));
-        handle_from_key(key)
-    }
-
-    pub(crate) fn tls_set_client(
-        &self,
-        handle: HostHandle,
-        host: String,
-        sni: bool,
-        trust: tls::TlsTrust,
-    ) -> AsyncHostResult<i32> {
-        self.with_tls_handle_mut(handle, |handle| match handle {
-            tls::TlsHandle::Empty(pending) => {
-                match tls::TlsConnection::client(&host, sni, pending.client_config(trust)) {
-                    Ok(connection) => {
-                        *handle = tls::TlsHandle::Connection(Box::new(connection));
-                        Ok(tls::TLS_SUCCESS_STATUS)
-                    }
-                    Err(message) => Ok(pending.set_error(message)),
-                }
-            }
-            tls::TlsHandle::Connection(_) => Err(AsyncHostError::Inval),
-        })
-    }
-
-    pub(crate) fn tls_add_root_certificate(
-        &self,
-        handle: HostHandle,
-        root: &[u8],
-    ) -> AsyncHostResult<i32> {
-        self.with_tls_pending_mut(handle, |pending| pending.add_root_certificate(root))
-    }
-
-    pub(crate) fn tls_set_server_files(
-        &self,
-        handle: HostHandle,
-        private_key_file: std::path::PathBuf,
-        private_key_type: tls::TlsFileType,
-        certificate_file: std::path::PathBuf,
-        certificate_type: tls::TlsFileType,
-    ) -> AsyncHostResult<i32> {
-        let private_key_file =
-            std::path::PathBuf::from(self.filesystem.resolve_path(private_key_file.as_os_str()));
-        let certificate_file =
-            std::path::PathBuf::from(self.filesystem.resolve_path(certificate_file.as_os_str()));
-        for (label, path) in [
-            ("TLS private key", private_key_file.as_path()),
-            ("TLS certificate", certificate_file.as_path()),
-        ] {
-            if let Err(error) = self
-                .filesystem
-                .authorize(FsOperation::Read(FsPath::Cwd(path.as_os_str())))
-            {
-                return self.with_tls_pending_mut(handle, |pending| {
-                    pending.set_error(format!(
-                        "failed to access {label} file: {:?}",
-                        AsyncHostError::from(error)
-                    ))
-                });
-            }
-        }
-        self.with_tls_handle_mut(handle, |handle| match handle {
-            tls::TlsHandle::Empty(pending) => {
-                if pending.has_root_certificates() {
-                    return Ok(pending.set_error(
-                        "TLS root certificates require client custom root trust".to_string(),
-                    ));
-                }
-                match tls::TlsConnection::server(tls::TlsConfig::ServerFiles {
-                    private_key_file,
-                    private_key_type,
-                    certificate_file,
-                    certificate_type,
-                }) {
-                    Ok(connection) => {
-                        *handle = tls::TlsHandle::Connection(Box::new(connection));
-                        Ok(tls::TLS_SUCCESS_STATUS)
-                    }
-                    Err(message) => Ok(pending.set_error(message)),
-                }
-            }
-            tls::TlsHandle::Connection(_) => Err(AsyncHostError::Inval),
-        })
-    }
-
-    pub(crate) fn tls_set_server_pfx(
-        &self,
-        handle: HostHandle,
-        pfx_content: Vec<u8>,
-    ) -> AsyncHostResult<i32> {
-        self.with_tls_handle_mut(handle, |handle| match handle {
-            tls::TlsHandle::Empty(pending) => {
-                if pending.has_root_certificates() {
-                    return Ok(pending.set_error(
-                        "TLS root certificates require client custom root trust".to_string(),
-                    ));
-                }
-                match tls::TlsConnection::server(tls::TlsConfig::ServerPfx { pfx_content }) {
-                    Ok(connection) => {
-                        *handle = tls::TlsHandle::Connection(Box::new(connection));
-                        Ok(tls::TLS_SUCCESS_STATUS)
-                    }
-                    Err(message) => Ok(pending.set_error(message)),
-                }
-            }
-            tls::TlsHandle::Connection(_) => Err(AsyncHostError::Inval),
-        })
-    }
-
-    pub(crate) fn tls_free(&self, handle: HostHandle) -> AsyncHostResult<()> {
-        if handle == null_handle() {
-            return Ok(());
-        }
-        let connection = self
-            .tls_connections
-            .borrow_mut()
-            .remove(key_from_handle(handle))
-            .ok_or(AsyncHostError::Badf)?;
-        drop(connection);
-        Ok(())
-    }
-
-    pub(crate) fn tls_read_plain(
-        &self,
-        handle: HostHandle,
-        input: &mut [u8],
-        plain: &mut [u8],
-        output: &mut [u8],
-    ) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, tls::TLS_ERROR_STATUS, |tls| {
-            tls.read_plain(input, plain, output)
-        })
-    }
-
-    pub(crate) fn tls_write_plain(
-        &self,
-        handle: HostHandle,
-        input: &mut [u8],
-        plain: &[u8],
-        output: &mut [u8],
-    ) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, tls::TLS_ERROR_STATUS, |tls| {
-            tls.write_plain(input, plain, output)
-        })
-    }
-
-    pub(crate) fn tls_connect(
-        &self,
-        handle: HostHandle,
-        input: &mut [u8],
-        output: &mut [u8],
-    ) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, tls::TlsState::Error.code(), |tls| {
-            let status = tls.connect(input, output);
-            tls::TlsState::from_status(status, tls.wants_read(), tls.wants_write()).code()
-        })
-    }
-
-    pub(crate) fn tls_accept(
-        &self,
-        handle: HostHandle,
-        input: &mut [u8],
-        output: &mut [u8],
-    ) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, tls::TlsState::Error.code(), |tls| {
-            let status = tls.accept(input, output);
-            tls::TlsState::from_status(status, tls.wants_read(), tls.wants_write()).code()
-        })
-    }
-
-    pub(crate) fn tls_bytes_read(&self, handle: HostHandle) -> AsyncHostResult<u32> {
-        let bytes = self.with_tls_connection_mut(handle, 0, |tls| tls.bytes_read())?;
-        u32::try_from(bytes).map_err(|_| AsyncHostError::Fault)
-    }
-
-    pub(crate) fn tls_bytes_to_write(&self, handle: HostHandle) -> AsyncHostResult<u32> {
-        let bytes = self.with_tls_connection_mut(handle, 0, |tls| tls.bytes_to_write())?;
-        u32::try_from(bytes).map_err(|_| AsyncHostError::Fault)
-    }
-
-    pub(crate) fn tls_wants_read(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, false, |tls| tls.wants_read())
-            .map(i32::from)
-    }
-
-    pub(crate) fn tls_wants_write(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, false, |tls| tls.wants_write())
-            .map(i32::from)
-    }
-
-    pub(crate) fn tls_shutdown(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_tls_connection_mut(handle, tls::TLS_ERROR_STATUS, |tls| tls.shutdown())
-    }
-
-    pub(crate) fn tls_peer_certificate(&self, handle: HostHandle) -> AsyncHostResult<HostHandle> {
-        match self.with_tls_connection_mut(handle, Err(()), |tls| tls.peer_certificate())? {
-            Ok(Some(buffer)) => Ok(self.insert_c_buffer(buffer.into_boxed_slice())),
-            // The guest uses a null buffer for TLS errors and a
-            // valid zero-length buffer to represent an absent certificate.
-            Ok(None) => Ok(self.insert_c_buffer(Box::default())),
-            Err(()) => Ok(null_handle()),
-        }
-    }
-
-    pub(crate) fn tls_unique_channel_binding(
-        &self,
-        handle: HostHandle,
-    ) -> AsyncHostResult<HostHandle> {
-        self.tls_c_buffer(handle, |tls| tls.unique_channel_binding())
-    }
-
-    pub(crate) fn tls_server_endpoint_channel_binding(
-        &self,
-        handle: HostHandle,
-    ) -> AsyncHostResult<HostHandle> {
-        self.tls_c_buffer(handle, |tls| tls.server_endpoint_channel_binding())
-    }
-
-    fn tls_c_buffer(
-        &self,
-        handle: HostHandle,
-        f: impl FnOnce(&mut tls::TlsConnection) -> Result<Option<Vec<u8>>, ()>,
-    ) -> AsyncHostResult<HostHandle> {
-        match self.with_tls_connection_mut(handle, Err(()), f)? {
-            Ok(Some(buffer)) => Ok(self.insert_c_buffer(buffer.into_boxed_slice())),
-            Ok(None) => Ok(null_handle()),
-            Err(()) => Ok(null_handle()),
-        }
-    }
-
-    fn with_tls_connection_mut<T>(
-        &self,
-        handle: HostHandle,
-        unconfigured_value: T,
-        f: impl FnOnce(&mut tls::TlsConnection) -> T,
-    ) -> AsyncHostResult<T> {
-        self.with_tls_handle_mut(handle, |handle| match handle {
-            tls::TlsHandle::Connection(connection) => Ok(f(connection)),
-            tls::TlsHandle::Empty(pending) => {
-                pending.set_error("TLS handle is not configured".to_string());
-                Ok(unconfigured_value)
-            }
-        })
-    }
-
-    fn with_tls_pending_mut<T>(
-        &self,
-        handle: HostHandle,
-        f: impl FnOnce(&mut tls::TlsPending) -> T,
-    ) -> AsyncHostResult<T> {
-        self.with_tls_handle_mut(handle, |handle| match handle {
-            tls::TlsHandle::Empty(pending) => Ok(f(pending)),
-            tls::TlsHandle::Connection(_) => Err(AsyncHostError::Inval),
-        })
-    }
-
-    fn with_tls_handle_mut<T>(
-        &self,
-        handle: HostHandle,
-        f: impl FnOnce(&mut tls::TlsHandle) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        let mut tls_connections = self.tls_connections.borrow_mut();
-        let handle = tls_connections
-            .get_mut(key_from_handle(handle))
-            .ok_or(AsyncHostError::Badf)?;
-        f(handle)
-    }
-
     fn spawn_worker_thread(
         &self,
         first_job: WorkerJob,
@@ -2838,6 +2524,8 @@ mod tests {
 
     use super::*;
     use crate::filesystem::Job as FilesystemJob;
+    #[cfg(unix)]
+    use crate::filesystem::{FsOperation, FsPath};
     use crate::policy::{self, Policy};
     use crate::process::{Job as ProcessJob, SpawnOptions};
     use crate::runtime::WorkingDirectory;
@@ -4085,21 +3773,6 @@ mod tests {
         host.check_owned_child_pid(i32::MIN).unwrap();
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn error_message_buffer_uses_native_string_encoding_on_unix() {
-        assert_eq!(error_message_buffer("ab".to_string()).as_ref(), b"ab\0");
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn error_message_buffer_uses_native_string_encoding_on_windows() {
-        assert_eq!(
-            error_message_buffer("ab".to_string()).as_ref(),
-            &[b'a', 0, b'b', 0, 0, 0]
-        );
-    }
-
     #[test]
     fn guest_memory_helpers_read_and_write_u16_units() {
         let mut memory = AlignedBytes([0; 8]);
@@ -4778,18 +4451,13 @@ mod tests {
             Err(AsyncHostError::Badf)
         ));
 
-        let tls = host.tls_new();
-        assert_eq!(host.tls_peer_certificate(tls), Ok(null));
-        assert_eq!(host.tls_unique_channel_binding(tls), Ok(null));
-        assert_eq!(host.tls_server_endpoint_channel_binding(tls), Ok(null));
-        host.tls_free(tls).unwrap();
-        host.tls_free(null).unwrap();
+        host.tls().free(null).unwrap();
 
         for handle in [0, host.invalid_fd()] {
             assert_eq!(host.free_c_buffer(handle), Err(AsyncHostError::Badf));
             assert_eq!(host.free_addrinfo(handle), Err(AsyncHostError::Badf));
             assert_eq!(host.addrinfo_next(handle), Err(AsyncHostError::Badf));
-            assert_eq!(host.tls_free(handle), Err(AsyncHostError::Badf));
+            assert_eq!(host.tls().free(handle), Err(AsyncHostError::Badf));
             #[cfg(windows)]
             assert_eq!(
                 host.free_windows_watcher_buffer(handle),
@@ -5718,55 +5386,19 @@ mod tests {
     }
 
     #[test]
-    fn tls_handles_reject_stale_and_other_family_handles() {
-        let host = default_host();
-        let connection = host.tls_new();
-        let buffer = host.insert_c_buffer(b"retained".to_vec().into_boxed_slice());
-        // Zero is deliberately invalid; nullable cleanup uses the Runtime's sentinel.
-        for handle in [0, host.invalid_fd(), buffer] {
-            assert_eq!(host.tls_free(handle), Err(AsyncHostError::Badf));
-            assert_eq!(host.tls_take_error(handle), Err(AsyncHostError::Badf));
-        }
-        host.tls_free(null_handle()).unwrap();
-        assert_eq!(
-            host.tls_take_error(null_handle()),
-            Err(AsyncHostError::Badf)
-        );
-        host.with_c_buffer(buffer, |bytes| {
-            assert_eq!(bytes, b"retained");
-            Ok(())
-        })
-        .unwrap();
-
-        host.tls_free(connection).unwrap();
-        let replacement = host.tls_new();
-        assert_ne!(connection, replacement);
-        assert_eq!(host.tls_free(connection), Err(AsyncHostError::Badf));
-        assert_eq!(host.tls_take_error(connection), Err(AsyncHostError::Badf));
-        assert_eq!(
-            host.tls_add_root_certificate(replacement, b"pending certificate"),
-            Ok(tls::TLS_SUCCESS_STATUS)
-        );
-
-        host.tls_free(replacement).unwrap();
-        host.free_c_buffer(buffer).unwrap();
-        assert!(host.leak_summary().is_none());
-    }
-
-    #[test]
     fn dropping_host_retires_pending_and_configured_tls_handles() {
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let host = default_host_with_keys(keys.clone());
-        let pending = host.tls_new();
-        let configured = host.tls_new();
+        let pending = host.tls().new_connection();
+        let configured = host.tls().new_connection();
         assert_eq!(
-            host.tls_set_client(
+            host.tls().set_client(
                 configured,
-                "localhost".to_string(),
+                "localhost",
                 false,
-                tls::TlsTrust::NoVerification,
+                crate::tls::TlsTrust::NoVerification,
             ),
-            Ok(tls::TLS_SUCCESS_STATUS)
+            Ok(0)
         );
         for handle in [pending, configured] {
             assert_eq!(
@@ -5780,104 +5412,6 @@ mod tests {
         for handle in [pending, configured] {
             assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
         }
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    fn tls_set_server_files_resolves_relative_paths_against_fixed_directory() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = dunce::canonicalize(tmp.path()).unwrap();
-        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../third_party/moonbitlang_async/test_keys");
-        std::fs::copy(fixtures.join("key.pem"), root.join("key.pem")).unwrap();
-        std::fs::copy(fixtures.join("cert.pem"), root.join("cert.pem")).unwrap();
-        for (policy_text, denied_file) in [
-            (None, None),
-            (Some("[fs]\nread = [\".\"]\n"), None),
-            (Some("[fs]\nread = []\n"), Some("private key")),
-            (Some("[fs]\nread = [\"key.pem\"]\n"), Some("certificate")),
-        ] {
-            let (policy, environment) = if let Some(text) = policy_text {
-                let policy_file = root.join("policy.toml");
-                std::fs::write(&policy_file, text).unwrap();
-                let (policy, environment) = policy::load_file(&policy_file).unwrap();
-                (Some(policy), environment.realize().unwrap())
-            } else {
-                (None, Env::ambient())
-            };
-            let host = test_host_with_state(
-                policy,
-                environment,
-                WorkingDirectory::Fixed(root.clone()),
-                Rc::new(RefCell::new(HostKeys::default())),
-            );
-            let handle = host.tls_new();
-            let status = host
-                .tls_set_server_files(
-                    handle,
-                    "key.pem".into(),
-                    tls::TlsFileType::Pem,
-                    "cert.pem".into(),
-                    tls::TlsFileType::Pem,
-                )
-                .unwrap();
-            if let Some(label) = denied_file {
-                assert_eq!(status, tls::TLS_ERROR_STATUS, "policy: {policy_text:?}");
-                let error = host.tls_take_error(handle).unwrap();
-                host.with_c_buffer(error, |buffer| {
-                    let expected = error_message_buffer(format!(
-                        "failed to access TLS {label} file: PermissionDenied"
-                    ));
-                    assert_eq!(buffer, &*expected);
-                    Ok(())
-                })
-                .unwrap();
-                host.free_c_buffer(error).unwrap();
-            } else {
-                assert_eq!(status, tls::TLS_SUCCESS_STATUS, "policy: {policy_text:?}");
-            }
-            host.tls_free(handle).unwrap();
-        }
-    }
-
-    #[test]
-    fn tls_set_server_files_checks_file_policy_before_backend_load() {
-        let tmp = tempfile::tempdir().unwrap();
-        let allowed = tmp.path().join("allowed");
-        let denied = tmp.path().join("denied");
-        std::fs::create_dir(&allowed).unwrap();
-        std::fs::create_dir(&denied).unwrap();
-        let key_file = denied.join("key.pem");
-        let cert_file = allowed.join("cert.pem");
-        std::fs::write(&key_file, "key").unwrap();
-        std::fs::write(&cert_file, "cert").unwrap();
-        let policy_file = tmp.path().join("policy.toml");
-        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
-        let host = host_with_policy(&policy_file);
-
-        let handle = host.tls_new();
-        let status = host
-            .tls_set_server_files(
-                handle,
-                key_file,
-                tls::TlsFileType::Pem,
-                cert_file,
-                tls::TlsFileType::Pem,
-            )
-            .unwrap();
-
-        assert_eq!(status, tls::TLS_ERROR_STATUS);
-        let error = host.tls_take_error(handle).unwrap();
-        host.with_c_buffer(error, |buffer| {
-            let expected = error_message_buffer(
-                "failed to access TLS private key file: PermissionDenied".to_string(),
-            );
-            assert_eq!(buffer, &*expected);
-            Ok(())
-        })
-        .unwrap();
-        host.free_c_buffer(error).unwrap();
-        host.tls_free(handle).unwrap();
     }
 
     #[test]
