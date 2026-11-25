@@ -134,41 +134,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn non_native_artifact_options_need_no_host_configuration() {
-        let (resolved_project, _) = single_package_resolve_output();
-        let plan = BuildPlan::default();
-        for backend in [
-            BackendConfig::Wasm {
-                use_wat: false,
-                wasi_link: false,
-                new_allocator: false,
-                collect_ref_cycle: false,
-                separate_compilation: false,
-            },
-            BackendConfig::WasmGc { use_wat: false },
-            BackendConfig::Js,
-        ] {
-            let artifact_paths = ArtifactPathResolver::new(
-                TargetLayout::new(
-                    PathBuf::from("_build"),
-                    TargetLayoutMode::Workspace,
-                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug),
-                    RunMode::Build,
-                ),
-                None,
-            );
-            let options = {
-                let configuration =
-                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
-                CompileConfig::new(configuration, backend, RunMode::Build, artifact_paths)
-            };
-
-            let context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
-            assert_eq!(context.artifact_path_options().os, OperatingSystem::None);
-        }
-    }
-
     fn module(name: &str) -> ModuleSource {
         ModuleSource::local_path(
             name.parse::<ModuleName>()
@@ -661,11 +626,15 @@ mod tests {
             },
         );
 
+        let configuration = crate::BuildConfiguration {
+            target_os: OperatingSystem::Windows,
+            ..crate::BuildConfiguration::new(TargetBackend::Native, OptLevel::Debug)
+        };
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(
                 PathBuf::from("_build"),
                 TargetLayoutMode::Workspace,
-                crate::BuildConfiguration::new(TargetBackend::Native, OptLevel::Debug),
+                configuration,
                 RunMode::Build,
             ),
             None,
@@ -678,14 +647,11 @@ mod tests {
                 direct_object_candidate: Some(DirectObjectTarget::X86_64PcWindowsMsvc),
                 collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
-                os: OperatingSystem::Windows,
                 compiler_paths: CompilerPaths {
                     include_path: include_dir.display().to_string(),
                     lib_path: toolchain_dir.path().join("lib").display().to_string(),
                 },
             };
-            let configuration =
-                crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
             CompileConfig::new(
                 configuration,
                 backend,
@@ -746,7 +712,7 @@ mod tests {
         ));
         assert!(command_arg_has_normalized_suffix(
             command,
-            "native/debug/build/libruntime.lib"
+            "debug/build/libruntime.lib"
         ));
         let c_stub_position = command
             .iter()
@@ -759,7 +725,7 @@ mod tests {
             .iter()
             .position(|arg| {
                 arg.replace('\\', "/")
-                    .ends_with("native/debug/build/libruntime.lib")
+                    .ends_with("debug/build/libruntime.lib")
             })
             .expect("runtime archive should be linked");
         assert!(c_stub_position < runtime_position);
@@ -771,7 +737,7 @@ mod tests {
             .expect("runtime compile command args should be captured");
         assert!(command_arg_has_normalized_suffix(
             runtime_compile_command,
-            "native/debug/build/runtime-runtime.obj"
+            "debug/build/runtime-runtime.obj"
         ));
         assert!(
             runtime_compile_command
@@ -784,19 +750,16 @@ mod tests {
             .map(|id| lowered.action(id).command().args())
             .find(|command| {
                 command.iter().any(|arg| arg == "msvc/bin/lib.exe")
-                    && command_arg_has_normalized_suffix(
-                        command,
-                        "native/debug/build/libruntime.lib",
-                    )
+                    && command_arg_has_normalized_suffix(command, "debug/build/libruntime.lib")
             })
             .expect("runtime archive command args should be captured");
         assert!(command_arg_has_normalized_suffix(
             runtime_archive_command,
-            "native/debug/build/libruntime.lib"
+            "debug/build/libruntime.lib"
         ));
         assert!(command_arg_has_normalized_suffix(
             runtime_archive_command,
-            "native/debug/build/runtime-runtime.obj"
+            "debug/build/runtime-runtime.obj"
         ));
 
         let stub_compile_command = lowered
@@ -933,14 +896,12 @@ mod tests {
         for backend in [
             BackendConfig::Llvm {
                 allocator: NativeAllocator::Default,
-                os: OperatingSystem::MacOS,
                 compiler_paths: compiler_paths.clone(),
             },
             BackendConfig::Native {
                 direct_object_candidate: Some(DirectObjectTarget::Aarch64AppleDarwin),
                 collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
-                os: OperatingSystem::MacOS,
                 compiler_paths: compiler_paths.clone(),
             },
         ] {
@@ -949,25 +910,25 @@ mod tests {
                     NativeBackendMode::DirectObject(DirectObjectTarget::Aarch64AppleDarwin),
                 ),
             );
+            let configuration = crate::BuildConfiguration {
+                target_os: OperatingSystem::MacOS,
+                ..crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug)
+            };
             let artifact_paths = ArtifactPathResolver::new(
                 TargetLayout::new(
                     PathBuf::from("_build"),
                     TargetLayoutMode::Workspace,
-                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug),
+                    configuration,
                     RunMode::Build,
                 ),
                 None,
             );
-            let options = {
-                let configuration =
-                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
-                CompileConfig::new(
-                    configuration,
-                    backend,
-                    RunMode::Build,
-                    artifact_paths.clone(),
-                )
-            };
+            let options = CompileConfig::new(
+                configuration,
+                backend,
+                RunMode::Build,
+                artifact_paths.clone(),
+            );
 
             let lowered = lower_build_plan(&resolved_project, &plan, &options, &[])
                 .expect("lowering should succeed");

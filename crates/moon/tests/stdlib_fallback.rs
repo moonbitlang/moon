@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[test]
-fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
+fn cross_platform_build_uses_the_target_os_for_sources_and_artifacts() {
     let project = tempfile::tempdir().unwrap();
     let core = tempfile::tempdir().unwrap();
     let (predicate, compiler, probe) = if cfg!(windows) {
@@ -76,7 +76,7 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
     std::fs::write(core.path().join("prelude/prelude.mbt"), format!(
         "pub using @builtin {{type Unit}}\n#cfg({predicate})\npub fn cross_only() -> Unit {{ () }}\n"
     )).unwrap();
-    for (verb, profile) in [("check", "--debug"), ("build", "--release")] {
+    let moon = || {
         snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
             .current_dir(project.path())
             .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
@@ -84,6 +84,9 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
             .env("MOON_CC", &compiler)
             .env("MOON_DEP_CACHE", "off")
             .env("MOON_WORK", "off")
+    };
+    for (verb, profile) in [("check", "--debug"), ("build", "--release")] {
+        moon()
             .args([verb, "--target", "native", profile])
             .assert()
             .success();
@@ -116,6 +119,49 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
             .as_str()
             .is_some_and(|path| std::path::Path::new(path).ends_with(&interface))
     }));
+
+    // Link a consumer of the checked library. The probe stands in for a cross
+    // toolchain, so inspect the link inputs without executing a foreign compiler.
+    let cmd = project.path().join("cmd");
+    std::fs::create_dir(&cmd).unwrap();
+    std::fs::write(
+        cmd.join("moon.pkg"),
+        "import { \"test/cross\" }\npkgtype(kind: \"executable\")\n",
+    )
+    .unwrap();
+    std::fs::write(cmd.join("main.mbt"), "fn main { @cross.entry() }\n").unwrap();
+    let output = moon()
+        .env("MOON_AR", &compiler)
+        .args([
+            "build",
+            "cmd",
+            "--target",
+            "native",
+            "--release",
+            "--dry-run",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).replace('\\', "/");
+    let link = stdout
+        .lines()
+        .find(|line| line.contains("/cmd/cmd.exe"))
+        .expect("link command");
+    let (object, archive) = if cfg!(windows) {
+        ("cmd.o", "libruntime.a")
+    } else {
+        ("cmd.obj", "libruntime.lib")
+    };
+    for input in [
+        format!("/__moonbit_link_core__/{object}"),
+        format!("/{archive}"),
+    ] {
+        assert!(
+            link.split_whitespace()
+                .any(|arg| arg.trim_end_matches(['\'', '"']).ends_with(&input)),
+            "missing {input} in {link}"
+        );
+    }
 }
 
 #[test]

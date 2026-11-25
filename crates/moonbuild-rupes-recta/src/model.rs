@@ -81,13 +81,10 @@ pub enum BackendConfig {
         allocator: NativeAllocator,
         /// Enable cycle collection in the native runtime for either payload form.
         collect_ref_cycle: bool,
-        /// Supplied by command orchestration; RR does not infer the host OS.
-        os: OperatingSystem,
         compiler_paths: CompilerPaths,
     },
     Llvm {
         allocator: NativeAllocator,
-        os: OperatingSystem,
         compiler_paths: CompilerPaths,
     },
 }
@@ -185,13 +182,6 @@ impl BackendConfig {
                 collect_ref_cycle, ..
             } => *collect_ref_cycle,
             Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => false,
-        }
-    }
-
-    pub(crate) fn os(&self) -> OperatingSystem {
-        match self {
-            Self::Native { os, .. } | Self::Llvm { os, .. } => *os,
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => OperatingSystem::None,
         }
     }
 
@@ -612,7 +602,7 @@ impl BuildPlanNode {
 }
 
 /// Supported operating systems for artifact generation
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatingSystem {
     Windows,
     Linux,

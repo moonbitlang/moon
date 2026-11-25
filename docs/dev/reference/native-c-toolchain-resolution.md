@@ -466,7 +466,10 @@ the final mode once in its Backend Plan, and action construction and lowering
 consume that mode.
 
 For Native check and build actions (including the build for `moon run`), Moon
-uses an explicit `MOON_CC` to determine the source-level Windows predicate.
+uses the OS reported by an explicit `MOON_CC` as the build's target OS. With
+no override or an unrecognized OS, the target defaults to the host. Generated
+objects and static archives use the target's extensions (`.obj` and `.lib` for
+Windows, `.o` and `.a` for Linux and macOS).
 Source-only actions need the driver target, and native tool actions reuse that
 probe and resolve the archiver. A recognized target across the Windows boundary
 selects `-cfg platform=windows` when targeting Windows or `-cfg platform=`

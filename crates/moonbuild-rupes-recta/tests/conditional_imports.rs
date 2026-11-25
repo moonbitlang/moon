@@ -210,7 +210,6 @@ import { "example/conditional/helper" } for "test"
                 direct_object_candidate: None,
                 collect_ref_cycle: false,
                 allocator: moonutil::compiler_flags::NativeAllocator::System,
-                os: std::env::consts::OS.parse().unwrap(),
                 compiler_paths: moonutil::compiler_flags::CompilerPaths::from_moon_dirs(),
             },
             "native",

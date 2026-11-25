@@ -65,8 +65,8 @@ pub enum LinkedCoreArtifact {
     WasmGC { use_wat: bool },
     Js,
     NativeC,
-    NativeObject { os: OperatingSystem },
-    LlvmObject { os: OperatingSystem },
+    NativeObject,
+    LlvmObject,
 }
 
 impl LinkedCoreArtifact {
@@ -75,18 +75,18 @@ impl LinkedCoreArtifact {
             Self::Wasm { .. } => TargetBackend::Wasm,
             Self::WasmGC { .. } => TargetBackend::WasmGC,
             Self::Js => TargetBackend::Js,
-            Self::NativeC | Self::NativeObject { .. } => TargetBackend::Native,
-            Self::LlvmObject { .. } => TargetBackend::LLVM,
+            Self::NativeC | Self::NativeObject => TargetBackend::Native,
+            Self::LlvmObject => TargetBackend::LLVM,
         }
     }
 
-    fn extension(self) -> &'static str {
+    fn extension(self, os: OperatingSystem) -> &'static str {
         match self {
             Self::Wasm { use_wat } | Self::WasmGC { use_wat } if use_wat => ".wat",
             Self::Wasm { .. } | Self::WasmGC { .. } => ".wasm",
             Self::Js => ".js",
             Self::NativeC => ".c",
-            Self::NativeObject { os } | Self::LlvmObject { os } => object_file_ext(os),
+            Self::NativeObject | Self::LlvmObject => object_file_ext(os),
         }
     }
 }
@@ -252,13 +252,10 @@ impl TargetLayout {
     pub fn artifact_root(&self) -> PathBuf {
         // FIXME: Distinguish targets within one Windows predicate when the
         // configuration also identifies architecture and ABI.
-        let backend_dir = match (
-            self.configuration.backend,
-            self.configuration.windows_cfg_override,
-        ) {
-            (TargetBackend::Native, Some(true)) => "native-windows",
-            (TargetBackend::Native, Some(false)) => "native-unix",
-            (backend, _) => backend.to_dir_name(),
+        let backend_dir = match self.configuration.windows_cfg_override() {
+            Some(true) => "native-windows",
+            Some(false) => "native-unix",
+            None => self.configuration.backend.to_dir_name(),
         };
         self.target_base_dir
             .join(backend_dir)
@@ -326,13 +323,13 @@ impl TargetLayout {
         assert_eq!(linked_core.target_backend(), self.configuration.backend);
         let mut base_dir = self.package_dir(pkg_fqn);
         // Keep main-package objects apart from the package's other objects.
-        if matches!(linked_core, LinkedCoreArtifact::NativeObject { .. }) {
+        if matches!(linked_core, LinkedCoreArtifact::NativeObject) {
             base_dir.push(LINKED_CORE_OBJECT_DIR);
         }
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            linked_core.extension()
+            linked_core.extension(self.configuration.target_os)
         ));
         base_dir
     }
@@ -362,7 +359,6 @@ impl TargetLayout {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        os: OperatingSystem,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn);
@@ -370,7 +366,7 @@ impl TargetLayout {
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            object_file_ext(os)
+            object_file_ext(self.configuration.target_os)
         ));
         base_dir
     }
@@ -422,18 +418,13 @@ impl TargetLayout {
     /// and `.lib` on Windows.
     ///
     /// Format: `_build/{backend}/{opt_level}/build/{package_path}/{artifact}.{a,lib}`
-    pub fn foreign_library_path(
-        &self,
-        pkg_list: &DiscoverResult,
-        package: PackageId,
-        os: OperatingSystem,
-    ) -> PathBuf {
+    pub fn foreign_library_path(&self, pkg_list: &DiscoverResult, package: PackageId) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, TargetKind::Source),
-            static_library_ext(os)
+            static_library_ext(self.configuration.target_os)
         ));
         base_dir
     }
@@ -511,7 +502,7 @@ impl TargetLayout {
         }
     }
 
-    pub fn runtime_object_path(&self, source: &Path, os: OperatingSystem) -> PathBuf {
+    pub fn runtime_object_path(&self, source: &Path) -> PathBuf {
         let mut result = self.runtime_output_dir();
         let stem = source
             .file_stem()
@@ -519,14 +510,17 @@ impl TargetLayout {
             .to_os_string();
         let mut filename = OsString::from("runtime-");
         filename.push(stem);
-        filename.push(object_file_ext(os));
+        filename.push(object_file_ext(self.configuration.target_os));
         result.push(filename);
         result
     }
 
-    pub fn runtime_archive_path(&self, os: OperatingSystem) -> PathBuf {
+    pub fn runtime_archive_path(&self) -> PathBuf {
         let mut result = self.runtime_output_dir();
-        result.push(format!("libruntime{}", static_library_ext(os)));
+        result.push(format!(
+            "libruntime{}",
+            static_library_ext(self.configuration.target_os)
+        ));
         result
     }
 
@@ -590,18 +584,17 @@ impl TargetLayout {
 
     /// Returns the path for a C stub object file.
     ///
-    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/{stub_name}.o`
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/{stub_name}.{o,obj}`
     pub fn c_stub_object_path(
         &self,
         pkg_list: &DiscoverResult,
         package: PackageId,
         stub_name: &OsStr,
-        os: OperatingSystem,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn);
         let mut stub_name = stub_name.to_os_string();
-        stub_name.push(object_file_ext(os));
+        stub_name.push(object_file_ext(self.configuration.target_os));
         base_dir.push(stub_name);
         base_dir
     }
@@ -613,19 +606,14 @@ impl TargetLayout {
 
     /// Returns the path for a C stub static library archive.
     ///
-    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/lib{package_name}.a`
-    pub fn c_stub_archive_path(
-        &self,
-        pkg_list: &DiscoverResult,
-        package: PackageId,
-        os: OperatingSystem,
-    ) -> PathBuf {
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/lib{package_name}.{a,lib}`
+    pub fn c_stub_archive_path(&self, pkg_list: &DiscoverResult, package: PackageId) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
             "lib{}{}",
             pkg_fqn.short_alias(),
-            static_library_ext(os)
+            static_library_ext(self.configuration.target_os)
         ));
         base_dir
     }
@@ -830,14 +818,10 @@ impl ArtifactPathResolver {
                     source
                         .file_stem()
                         .expect("C stub declaration should have a file name"),
-                    options.os,
                 ),
             ],
             ArtifactKey::CStubLibrary { package } => {
-                vec![
-                    self.target_layout
-                        .c_stub_archive_path(packages, *package, options.os),
-                ]
+                vec![self.target_layout.c_stub_archive_path(packages, *package)]
             }
             ArtifactKey::LinkedCore {
                 package,
@@ -866,11 +850,12 @@ impl ArtifactPathResolver {
             ArtifactKey::GeneratedCObject {
                 package,
                 target_kind,
-            } => vec![self.target_layout.generated_c_object_of_build_target(
-                packages,
-                &package.build_target(*target_kind),
-                options.os,
-            )],
+            } => {
+                vec![self.target_layout.generated_c_object_of_build_target(
+                    packages,
+                    &package.build_target(*target_kind),
+                )]
+            }
             ArtifactKey::Executable {
                 package,
                 target_kind,
@@ -883,10 +868,7 @@ impl ArtifactPathResolver {
                 )]
             }
             ArtifactKey::ForeignLibrary { package } => {
-                vec![
-                    self.target_layout
-                        .foreign_library_path(packages, *package, options.os),
-                ]
+                vec![self.target_layout.foreign_library_path(packages, *package)]
             }
             ArtifactKey::GeneratedTestDriver {
                 package,
@@ -915,11 +897,11 @@ impl ArtifactPathResolver {
                 };
                 vec![
                     self.target_layout
-                        .runtime_object_path(&info.source_files[index as usize], options.os),
+                        .runtime_object_path(&info.source_files[index as usize]),
                 ]
             }
             ArtifactKey::RuntimeLibrary => {
-                vec![self.target_layout.runtime_archive_path(options.os)]
+                vec![self.target_layout.runtime_archive_path()]
             }
             ArtifactKey::GeneratedMbti {
                 package,
@@ -959,7 +941,6 @@ impl ArtifactPathResolver {
 
 #[derive(Clone, Copy, Debug)]
 pub struct ArtifactPathOptions {
-    pub os: OperatingSystem,
     pub executable: ExecutableArtifact,
     pub linked_core: LinkedCoreArtifact,
 }
@@ -1151,12 +1132,9 @@ mod tests {
             ExecutableArtifact::WasmGC { use_wat } => LinkedCoreArtifact::WasmGC { use_wat },
             ExecutableArtifact::Js => LinkedCoreArtifact::Js,
             ExecutableArtifact::NativeExecutable => LinkedCoreArtifact::NativeC,
-            ExecutableArtifact::LlvmExecutable => LinkedCoreArtifact::LlvmObject {
-                os: OperatingSystem::Linux,
-            },
+            ExecutableArtifact::LlvmExecutable => LinkedCoreArtifact::LlvmObject,
         };
         ArtifactPathOptions {
-            os: OperatingSystem::Linux,
             executable,
             linked_core,
         }
@@ -1685,7 +1663,11 @@ mod tests {
                 &packages,
                 artifact_options(ExecutableArtifact::NativeExecutable),
             ),
-            vec![PathBuf::from("_build/native/debug/build/ffi/libffi.a")],
+            vec![PathBuf::from(if cfg!(windows) {
+                "_build/native/debug/build/ffi/libffi.lib"
+            } else {
+                "_build/native/debug/build/ffi/libffi.a"
+            })],
         );
     }
 
@@ -1698,7 +1680,6 @@ mod tests {
         let (packages, modules, _) = package_fixture("username/hello", "ffi");
         let module = modules.input_module_ids()[0];
         let options = ArtifactPathOptions {
-            os: OperatingSystem::Linux,
             executable: ExecutableArtifact::NativeExecutable,
             linked_core: LinkedCoreArtifact::NativeC,
         };
@@ -1712,7 +1693,11 @@ mod tests {
                 &packages,
                 options,
             ),
-            vec![PathBuf::from("_build/native/debug/build/libruntime.a")],
+            vec![PathBuf::from(if cfg!(windows) {
+                "_build/native/debug/build/libruntime.lib"
+            } else {
+                "_build/native/debug/build/libruntime.a"
+            })],
         );
         assert_eq!(
             resolver.paths_for_artifact(

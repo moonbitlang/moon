@@ -6,10 +6,10 @@ status: accepted
 
 MoonBuild selects a Build Configuration before Package Resolution and retains
 that selection through planning, lowering, artifact layout, and build results.
-The configuration currently consists of the Target Backend and debug/release
-profile. Selecting the profile only while preparing compiler options leaves
-the initial command request without an explicit profile to retain through
-source selection, planning, and build results.
+The configuration records the Target Backend, debug/release profile, and
+target OS for native artifacts. Selecting the profile only while preparing
+compiler options leaves the initial command request without an explicit
+profile to retain through source selection, planning, and build results.
 
 Command policy resolves explicit options and defaults once. Package Resolution
 receives only the selected backends, and each Build Plan consumes its backend's
@@ -45,9 +45,9 @@ The CLI selects one effective profile per invocation. This change does not add
 simultaneous debug/release requests or profile-dependent imports.
 
 Configuration scope does not replace action identity or cache inputs. Compiler
-arguments and tool inputs can differ within one profile. This decision also
-does not establish new target-platform fields, a configuration matrix CLI, or
-new output-directory conventions; those remain separate follow-ups.
+arguments and tool inputs can differ within one profile. A configuration
+matrix CLI and further distinctions in native output directories remain
+separate decisions.
 
 ## Considered Options
 

@@ -204,7 +204,6 @@ impl<'a> LoweringContext<'a> {
     // Artifact forms combine compile-wide options with the Native mode already
     // selected in the Backend Plan.
     pub(super) fn artifact_path_options(&self) -> ArtifactPathOptions {
-        let os = self.opt.backend().os();
         let (executable, linked_core) = match self.opt.backend() {
             BackendConfig::Wasm { use_wat, .. } => (
                 ExecutableArtifact::Wasm { use_wat: *use_wat },
@@ -218,19 +217,18 @@ impl<'a> LoweringContext<'a> {
             BackendConfig::Native { .. } => (
                 ExecutableArtifact::NativeExecutable,
                 if self.plan.backend_plan().direct_object_target().is_some() {
-                    LinkedCoreArtifact::NativeObject { os }
+                    LinkedCoreArtifact::NativeObject
                 } else {
                     LinkedCoreArtifact::NativeC
                 },
             ),
             BackendConfig::Llvm { .. } => (
                 ExecutableArtifact::LlvmExecutable,
-                LinkedCoreArtifact::LlvmObject { os },
+                LinkedCoreArtifact::LlvmObject,
             ),
         };
 
         ArtifactPathOptions {
-            os,
             executable,
             linked_core,
         }

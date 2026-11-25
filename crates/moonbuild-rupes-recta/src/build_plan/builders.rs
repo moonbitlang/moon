@@ -1412,19 +1412,20 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let moonc_debug_info = self.res.backend.moonc_debug_info();
         let generate_dsym = match self.config.backend() {
-            BackendConfig::Llvm { os, .. } => should_generate_llvm_dsym(moonc_debug_info, *os),
-            BackendConfig::Native { os, .. } => match self.res.backend.native_mode() {
+            BackendConfig::Llvm { .. } => {
+                should_generate_llvm_dsym(moonc_debug_info, self.config.configuration().target_os)
+            }
+            BackendConfig::Native { .. } => match self.res.backend.native_mode() {
                 NativeBackendMode::DirectObject(target) => should_generate_direct_native_dsym(
                     *target,
                     moonc_debug_info || self.config.debug_info.runtime_backtrace,
                     &native.effective_native_toolchain,
                 ),
-                // Compiling and linking in one clang invocation used to run
-                // dsymutil implicitly. With persistent objects it must be an
-                // explicit action, otherwise libbacktrace loses source lines.
+                // On macOS hosts, keep the dsymutil step that clang used to
+                // run implicitly when compiling and linking in one invocation.
                 NativeBackendMode::GeneratedC => {
                     native.driver_debug_info
-                        && *os == OperatingSystem::MacOS
+                        && cfg!(target_os = "macos")
                         && native
                             .effective_native_toolchain
                             .cc()
@@ -1839,7 +1840,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Runtime backtraces need the prebuilt host `libbacktrace.a`.
         let enable_backtrace = self.config.debug_info.runtime_backtrace
-            && self.config.backend().os() != OperatingSystem::Windows
+            && !cfg!(windows)
             && effective_native_toolchain.cc().targets_host();
         self.res.backend.runtime_info = Some(BuildRuntimeInfo {
             effective_native_toolchain,
