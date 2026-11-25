@@ -24,6 +24,8 @@
 //! guest process identities and waits within their virtual process tree.
 //! [`prepare_moon`] runs host-selected helpers and owns their artifact handoff.
 
+mod environment;
+mod inputs;
 mod job;
 mod lookup;
 mod moon;
@@ -44,6 +46,7 @@ use crate::policy::{Policy, ProcessPolicy};
 use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
+pub(crate) use inputs::ProcessInputs;
 pub(crate) use job::Job;
 pub(crate) use os::SpawnOptions;
 pub(crate) use prepare_artifact::{Preparation, prepare_moon};

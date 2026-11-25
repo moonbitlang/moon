@@ -77,9 +77,11 @@ before draining them and releasing their storage.
 Unix process launch validates its argument and environment inputs before
 consuming either Handle. Transferring an environment block validates the
 destination Handle before consuming the source; insufficient destination
-capacity still consumes that temporary source snapshot. The Async Host owns
-these operation-specific rules, while each owning table manages registration
-and retirement of its entries.
+capacity still consumes that temporary source snapshot. The Process domain
+owns these input tables and transfer rules on the calling thread. It snapshots
+the shared Runtime Env when inputs are created; Jobs receive completed values
+after transfer. Each owning table manages registration and retirement of its
+entries.
 
 Resource operations validate the Resource Handle and the Resource Class required
 by the operation before calling into the OS. Files, TCP sockets, and UDP sockets
