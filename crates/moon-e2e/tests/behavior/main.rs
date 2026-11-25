@@ -30,6 +30,7 @@ mod clean;
 mod command;
 mod conditional_compilation;
 mod files;
+mod filesystem_permissions;
 mod library_build;
 mod package_interfaces;
 mod package_selection;

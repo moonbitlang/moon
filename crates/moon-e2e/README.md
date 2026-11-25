@@ -10,6 +10,7 @@ tests remain in the crate that owns the code.
 
 | Topic / question | Feature | Rust steps | Filter |
 | --- | --- | --- | --- |
+| **Directory permissions:** Do recursive grants preserve child restrictions and reject unsupported mutations before effects? | [Filesystem permissions](features/testing/filesystem_permissions.feature) | [filesystem_permissions.rs](tests/behavior/filesystem_permissions.rs) | `@filesystem_permissions` |
 | **Building libraries:** Does the preview compile dependencies first and pass their interfaces? Can the compiler build both libraries? | [Library build](features/build/library_build.feature) | [library_build.rs](tests/behavior/library_build.rs) | `@library_build` |
 | **Cleaning builds:** Can a module or workspace remove its build outputs and build again? | [Clean and rebuild](features/build/clean.feature) | [clean.rs](tests/behavior/clean.rs) | `@clean` |
 | **Selecting sources:** Do backend switches and default/explicit profiles select the right source inputs? | [Conditional compilation](features/build/conditional_compilation.feature) | [conditional_compilation.rs](tests/behavior/conditional_compilation.rs), [preview.rs](tests/behavior/preview.rs) | `@conditional_compilation` |
