@@ -21,10 +21,7 @@
 use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{
     CompileConfig, ResolvedProject, RunMode,
-    model::{
-        BackendConfig, DebugInfoRequest, DirectObjectTarget, ENV_MOONBIT_NEW_NATIVE,
-        OperatingSystem,
-    },
+    model::{BackendConfig, DebugInfoRequest, DirectObjectTarget, ENV_MOONBIT_NEW_NATIVE},
     target_layout::{ArtifactPathResolver, TargetLayout, stdlib_core_path, stdlib_mi_path},
 };
 use moonutil::{
@@ -43,12 +40,10 @@ pub fn select_configuration(
     // TODO: Include test and bench once moonc gen-test-info accepts the same source cfg.
     if backend == TargetBackend::Native
         && matches!(action, RunMode::Check | RunMode::Build | RunMode::Run)
+        && let Some(os) =
+            compiler_flags::global_compiler()?.and_then(|compiler| compiler.target_os())
     {
-        // TODO: Select a named platform once moonc defines defaults beyond Windows.
-        config.windows_cfg_override = compiler_flags::global_compiler()?
-            .and_then(|compiler| compiler.target_os())
-            .map(|os| os == "windows")
-            .filter(|windows| *windows != cfg!(windows));
+        config.target_os = os.parse().map_err(anyhow::Error::msg)?;
     }
     Ok(config)
 }
@@ -83,17 +78,11 @@ pub fn prepare_backend(
                 direct_object_candidate,
                 allocator: compiler_flags::NativeAllocator::from_env()?,
                 collect_ref_cycle,
-                os: std::env::consts::OS
-                    .parse::<OperatingSystem>()
-                    .expect("Unknown"),
                 compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
             }
         }
         TargetBackend::LLVM => BackendConfig::Llvm {
             allocator: compiler_flags::NativeAllocator::from_env()?,
-            os: std::env::consts::OS
-                .parse::<OperatingSystem>()
-                .expect("Unknown"),
             compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
         },
     })
@@ -125,7 +114,7 @@ pub fn prepare_config(
     // layout, without writing into the toolchain or observing the filesystem.
     let stdlib_path = stdlib_path.filter(|root| {
         // Installed native bundles were compiled with moonc's host platform.
-        if configuration.windows_cfg_override.is_some() {
+        if configuration.windows_cfg_override().is_some() {
             return false;
         }
         resolved_project

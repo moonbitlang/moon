@@ -76,7 +76,7 @@ fn cross_platform_build_uses_the_target_os_for_sources_and_artifacts() {
     std::fs::write(core.path().join("prelude/prelude.mbt"), format!(
         "pub using @builtin {{type Unit}}\n#cfg({predicate})\npub fn cross_only() -> Unit {{ () }}\n"
     )).unwrap();
-    for (verb, profile) in [("check", "--debug"), ("build", "--release")] {
+    let moon = || {
         snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
             .current_dir(project.path())
             .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
@@ -84,6 +84,9 @@ fn cross_platform_build_uses_the_target_os_for_sources_and_artifacts() {
             .env("MOON_CC", &compiler)
             .env("MOON_DEP_CACHE", "off")
             .env("MOON_WORK", "off")
+    };
+    for (verb, profile) in [("check", "--debug"), ("build", "--release")] {
+        moon()
             .args([verb, "--target", "native", profile])
             .assert()
             .success();
@@ -127,13 +130,8 @@ fn cross_platform_build_uses_the_target_os_for_sources_and_artifacts() {
     )
     .unwrap();
     std::fs::write(cmd.join("main.mbt"), "fn main { @cross.entry() }\n").unwrap();
-    let output = snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .current_dir(project.path())
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
-        .env("MOON_CORE_OVERRIDE", core.path())
-        .env("MOON_CC", &compiler)
+    let output = moon()
         .env("MOON_AR", &compiler)
-        .env("MOON_WORK", "off")
         .args([
             "build",
             "cmd",

@@ -21,7 +21,7 @@ use moonutil::target::TargetBackend;
 
 use crate::{
     build_lower::WarningCondition,
-    model::{BackendConfig, DebugInfoRequest},
+    model::{BackendConfig, DebugInfoRequest, OperatingSystem},
     target_layout::ArtifactPathResolver,
 };
 
@@ -59,8 +59,8 @@ impl RunMode {
 pub struct BuildConfiguration {
     pub backend: TargetBackend,
     pub profile: OptLevel,
-    /// Source-level `platform="windows"` predicate, when it differs from moonc's default.
-    pub windows_cfg_override: Option<bool>,
+    /// OS of the output artifacts. Wasm and JS use `OperatingSystem::None`.
+    pub target_os: OperatingSystem,
 }
 
 impl BuildConfiguration {
@@ -68,8 +68,20 @@ impl BuildConfiguration {
         Self {
             backend,
             profile,
-            windows_cfg_override: None,
+            target_os: if backend.is_native() {
+                std::env::consts::OS
+                    .parse()
+                    .expect("supported native host OS")
+            } else {
+                OperatingSystem::None
+            },
         }
+    }
+
+    /// moonc defaults to the host's Windows predicate for generated C.
+    pub fn windows_cfg_override(self) -> Option<bool> {
+        let windows = self.target_os == OperatingSystem::Windows;
+        (self.backend == TargetBackend::Native && windows != cfg!(windows)).then_some(windows)
     }
 }
 
@@ -182,6 +194,19 @@ mod tests {
         pkg_solve::{DepEdge, PackageRelations},
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
     };
+
+    #[test]
+    fn wasm_and_js_configurations_have_no_target_os() {
+        for backend in [
+            TargetBackend::Wasm,
+            TargetBackend::WasmGC,
+            TargetBackend::Js,
+        ] {
+            let config = super::BuildConfiguration::new(backend, OptLevel::Debug);
+            assert_eq!(config.target_os, super::OperatingSystem::None);
+            assert_eq!(config.windows_cfg_override(), None);
+        }
+    }
 
     fn moon_mod() -> MoonMod {
         MoonMod {
@@ -347,9 +372,6 @@ mod tests {
                         direct_object_candidate: candidate,
                         collect_ref_cycle: false,
                         allocator: moonutil::compiler_flags::NativeAllocator::System,
-                        os: std::env::consts::OS
-                            .parse()
-                            .expect("test host OS should be supported"),
                         compiler_paths: moonutil::compiler_flags::CompilerPaths::from_moon_dirs(),
                     };
                     let configuration =
@@ -559,7 +581,7 @@ mod tests {
     fn native_payload_selection_uses_only_requested_executables() {
         use crate::{
             build_plan::{build_plan, resolve_native_backend_mode},
-            model::{DirectObjectTarget, OperatingSystem},
+            model::DirectObjectTarget,
         };
 
         let module_source = ModuleSource::local_path(
@@ -631,7 +653,6 @@ mod tests {
                         direct_object_candidate: candidate,
                         collect_ref_cycle,
                         allocator: moonutil::compiler_flags::NativeAllocator::Default,
-                        os: OperatingSystem::None,
                         compiler_paths: moonutil::compiler_flags::CompilerPaths {
                             include_path: "/unused/include".into(),
                             lib_path: "/unused/lib".into(),

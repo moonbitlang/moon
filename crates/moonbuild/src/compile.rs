@@ -165,7 +165,6 @@ mod tests {
                 direct_object_candidate: None,
                 collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
-                os: std::env::consts::OS.parse().unwrap(),
                 compiler_paths: CompilerPaths {
                     include_path: include_dir.display().to_string(),
                     lib_path: dir.path().join("lib").display().to_string(),
