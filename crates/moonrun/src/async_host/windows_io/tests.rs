@@ -20,6 +20,223 @@ use super::*;
 use crate::async_host::tests::{default_host, default_host_with_keys};
 
 #[test]
+fn connect_on_an_already_bound_socket_returns_an_error_without_pending_io() {
+    use crate::network::os::address;
+
+    assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+    let host = default_host();
+    let socket = host.make_tcp_socket(4).unwrap();
+    let mut addr = vec![0; address::ipv4_addr_size()];
+    address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
+    host.bind(socket, &addr).unwrap();
+
+    // A guest can bind before calling the ConnectEx import, even though normal
+    // async code uses a fresh socket. Reject this ordering without panicking or
+    // retaining an operation that was never submitted.
+    address::init_ip_addr(&mut addr, 0x7f000001, 80).unwrap();
+    let addr_len = addr.len() as u32;
+    let result = host
+        .make_connect_io_result(addr.as_mut_slice(), 0, addr_len)
+        .unwrap();
+    assert_eq!(
+        host.connect_io_result(socket, result),
+        Err(AsyncHostError::Native(
+            windows_sys::Win32::Networking::WinSock::WSAEINVAL
+        ))
+    );
+    host.free_io_result(result).unwrap();
+    host.close_fd(socket).unwrap();
+}
+
+#[test]
+fn denied_network_submission_does_not_bind_or_retain_the_socket() {
+    use crate::async_host::tests::host_with_policy;
+    use crate::network::os::{address, socket as sys};
+
+    assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+    let dir = tempfile::tempdir().unwrap();
+    let policy = dir.path().join("deny-all.toml");
+    std::fs::write(&policy, "").unwrap();
+    let host = host_with_policy(&policy);
+    let mut addr = vec![0; address::ipv4_addr_size()];
+    address::init_ip_addr(&mut addr, 0x7f000001, 80).unwrap();
+    let len = addr.len() as u32;
+
+    let tcp = host.make_tcp_socket(4).unwrap();
+    let connect = host
+        .make_connect_io_result(addr.as_mut_slice(), 0, len)
+        .unwrap();
+    assert_eq!(
+        host.connect_io_result(tcp, connect),
+        Err(AsyncHostError::PermissionDenied)
+    );
+    // Authorization must precede ConnectEx's implicit local bind.
+    host.with_raw_socket(tcp, |socket| {
+        assert_eq!(
+            sys::getsockname(socket, &mut vec![0; len as usize])
+                .unwrap_err()
+                .raw_os_error(),
+            Some(windows_sys::Win32::Networking::WinSock::WSAEINVAL)
+        );
+        Ok(())
+    })
+    .unwrap();
+    host.free_io_result(connect).unwrap();
+    host.close_fd(tcp).unwrap();
+
+    let udp = host.make_udp_socket(4, false).unwrap();
+    let send = host
+        .make_socket_with_addr_write_io_result(addr.as_mut_slice(), 0, 0, 1, 0, 0, len)
+        .unwrap();
+    assert_eq!(
+        host.write_io_result(udp, send),
+        Err(AsyncHostError::PermissionDenied)
+    );
+    host.free_io_result(send).unwrap();
+    host.close_fd(udp).unwrap();
+    assert_eq!(host.leak_summary(), None);
+}
+
+#[test]
+fn pending_udp_receive_keeps_address_outputs_until_completion() {
+    use crate::network::os::{address, socket as sys};
+    use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+    use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
+
+    // Bound the whole process, including teardown if a lifetime regression
+    // prevents completion or cancellation from releasing native storage.
+    const CHILD: &str = "MOONRUN_TEST_PENDING_UDP_RECEIVE";
+    if std::env::var_os(CHILD).is_none() {
+        snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "async_host::windows_io::tests::pending_udp_receive_keeps_address_outputs_until_completion", "--nocapture"])
+            .env(CHILD, "1")
+            .timeout(std::time::Duration::from_secs(15))
+            .assert().success();
+        return;
+    }
+    assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+    let host = default_host();
+    let socket = host.make_udp_socket(4, false).unwrap();
+    let mut addr = vec![0; address::ipv4_addr_size()];
+    address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
+    host.bind(socket, &addr).unwrap();
+    host.with_raw_socket(socket, |socket| Ok(sys::getsockname(socket, &mut addr)?))
+        .unwrap();
+    let endpoint = SocketAddrV4::new(
+        Ipv4Addr::LOCALHOST,
+        address::ip_addr_get_port(&addr).unwrap(),
+    );
+    let poll = host.poll_create().unwrap();
+    host.poll_register(poll, socket, true).unwrap();
+
+    // Start with IPv6-sized capacity: Winsock must update the retained address
+    // length to IPv4 size after submission has already returned.
+    let mut output = vec![0; address::ipv6_addr_size()];
+    let capacity = output.len() as u32;
+    let result = host
+        .make_socket_with_addr_read_io_result(output.as_mut_slice(), 3, 0, 0, capacity)
+        .unwrap();
+    assert_eq!(
+        host.read_io_result(socket, result),
+        Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
+    );
+    assert_eq!(host.free_io_result(result), Err(AsyncHostError::Inval));
+    assert_eq!(host.close_fd(socket), Err(AsyncHostError::Inval));
+
+    let sender = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    sender.send_to(b"udp", endpoint).unwrap();
+    assert_eq!(host.poll_wait(poll, 5000, &Default::default()).unwrap(), 1);
+    let event = host.poll_get_event(poll, 0).unwrap();
+    assert_eq!(host.poll_event_io_result(event), Ok(result));
+    assert_eq!(host.io_result_get_status(result, socket), Ok(3));
+    let mut memory = vec![0; 3 + addr.len()];
+    host.io_result_copy_read_with_addr(
+        memory.as_mut_slice(),
+        result,
+        0,
+        0,
+        3,
+        3,
+        addr.len() as u32,
+    )
+    .unwrap();
+    assert_eq!(&memory[..3], b"udp");
+    assert_eq!(
+        address::ip_addr_get_port(&memory[3..]).unwrap(),
+        sender.local_addr().unwrap().port()
+    );
+    host.free_io_result(result).unwrap();
+    host.close_fd(socket).unwrap();
+    host.poll_destroy(poll).unwrap();
+    assert_eq!(host.leak_summary(), None);
+}
+
+#[test]
+fn pending_accept_keeps_both_sockets_and_returns_the_peer_address() {
+    use crate::network::os::{address, socket as sys};
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
+    use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
+
+    const CHILD: &str = "MOONRUN_TEST_PENDING_ACCEPT";
+    if std::env::var_os(CHILD).is_none() {
+        snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "async_host::windows_io::tests::pending_accept_keeps_both_sockets_and_returns_the_peer_address", "--nocapture"])
+            .env(CHILD, "1")
+            .timeout(std::time::Duration::from_secs(15))
+            .assert().success();
+        return;
+    }
+    assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+    let host = default_host();
+    let server = host.make_tcp_socket(4).unwrap();
+    let connection = host.make_tcp_socket(4).unwrap();
+    let mut addr = vec![0; address::ipv4_addr_size()];
+    address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
+    host.bind(server, &addr).unwrap();
+    host.listen(server).unwrap();
+    host.with_raw_socket(server, |socket| Ok(sys::getsockname(socket, &mut addr)?))
+        .unwrap();
+    let endpoint = SocketAddr::V4(SocketAddrV4::new(
+        Ipv4Addr::LOCALHOST,
+        address::ip_addr_get_port(&addr).unwrap(),
+    ));
+    let poll = host.poll_create().unwrap();
+    host.poll_register(poll, server, true).unwrap();
+    let result = host.make_accept_io_result(addr.len() as u32).unwrap();
+    assert_eq!(
+        host.accept_io_result(server, connection, result),
+        Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
+    );
+    // AcceptEx borrows the pre-created connection as well as the listener.
+    assert_eq!(host.close_fd(server), Err(AsyncHostError::Inval));
+    assert_eq!(host.close_fd(connection), Err(AsyncHostError::Inval));
+    assert_eq!(host.free_io_result(result), Err(AsyncHostError::Inval));
+
+    let client = TcpStream::connect_timeout(&endpoint, std::time::Duration::from_secs(5)).unwrap();
+    assert_eq!(host.poll_wait(poll, 5000, &Default::default()).unwrap(), 1);
+    let event = host.poll_get_event(poll, 0).unwrap();
+    assert_eq!(host.poll_event_io_result(event), Ok(result));
+    assert_eq!(host.io_result_get_status(result, server), Ok(0));
+    host.setup_accepted_socket(server, connection).unwrap();
+    let mut peer = vec![0; addr.len()];
+    host.get_accept_peer_addr(peer.as_mut_slice(), result, 0, addr.len() as u32)
+        .unwrap();
+    assert_eq!(
+        address::ip_addr_get_port(&peer).unwrap(),
+        client.local_addr().unwrap().port()
+    );
+    assert_eq!(
+        address::ip_addr_get_ip(&peer).unwrap(),
+        u32::from(Ipv4Addr::LOCALHOST)
+    );
+    host.free_io_result(result).unwrap();
+    host.close_fd(connection).unwrap();
+    host.close_fd(server).unwrap();
+    host.poll_destroy(poll).unwrap();
+    assert_eq!(host.leak_summary(), None);
+}
+
+#[test]
 fn io_result_status_rejects_wrong_fd_without_clearing_pending() {
     let mut result = HostIoResult::for_file_read(0, 0).unwrap();
     let pending_resource = Arc::new(Resource::invalid());

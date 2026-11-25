@@ -163,7 +163,7 @@ _Avoid_: WASI filesystem, V8 filesystem
 **Host Network**:
 The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed network operations. It creates TCP and UDP Resources and
-owns network authorization, synchronous socket operations, Network Job payloads,
+owns network authorization, socket operations, Network Job payloads,
 execution, and result interpretation. The Async Host owns the Host Network,
 Resource Handles, and asynchronous lifecycle; the thread pool only schedules
 Network Jobs and delivers their Completions.

@@ -19,9 +19,9 @@
 //! Native socket operations, independent of guest handles and runtime policy.
 
 use super::IpFamily;
-use std::io;
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{SetLastError, WIN32_ERROR};
+use super::last_wsa_error;
+use std::io;
 #[cfg(windows)]
 use windows_sys::Win32::Networking::WinSock as ws;
 
@@ -37,15 +37,6 @@ fn socket(fd: RawSocket) -> ws::SOCKET {
 #[cfg(windows)]
 fn raw_socket(socket: ws::SOCKET) -> RawSocket {
     socket as RawSocket
-}
-
-#[cfg(windows)]
-fn last_wsa_error() -> io::Error {
-    let errno = unsafe { ws::WSAGetLastError() };
-    unsafe {
-        SetLastError(errno as WIN32_ERROR);
-    }
-    io::Error::from_raw_os_error(errno)
 }
 
 #[cfg(windows)]

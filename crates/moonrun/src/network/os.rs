@@ -22,6 +22,8 @@
 pub(crate) mod address;
 pub(crate) mod dns;
 pub(crate) mod interface;
+#[cfg(windows)]
+pub(super) mod overlapped;
 pub(crate) mod socket;
 
 #[cfg(unix)]
@@ -57,4 +59,13 @@ impl IpFamily {
             Self::V6 => windows_sys::Win32::Networking::WinSock::AF_INET6 as i32,
         }
     }
+}
+
+#[cfg(windows)]
+fn last_wsa_error() -> std::io::Error {
+    let errno = unsafe { windows_sys::Win32::Networking::WinSock::WSAGetLastError() };
+    unsafe {
+        windows_sys::Win32::Foundation::SetLastError(errno as u32);
+    }
+    std::io::Error::from_raw_os_error(errno)
 }

@@ -111,7 +111,7 @@ pub(super) fn read_sockaddr_in6(addr: &[u8]) -> io::Result<libc::sockaddr_in6> {
 }
 
 #[cfg(windows)]
-fn sockaddr_family(addr: &[u8]) -> io::Result<i32> {
+pub(super) fn sockaddr_family(addr: &[u8]) -> io::Result<i32> {
     if addr.len() < std::mem::size_of::<ws::SOCKADDR>() {
         return Err(io::Error::from_raw_os_error(INVALID_ADDRESS));
     }
