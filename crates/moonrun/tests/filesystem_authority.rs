@@ -27,11 +27,14 @@ use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
 #[test]
 fn filesystem_policy_applies_to_legacy_async_and_wasi_imports() {
     let engine = Engine::default();
-    for (policy, read_allowed, write_allowed) in [
+    for (policy, read_allowed, entry_write_allowed) in [
         (None, true, true),
         (Some(""), false, false),
         (Some("[fs]\nread = [\".\"]\n"), true, false),
         (Some("[fs]\nread = [\".\"]\nwrite = [\".\"]\n"), true, true),
+        (Some("[dirs]"), false, false),
+        (Some("[dirs]\n'.' = ['read']"), true, false),
+        (Some("[dirs]\n'.' = ['write']"), true, false),
         (
             Some("[fs]\nread = [\".\", { glob = \"!file\" }]\nwrite = [\".\"]\n"),
             false,
@@ -99,11 +102,11 @@ fn filesystem_policy_applies_to_legacy_async_and_wasi_imports() {
                 i32.const {wasi_write} i32.ne if unreachable end
                 global.get $file call $legacy_remove i32.const {legacy_write} i32.ne if unreachable end))"#,
             legacy_read = if read_allowed { 0 } else { -1 },
-            legacy_write = if write_allowed { 0 } else { -1 },
+            legacy_write = if entry_write_allowed { 0 } else { -1 },
             async_read = if read_allowed { 0 } else { access_errno() },
-            async_write = if write_allowed { 0 } else { access_errno() },
+            async_write = if entry_write_allowed { 0 } else { access_errno() },
             wasi_read = if read_allowed { 0 } else { 2 },
-            wasi_write = if write_allowed { 0 } else { 2 },
+            wasi_write = if entry_write_allowed { 0 } else { 2 },
             read_allowed = i32::from(read_allowed),
         )).unwrap()).unwrap();
         let mut options = RunOptions::default()
@@ -118,9 +121,9 @@ fn filesystem_policy_applies_to_legacy_async_and_wasi_imports() {
             RunOutcome::Completed,
             "policy={policy:?}"
         );
-        assert_eq!(directory.path().join("async").is_dir(), write_allowed);
-        assert_eq!(directory.path().join("wasi").is_dir(), write_allowed);
-        assert_eq!(directory.path().join("file").exists(), !write_allowed);
+        assert_eq!(directory.path().join("async").is_dir(), entry_write_allowed);
+        assert_eq!(directory.path().join("wasi").is_dir(), entry_write_allowed);
+        assert_eq!(directory.path().join("file").exists(), !entry_write_allowed);
     }
 }
 

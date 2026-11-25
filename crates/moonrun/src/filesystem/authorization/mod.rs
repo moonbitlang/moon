@@ -69,15 +69,19 @@ pub(crate) enum FsOperation<'a> {
     Flush(&'a FileGrant),
     Chmod(FsPath<'a>),
     Read(FsPath<'a>),
+    /// Broad pathname write admission, currently used by writable SQLite opens.
+    /// The admitted effect may include sibling files, beyond the named target.
     Write(FsPath<'a>),
     Kind(FsTarget<'a>),
     Metadata(FsTarget<'a>),
     InspectEntry(FsPath<'a>),
+    /// Mutate a directory entry; recursive removal may also affect descendants.
     ChangeEntry(FsPath<'a>),
     Rename {
         source: FsPath<'a>,
         destination: FsPath<'a>,
     },
+    /// Whole-file write that can create a missing file or truncate an existing one.
     WriteFile(FsPath<'a>),
     CreateDirectories(FsPath<'a>),
     /// Async ABI: access selects read/write/read-write/directory listing;
@@ -108,6 +112,34 @@ pub(crate) enum FsOperation<'a> {
 }
 
 impl FsOperation<'_> {
+    /// Implementation coverage for `dirs`, independent of read/write authority.
+    /// Passing this check still requires target or acquired-grant authorization.
+    /// FIXME: Extend this subset as the remaining operation contracts are implemented.
+    fn is_supported_with_directory_rules(&self) -> bool {
+        match self {
+            // Entry mutations are deferred; admission must be defined per operation.
+            Self::ChangeEntry(_) | Self::Rename { .. } | Self::CreateDirectories(_) => false,
+            // Whole-file writes may create; SQLite writes may affect sibling files.
+            Self::WriteFile(_) | Self::Write(_) => false,
+            // Watch scope and descendant restrictions are not covered yet.
+            Self::Watch(_) => false,
+            // Async ABI: 0 = OpenExisting, 1 = TruncateExisting. Neither creates.
+            // Scalar validation still follows authorization, as for legacy rules.
+            Self::OpenAsync { create_mode, .. } => matches!(create_mode, 0 | 1),
+            Self::OpenWithOptions { options, .. } => !options.create && !options.create_new,
+            Self::ReadResource(_)
+            | Self::WriteResource(_)
+            | Self::Flush(_)
+            | Self::Chmod(_)
+            | Self::Read(_)
+            | Self::Kind(_)
+            | Self::Metadata(_)
+            | Self::InspectEntry(_)
+            | Self::AccessCheck { .. }
+            | Self::Lock { .. } => true,
+        }
+    }
+
     /// Paths and acquired files use the same operation-to-access interpretation.
     /// Extra open metadata retains its separate read admission.
     fn requirements(&self) -> (AccessRights, bool) {
@@ -183,6 +215,14 @@ impl HostFs {
     /// File acquisition retains this access; other callers only need admission.
     /// OS access modes and ABI descriptor rights remain additional restrictions.
     pub(crate) fn authorize(&self, operation: FsOperation<'_>) -> Result<AccessRights, FsError> {
+        let uses_directory_rules = self
+            .policy
+            .as_ref()
+            .is_some_and(|policy| policy.has_directory_rules());
+        // Implementation limits apply before any grant or system-access exception.
+        if uses_directory_rules && !operation.is_supported_with_directory_rules() {
+            return Err(FsError::Denied);
+        }
         let (required, read_metadata) = operation.requirements();
         let acquired = match operation {
             FsOperation::ReadResource(file)
@@ -275,7 +315,13 @@ impl HostFs {
                 GrantSource::Untracked => (None, "\"<untracked resource>\"".to_owned()),
             },
         };
+        if uses_directory_rules && path.as_deref().is_some_and(path::has_stream_component) {
+            return Err(FsError::Denied);
+        }
         let resolved = path.as_deref().and_then(|path| resolve(path).ok());
+        if uses_directory_rules && resolved.as_deref().is_some_and(path::has_stream_component) {
+            return Err(FsError::Denied);
+        }
         #[cfg(unix)]
         {
             // A directory handle or a fixed cwd anchors a relative name. With an
@@ -294,6 +340,9 @@ impl HostFs {
                     .union(AccessRights::READ));
             }
         }
+        // FIXME: Hard-link aliases are authorized by their access paths. A
+        // writable alias can change data reached through a read-only directory.
+        // Revisit alias handling before promising object-wide restrictions.
         policy
             .authorize(resolved.as_deref(), required, &diagnostic)
             .map_err(|_| FsError::Denied)?;

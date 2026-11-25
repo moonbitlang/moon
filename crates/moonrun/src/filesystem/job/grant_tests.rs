@@ -64,6 +64,73 @@ fn open(
 }
 
 #[test]
+fn directory_rules_apply_to_new_children_and_handle_relative_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("work/private")).unwrap();
+    let fs = filesystem(
+        dir.path(),
+        "[dirs]\nwork = ['write']\n'work/private' = ['read']",
+    );
+    let parent = open(&fs, None, "work", 3).unwrap();
+    // Files introduced after loading are authorized at acquisition.
+    std::fs::write(dir.path().join("work/file"), b"old!").unwrap();
+    std::fs::write(dir.path().join("work/private/file"), b"keep").unwrap();
+    let writable = open(&fs, Some(Arc::clone(&parent)), "file", 2).unwrap();
+    Job::write(writable, b"new!".to_vec(), 0).run(&fs).unwrap();
+    assert_eq!(
+        std::fs::read(dir.path().join("work/file")).unwrap(),
+        b"new!"
+    );
+    let child = ["private", "file"].join(std::path::MAIN_SEPARATOR_STR);
+    for (base, path) in [(None, "work/private/file"), (Some(parent), child.as_str())] {
+        let readable = open(&fs, base.clone(), path, 0).unwrap();
+        assert_eq!(Job::read(Arc::clone(&readable), 4, 0).run(&fs), Ok(4));
+        assert_eq!(Job::file_size(Arc::clone(&readable)).run(&fs), Ok(0));
+        assert_eq!(
+            Job::write(readable, b"nope".to_vec(), 0).run(&fs),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        assert!(matches!(
+            open(&fs, base, path, 1),
+            Err(AsyncHostError::PermissionDenied)
+        ));
+    }
+}
+
+#[test]
+fn directory_rules_check_link_targets_and_parent_traversal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("work/private")).unwrap();
+    std::fs::create_dir(dir.path().join("outside")).unwrap();
+    std::fs::write(dir.path().join("work/private/file"), b"keep").unwrap();
+    std::fs::write(dir.path().join("outside/file"), b"secret").unwrap();
+    // Directory links are junctions on Windows, symlinks on Unix.
+    for (link, target) in [("alias", "work/private"), ("escape", "outside")] {
+        crate::filesystem::os::symlink::create(
+            dir.path().join(target).as_os_str(),
+            dir.path().join("work").join(link).as_os_str(),
+            false,
+        )
+        .unwrap();
+    }
+    let fs = filesystem(
+        dir.path(),
+        "[dirs]\nwork = ['write']\n'work/private' = ['read']",
+    );
+    open(&fs, None, "work/alias/file", 0).unwrap();
+    for path in ["work/alias/file", "work/private/../private/file"] {
+        assert!(matches!(
+            open(&fs, None, path, 1),
+            Err(AsyncHostError::PermissionDenied)
+        ));
+    }
+    assert!(matches!(
+        open(&fs, None, "work/escape/file", 0),
+        Err(AsyncHostError::PermissionDenied)
+    ));
+}
+
+#[test]
 fn directory_entry_metadata_respects_the_resolved_child_name() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("work/private")).unwrap();
@@ -83,6 +150,74 @@ fn directory_entry_metadata_respects_the_resolved_child_name() {
             Err(crate::filesystem::FsError::Denied)
         ));
     }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn directory_rules_reject_streams_and_resource_forks() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("file"), b"keep").unwrap();
+    #[cfg(windows)]
+    let stream = "file:note";
+    #[cfg(target_os = "macos")]
+    let stream = "file/..namedfork/rsrc";
+    std::fs::write(dir.path().join(stream), b"fork").unwrap();
+    let fs = filesystem(dir.path(), "[dirs]\n'.' = ['write']");
+    for access in [0, 1] {
+        assert!(matches!(
+            open(&fs, None, stream, access),
+            Err(AsyncHostError::PermissionDenied)
+        ));
+    }
+    assert_eq!(std::fs::read(dir.path().join(stream)).unwrap(), b"fork");
+}
+
+#[test]
+fn directory_support_and_file_grants_are_independent() {
+    use crate::filesystem::{FsError, FsOperation, FsTarget};
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("file"), b"keep").unwrap();
+    let fs = filesystem(dir.path(), "[dirs]\n'.' = ['read']");
+    let file = open(&fs, None, "file", 0).unwrap();
+    let target = FsTarget::File(file.file_grant());
+
+    assert!(fs.authorize(FsOperation::Metadata(target)).is_ok());
+    // Writing is supported, but this acquired file has only read authority.
+    assert!(matches!(
+        fs.authorize(FsOperation::WriteResource(file.file_grant())),
+        Err(FsError::Denied)
+    ));
+    // Watching requires read authority, but is outside the current dirs subset.
+    assert!(matches!(
+        fs.authorize(FsOperation::Watch(target)),
+        Err(FsError::Denied)
+    ));
+}
+
+#[test]
+fn directory_rules_deny_namespace_changes_before_any_effect() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("file"), b"keep").unwrap();
+    let fs = filesystem(dir.path(), "[dirs]\n'.' = ['write']");
+    for mode in [2, 3, 4] {
+        let mut job = Job::open(None, "file".into(), 1, mode, false, 0, 0o600, 0, 8).unwrap();
+        assert_eq!(job.run(&fs), Err(AsyncHostError::PermissionDenied));
+    }
+    assert!(
+        fs.rename(&dir.path().join("file"), &dir.path().join("moved"))
+            .is_err()
+    );
+    assert!(fs.unlink_file(&dir.path().join("file")).is_err());
+    assert!(fs.write_file(&dir.path().join("new"), b"new").is_err());
+    assert!(fs.create_directory(&dir.path().join("new-dir")).is_err());
+    assert_eq!(std::fs::read(dir.path().join("file")).unwrap(), b"keep");
+    assert!(!dir.path().join("new").exists());
+    assert!(!dir.path().join("new-dir").exists());
+    // Truncating an existing object does not change the directory topology.
+    let mut truncate = Job::open(None, "file".into(), 1, 1, false, 0, 0o600, 0, 8).unwrap();
+    truncate.run(&fs).unwrap();
+    assert_eq!(std::fs::metadata(dir.path().join("file")).unwrap().len(), 0);
 }
 
 #[test]

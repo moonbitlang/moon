@@ -99,6 +99,17 @@ pub(super) fn canonicalize_entry_path(path: &Path) -> Result<PathBuf, FsError> {
     ))
 }
 
+/// Detect path components used to address named streams or resource forks.
+/// TODO: Replace the temporary denial under `dirs` with the owning file's
+/// read/write authority, preserving inherited legacy `fs` path restrictions.
+pub(super) fn has_stream_component(path: &Path) -> bool {
+    path.components().any(|part| match part {
+        Component::Normal(name) if cfg!(windows) => name.as_encoded_bytes().contains(&b':'),
+        Component::Normal(name) if cfg!(target_os = "macos") => name == "..namedfork",
+        _ => false,
+    })
+}
+
 fn normalize_path(path: PathBuf) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {

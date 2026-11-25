@@ -101,6 +101,12 @@ impl FsPolicy {
         }
     }
 
+    pub(crate) fn has_directory_rules(&self) -> bool {
+        self.rule_groups
+            .iter()
+            .any(|group| matches!(**group, FsRules::Directories(_)))
+    }
+
     pub(crate) fn authorize(
         &self,
         path: Option<&Path>,

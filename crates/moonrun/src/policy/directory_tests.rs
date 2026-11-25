@@ -41,6 +41,7 @@ work = ["write"]
     let transferred = Policy::from_transfer(&policy.to_transfer().unwrap()).unwrap();
     for policy in [policy, transferred] {
         let fs = policy.filesystem();
+        assert!(fs.has_directory_rules());
         for (path, access) in [
             ("work/file", AccessRights::READ_WRITE),
             ("work/private/file", AccessRights::READ),

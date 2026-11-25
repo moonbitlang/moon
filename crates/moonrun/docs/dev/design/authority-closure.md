@@ -94,6 +94,43 @@ Exclusions constrain each authorized path; recursive removal and directory renam
 currently authorize directory endpoints without visiting descendants. They do
 not yet guarantee protection of excluded descendants from ancestor operations.
 
+### Directory grants (initial scope)
+
+An opt-in `dirs` map grants recursive access to existing directories, for example
+`permission(dirs: { "work": ["write"], "work/private": ["read"] })` in `.mbtx`.
+Write includes read; an empty permission list denies access. Roots are resolved
+relative to the policy source at loading. The closest resolved directory wins
+within a source; independent sources intersect. A source cannot combine `fs`
+and `dirs`. Legacy `fs` configuration remains supported.
+
+New acquisitions follow OS resolution, including symlinks and junctions, and
+check the resulting target even when reached from a parent handle. Hard links
+use the access path's authority; aliases are not detected or reconciled. A
+writable alias can change data also reachable through a read-only directory.
+Existing file grants still govern data and metadata together; OS modes and ABI
+rights remain additional limits. Host-provided grants and built-in system reads
+retain their existing exceptions.
+
+This initial scope permits existing-object access and truncation. It rejects
+creation, deletion, rename, composite writes that may create, writable SQLite
+opens, and watching until their admission rules cover descendant restrictions.
+Named stream/resource fork paths are also temporarily denied (TODO): authorize
+them with the owning file's read/write rights while preserving inherited legacy
+`fs` path restrictions.
+
+`FsOperation` keeps implementation support and read/write requirements separate;
+`HostFs` checks support before applying target rules or acquired-file grants.
+
+From policy loading through its use, the caller must prevent uncoordinated
+external changes to directory placement or lookup aliases, including relevant
+ancestors, symlinks, junctions, mounts and hard links. Otherwise related new-path
+access has no isolation guarantee; detection is not promised. Project membership
+does not establish coordination across Runs. Existing grants and memory/resource
+safety remain valid. Content changes, new ordinary files in stable directories,
+and incidental effects such as atime are permitted.
+Alternate mount views exposing the same subtree through different directory
+roots are outside this initial model; it does not track global object identity.
+
 ### Operation ownership
 
 Host Filesystem keeps operation interpretation, authorization, and effects
