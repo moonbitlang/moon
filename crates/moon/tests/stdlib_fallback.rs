@@ -88,6 +88,33 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
             .assert()
             .success();
     }
+    let build = project.path().join("_build");
+    let platform = if cfg!(windows) {
+        "native-unix"
+    } else {
+        "native-windows"
+    };
+    let artifacts = build.join(platform).join("release");
+    assert!(artifacts.join("build/cross.core").is_file());
+    assert!(
+        artifacts
+            .join("build/.mooncakes/moonbitlang/core/prelude/prelude.core")
+            .is_file()
+    );
+
+    // IDEs follow the backend/profile selector, even when the referenced interface
+    // belongs to a cross build.
+    let packages: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(build.join("native/release/check/packages.json")).unwrap(),
+    )
+    .unwrap();
+    let interface = std::path::Path::new(platform).join("release/check/cross.mi");
+    assert!(build.join(&interface).is_file());
+    assert!(packages["packages"].as_array().unwrap().iter().any(|pkg| {
+        pkg["artifact"]
+            .as_str()
+            .is_some_and(|path| std::path::Path::new(path).ends_with(&interface))
+    }));
 }
 
 #[test]
