@@ -869,13 +869,21 @@ targets, module preferences, and package `supported_targets` filtering are
 reflected without an additional discovery or resolution pass. Entries are
 deduplicated and ordered by Target Backend.
 
-The selector and index identify configuration-scoped Check documents:
+A full Check publishes a package inventory under each selected configuration's
+artifact root:
 
 ```text
 _build/packages.json
 _build/index.json
-_build/<backend>/<profile>/check/packages.json
+_build/<artifact-dir>/<profile>/check/packages.json
 ```
+
+The artifact directory normally has the backend name. A Native check across the
+Windows boundary uses `native-windows` or `native-unix`, so its package inventory
+can coexist with a host inventory under `native`. The selector and index still
+report the backend as `native`. IDE clients that look up inventories by backend
+read the host inventory if present. A fresh cross build has no inventory at
+the host path.
 
 The scoped document retains the complete legacy single-module-oriented shape,
 including its top-level `backend` and `opt_level` fields, all resolved packages,
@@ -889,7 +897,7 @@ filename-scoped target directory:
 ```text
 _build/<filename>/packages.json
 _build/<filename>/index.json
-_build/<filename>/<backend>/<profile>/check/packages.json
+_build/<filename>/<artifact-dir>/<profile>/check/packages.json
 ```
 
 Project checks without a package or path selector publish metadata; focused
@@ -899,9 +907,7 @@ directly to `moondoc`, without changing the universal selector or backend index
 used by the language server.
 
 Scoped documents are atomically replaced before the selector, and the backend
-index is replaced last. Readers therefore never follow a newly published index
-to a partially written document or stale selector. Byte-identical metadata is
-left untouched.
+index is replaced last. Byte-identical metadata is left untouched.
 
 The private `moonbuild::metadata` module owns this publication sequence,
 including the compiler's `all_pkgs.json` for each plan. The command layer selects

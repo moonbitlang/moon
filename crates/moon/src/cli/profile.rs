@@ -36,7 +36,7 @@ use moonutil::{
 use serde::Serialize;
 
 use super::{RunSubcommand, UniversalFlags};
-use crate::cli::run::{BuildRunExecutableOptions, build_run_executable};
+use crate::cli::run::{BuildRunExecutableOptions, RunArtifact, build_run_executable};
 
 const DEFAULT_TOP: usize = 12;
 const MIN_ACTIONABLE_SAMPLES: usize = 100;
@@ -294,25 +294,21 @@ fn run_profile_materialized(
     )?;
     built.ensure_build_success()?;
 
-    let target_backend = built.target_backend;
-    if target_backend != TargetBackend::Native {
-        bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend");
-    }
-
-    let output_dir = default_output_dir(
-        &built.target_dir,
-        target_backend,
-        built.opt_level,
-        RunMode::Run,
-        &built.executable,
-    );
+    let layout = match &built.artifact {
+        RunArtifact::Built(layout) if layout.configuration().backend == TargetBackend::Native => {
+            layout
+        }
+        _ => bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend"),
+    };
+    let configuration = layout.configuration();
+    let output_dir = default_output_dir(&layout.artifact_root(), &built.executable);
     if !cli.dry_run {
         built.release_lock();
     }
     let request = ProfileRequest {
         run_mode: RunMode::Run,
-        target_backend,
-        opt_level: built.opt_level,
+        target_backend: configuration.backend,
+        opt_level: configuration.profile,
         executable: built.executable,
         display_executable: None,
         args: cmd.args,
@@ -523,7 +519,6 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
 pub(super) fn profile_tests(
     cli: &UniversalFlags,
     source_dir: &Path,
-    target_dir: &Path,
     builds: &[(BuildMeta, crate::run::TestFilter)],
     include_skipped: bool,
     output: &CommandOutput,
@@ -534,7 +529,6 @@ pub(super) fn profile_tests(
             let result = profile_test_invocations(
                 cli,
                 source_dir,
-                target_dir,
                 build_meta,
                 filter,
                 include_skipped,
@@ -547,7 +541,6 @@ pub(super) fn profile_tests(
 fn profile_test_invocations(
     cli: &UniversalFlags,
     source_dir: &Path,
-    target_dir: &Path,
     build_meta: &BuildMeta,
     filter: &crate::run::TestFilter,
     include_skipped: bool,
@@ -566,11 +559,13 @@ fn profile_test_invocations(
         return Ok(0);
     }
 
-    let session_dir = default_test_profile_session_dir(
-        target_dir,
-        build_meta.target_backend(),
-        build_meta.configuration().profile,
-    );
+    let session_dir = build_meta
+        .artifact_paths()
+        .target_layout()
+        .artifact_root()
+        .with_file_name("profile")
+        .join("test")
+        .join(profile_timestamp());
     // Each selected test executable is a separate process and therefore a
     // separate profiler recording. Keep raw artifacts separated, then merge
     // the parsed profile statistics into one aggregate report.
@@ -640,16 +635,6 @@ fn profile_test_invocations(
     Ok(0)
 }
 
-fn default_test_profile_session_dir(
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
-) -> PathBuf {
-    output_kind_dir(target_dir, target_backend, opt_level, "profile")
-        .join("test")
-        .join(profile_timestamp())
-}
-
 fn test_profile_output_dir_for_executable(
     session_dir: &Path,
     index: usize,
@@ -678,40 +663,11 @@ fn sanitize_path_component(input: &str) -> String {
     }
 }
 
-/// Place profile output beside the canonical artifact layout for the run mode.
-pub(super) fn default_output_dir(
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
-    artifact_run_mode: RunMode,
-    executable: &Path,
-) -> PathBuf {
-    default_output_parent_dir(
-        target_dir,
-        target_backend,
-        opt_level,
-        artifact_run_mode,
-        executable,
-    )
-    .join(profile_timestamp())
-}
-
-fn default_output_parent_dir(
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
-    artifact_run_mode: RunMode,
-    executable: &Path,
-) -> PathBuf {
-    let build_root = output_kind_dir(
-        target_dir,
-        target_backend,
-        opt_level,
-        artifact_run_mode.to_dir_name(),
-    );
-    let mut profile_dir = output_kind_dir(target_dir, target_backend, opt_level, "profile");
+/// Place the recording beside the executable's build tree, preserving its package path.
+fn default_output_dir(build_root: &Path, executable: &Path) -> PathBuf {
+    let mut profile_dir = build_root.with_file_name("profile");
     let executable_dir = executable.parent().unwrap_or(executable);
-    if let Some(package_dir) = strip_prefix_lenient(executable_dir, &build_root)
+    if let Some(package_dir) = strip_prefix_lenient(executable_dir, build_root)
         && !package_dir.as_os_str().is_empty()
     {
         profile_dir.push(package_dir);
@@ -722,27 +678,11 @@ fn default_output_parent_dir(
             .unwrap_or("profile");
         profile_dir.push(sanitize_path_component(stem));
     }
-    profile_dir
+    profile_dir.join(profile_timestamp())
 }
 
 fn profile_timestamp() -> String {
     Local::now().format("%Y%m%d-%H%M%S").to_string()
-}
-
-fn output_kind_dir(
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
-    kind: &str,
-) -> PathBuf {
-    let profile = match opt_level {
-        OptLevel::Debug => "debug",
-        OptLevel::Release => "release",
-    };
-    target_dir
-        .join(target_backend.to_dir_name())
-        .join(profile)
-        .join(kind)
 }
 
 fn strip_prefix_lenient<'a>(path: &'a Path, prefix: &Path) -> Option<&'a Path> {
@@ -2225,14 +2165,11 @@ mod tests {
     #[test]
     fn profile_output_reuses_run_artifact_package_dir() {
         let dir = default_output_dir(
-            Path::new("./_build"),
-            TargetBackend::Native,
-            OptLevel::Release,
-            RunMode::Run,
-            Path::new("./_build/native/release/build/cmd/main/main.exe"),
+            Path::new("./_build/native-windows/release/build"),
+            Path::new("./_build/native-windows/release/build/cmd/main/main.exe"),
         );
 
-        assert!(dir.starts_with("./_build/native/release/profile/cmd/main"));
+        assert!(dir.starts_with("./_build/native-windows/release/profile/cmd/main"));
     }
 
     #[test]

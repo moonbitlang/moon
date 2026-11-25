@@ -245,16 +245,23 @@ impl TargetLayout {
     /// In the workspace layout, all packages go under
     /// `_build/<backend>[/<opt_level>/build]/<...module>/<...package>`.
     pub fn package_dir(&self, pkg: &PackageFQN) -> PathBuf {
-        let dir = self.run_mode_dir();
-
-        self.mode.package_dir(dir, pkg)
+        self.mode.package_dir(self.artifact_root(), pkg)
     }
 
-    pub fn run_mode_dir(&self) -> PathBuf {
-        // FIXME: Account for the native compiler target in artifact reuse. Changing
-        // the default target of the same MOON_CC wrapper currently requires moon clean.
+    /// Artifact root for the selected backend, profile, and run mode.
+    pub fn artifact_root(&self) -> PathBuf {
+        // FIXME: Distinguish targets within one Windows predicate when the
+        // configuration also identifies architecture and ABI.
+        let backend_dir = match (
+            self.configuration.backend,
+            self.configuration.windows_cfg_override,
+        ) {
+            (TargetBackend::Native, Some(true)) => "native-windows",
+            (TargetBackend::Native, Some(false)) => "native-unix",
+            (backend, _) => backend.to_dir_name(),
+        };
         self.target_base_dir
-            .join(self.configuration.backend.to_dir_name())
+            .join(backend_dir)
             .join(self.configuration.profile.as_str())
             .join(self.run_mode.to_dir_name())
     }
@@ -304,7 +311,7 @@ impl TargetLayout {
 
     /// For each backend/opt_level/run_mode, there's a copy of all_pkgs.json.
     pub fn all_pkgs_of_build_target(&self) -> PathBuf {
-        let mut dir = self.run_mode_dir();
+        let mut dir = self.artifact_root();
         dir.push(crate::all_pkgs::ALL_PKGS_JSON);
         dir
     }
@@ -500,7 +507,7 @@ impl TargetLayout {
             TargetBackend::WasmGC | TargetBackend::Wasm | TargetBackend::Js => {
                 panic!("Runtime output path is not applicable for non-native backends")
             }
-            TargetBackend::Native | TargetBackend::LLVM => self.run_mode_dir(),
+            TargetBackend::Native | TargetBackend::LLVM => self.artifact_root(),
         }
     }
 
@@ -642,9 +649,9 @@ impl TargetLayout {
         self.target_base_dir.join(PACKAGES_INDEX_JSON)
     }
 
-    /// Returns the backend/profile/run-mode-scoped `packages.json` path.
+    /// Returns the package inventory for this artifact root.
     pub fn packages_json_path(&self) -> PathBuf {
-        self.run_mode_dir().join(PACKAGES_JSON)
+        self.artifact_root().join(PACKAGES_JSON)
     }
 }
 

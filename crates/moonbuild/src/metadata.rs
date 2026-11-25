@@ -89,6 +89,8 @@ pub(super) fn publish_check_metadata(
     // Before the split, repeated publication made the final planned
     // backend authoritative, so retain that deterministic behavior.
     let selected = build_metas.last().expect("non-empty planned runs");
+    // FIXME: The IDE metadata protocol needs to distinguish host and cross
+    // inventories for the same native backend and profile.
     let selector = PackagesSelectorJSON {
         backend: selected.target_backend().to_string(),
         opt_level: selected.configuration().profile.as_str().to_string(),

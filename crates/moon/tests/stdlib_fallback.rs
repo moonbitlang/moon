@@ -76,7 +76,7 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
     std::fs::write(core.path().join("prelude/prelude.mbt"), format!(
         "pub using @builtin {{type Unit}}\n#cfg({predicate})\npub fn cross_only() -> Unit {{ () }}\n"
     )).unwrap();
-    for verb in ["check", "build"] {
+    for (verb, profile) in [("check", "--debug"), ("build", "--release")] {
         snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
             .current_dir(project.path())
             .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
@@ -84,10 +84,38 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
             .env("MOON_CC", &compiler)
             .env("MOON_DEP_CACHE", "off")
             .env("MOON_WORK", "off")
-            .args([verb, "--target", "native", "--release"])
+            .args([verb, "--target", "native", profile])
             .assert()
             .success();
     }
+    let build = project.path().join("_build");
+    let platform = if cfg!(windows) {
+        "native-unix"
+    } else {
+        "native-windows"
+    };
+    let artifacts = build.join(platform).join("release");
+    assert!(artifacts.join("build/cross.core").is_file());
+    assert!(
+        artifacts
+            .join("build/.mooncakes/moonbitlang/core/prelude/prelude.core")
+            .is_file()
+    );
+
+    // A cross check publishes its inventory beside its interfaces.
+    let check_dir = std::path::Path::new(platform).join("debug/check");
+    let packages: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(build.join(&check_dir).join("packages.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(!build.join("native/debug/check/packages.json").exists());
+    let interface = check_dir.join("cross.mi");
+    assert!(build.join(&interface).is_file());
+    assert!(packages["packages"].as_array().unwrap().iter().any(|pkg| {
+        pkg["artifact"]
+            .as_str()
+            .is_some_and(|path| std::path::Path::new(path).ends_with(&interface))
+    }));
 }
 
 #[test]
