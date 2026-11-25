@@ -3,7 +3,7 @@
 ## Backend selection
 
 For `--target native`, `moonc` emits object files directly by default in debug
-builds on macOS AArch64, Linux x86_64, and Windows x86_64.
+builds on macOS (AArch64), Linux (AArch64 or x86_64), and Windows (x86_64).
 Set `MOONBIT_NEW_NATIVE=0` to use generated C instead. Other values keep
 the default. Unsupported hosts and release builds use generated C even when
 `MOONBIT_NEW_NATIVE=1` is set. If a selected executable package configures

@@ -114,6 +114,7 @@ pub enum DebugSymbols {
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum DirectObjectTarget {
     Aarch64AppleDarwin,
+    Aarch64UnknownLinuxGnu,
     X86_64UnknownLinuxGnu,
     X86_64PcWindowsMsvc,
 }
@@ -131,6 +132,7 @@ impl DirectObjectTarget {
     pub fn from_host(arch: &str, os: &str) -> Option<Self> {
         match (arch, os) {
             ("aarch64", "macos") => Some(Self::Aarch64AppleDarwin),
+            ("aarch64", "linux") => Some(Self::Aarch64UnknownLinuxGnu),
             ("x86_64", "linux") => Some(Self::X86_64UnknownLinuxGnu),
             ("x86_64", "windows") => Some(Self::X86_64PcWindowsMsvc),
             _ => None,
@@ -140,6 +142,7 @@ impl DirectObjectTarget {
     pub fn moonc_target_flag(self) -> &'static str {
         match self {
             Self::Aarch64AppleDarwin => "aarch64-apple-darwin",
+            Self::Aarch64UnknownLinuxGnu => "aarch64-unknown-linux-gnu",
             Self::X86_64UnknownLinuxGnu => "x86_64-unknown-linux-gnu",
             Self::X86_64PcWindowsMsvc => "x86_64-pc-windows-msvc",
         }

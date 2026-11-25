@@ -452,10 +452,10 @@ incompatible objects or archives fail naturally when the final linker consumes t
 Native payload selection is internal to RR build planning. `BackendConfig::Native`
 contains the allocator choice, cycle-collection setting, and a direct-object
 candidate captured by the CLI from the host and `MOONBIT_NEW_NATIVE`.
-Direct object output is enabled by default on macOS AArch64, Linux x86_64,
-and Windows x86_64 unless `MOONBIT_NEW_NATIVE=0` is set. Other values, including
-`1`, preserve that default; unsupported hosts still use generated C. Release
-builds always use generated C, even when `MOONBIT_NEW_NATIVE=1` is set.
+Direct object output is enabled by default on macOS (AArch64), Linux (AArch64
+or x86_64), and Windows (x86_64) unless `MOONBIT_NEW_NATIVE=0` is set.
+Other values, including `1`, preserve that default. Unsupported hosts and
+release builds use generated C.
 
 After the user intent is expanded to requested artifacts, build planning resolves
 the required runtime, program, and C-stub toolchain bindings. Payload selection

@@ -2,7 +2,7 @@
 
 ## 后端选择
 
-对于 `--target native`，macOS AArch64、Linux x86_64 和 Windows x86_64 的 debug
+对于 `--target native`，macOS AArch64、Linux（AArch64、x86_64）和 Windows x86_64 的 debug
 构建默认由 `moonc` 直接生成目标文件。设置 `MOONBIT_NEW_NATIVE=0` 可切换到
 生成 C 代码的方式。其他值保持默认行为。
 其他平台以及 release 构建使用 C 后端，即使设置 `MOONBIT_NEW_NATIVE=1` 也不例外。
