@@ -23,10 +23,24 @@ use std::path::Path;
 use super::{CCConfig, LinkerConfig, OutputType, render_link_arg};
 
 use moonutil::compiler_flags::{
-    CC, CCKind, NativeAllocator, Toolchain, WINDOWS_MSVC_C_STANDARD_FLAG, WINDOWS_MSVC_DEFAULT_LIBS,
+    CC, CCKind, MsvcCrtPolicy, NativeAllocator, Toolchain, WINDOWS_MSVC_C_STANDARD_FLAG,
+    WINDOWS_MSVC_DEFAULT_LIBS, WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
 };
 
 use crate::model::NativeLinkArg;
+
+const CLANG_MSVC_STATIC_RUNTIME_FLAG: &str = "-fms-runtime-lib=static";
+
+pub(super) fn add_cc_runtime_flags(toolchain: &Toolchain, args: &mut Vec<String>) {
+    let Some(crt) = toolchain.msvc_crt_policy() else {
+        return;
+    };
+    let flag = match (crt, toolchain.uses_msvc_cli()) {
+        (MsvcCrtPolicy::StaticMt, true) => WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
+        (MsvcCrtPolicy::StaticMt, false) => CLANG_MSVC_STATIC_RUNTIME_FLAG,
+    };
+    args.push(flag.to_owned());
+}
 
 pub(in crate::build_lower) fn command_env(toolchain: &Toolchain) -> Vec<(String, String)> {
     toolchain
@@ -54,7 +68,7 @@ pub(in crate::build_lower) fn compile_runtime_command(
         "/Z7".to_string(),
         "/O2".to_string(),
     ];
-    command.extend(toolchain.msvc_crt_compiler_flag().map(str::to_owned));
+    add_cc_runtime_flags(toolchain, &mut command);
     command.extend([
         format!("/Fo{}", dunce::simplified(dest).display()),
         format!(
@@ -179,9 +193,7 @@ pub(super) fn add_cc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCCon
 mod tests {
     use std::path::Path;
 
-    use moonutil::compiler_flags::{
-        ARKind, CC, CCKind, MsvcEnvironment, Toolchain, WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
-    };
+    use moonutil::compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, Toolchain};
 
     use super::*;
 

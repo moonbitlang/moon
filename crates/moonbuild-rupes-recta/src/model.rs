@@ -121,12 +121,12 @@ pub enum DirectObjectTarget {
     X86_64PcWindowsMsvc,
 }
 
-/// The native implementation selected under the user-visible `native` backend.
+/// The output form of `moonc link-core` for `--target native`.
 #[derive(Clone, Debug)]
 pub(crate) enum NativeBackendMode {
-    /// Legacy generated-C native path.
+    /// The selected C compiler compiles the C source emitted by moonc.
     GeneratedC,
-    /// Experimental direct object-code native path.
+    /// moonc emits an object file for this target.
     DirectObject(DirectObjectTarget),
 }
 

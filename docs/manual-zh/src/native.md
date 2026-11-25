@@ -3,14 +3,16 @@
 ## 后端选择
 
 对于 `--target native`，macOS AArch64、Linux x86_64 和 Windows x86_64 的 debug
-构建默认使用新 native 后端，由 `moonc` 直接生成目标文件。设置
-`MOONBIT_NEW_NATIVE=0` 可切换到生成 C 代码的后端；其他值保持默认行为。
+构建默认由 `moonc` 直接生成目标文件。设置 `MOONBIT_NEW_NATIVE=0` 可切换到
+生成 C 代码的方式。其他值保持默认行为。
 其他平台以及 release 构建使用 C 后端，即使设置 `MOONBIT_NEW_NATIVE=1` 也不例外。
 如果选中的可执行包配置了 `link.native.cc-flags`，或 `MOON_CC` 指定了面向其他
 目标的编译器，本次构建也会使用 C 后端。
 
 在 x64 Windows 上直接生成目标文件时，编译运行时、C stub 和最终链接所用的工具链
-都需要采用 MSVC ABI。可使用 `cl`、`clang-cl`，或以 x64 Windows MSVC 为目标的 `clang`。
+都需要采用 MSVC ABI。可使用 `cl`、`clang-cl`，或使用 GNU 风格命令行、以 x64
+Windows MSVC 为目标的 `clang`。如果选中的编译器面向 Windows GNU ABI（MinGW），
+Moon 会回退到生成 C 代码的方式。
 
 ## C 编译缓存
 

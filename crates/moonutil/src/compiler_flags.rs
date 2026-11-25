@@ -241,15 +241,6 @@ impl Toolchain {
         self.uses_msvc_abi().then_some(MsvcCrtPolicy::StaticMt)
     }
 
-    pub fn msvc_crt_compiler_flag(&self) -> Option<&'static str> {
-        match self.msvc_crt_policy()? {
-            MsvcCrtPolicy::StaticMt if self.uses_msvc_cli() => {
-                Some(WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
-            }
-            MsvcCrtPolicy::StaticMt => Some("-fms-runtime-lib=static"),
-        }
-    }
-
     pub fn with_msvc_environment(mut self, environment: MsvcEnvironment) -> Self {
         self.msvc_environment = Some(environment);
         self
@@ -632,9 +623,15 @@ impl CC {
 
     /// Whether the probed target triple identifies the MSVC ABI.
     pub fn targets_msvc(&self) -> bool {
-        self.target_triple
-            .as_deref()
-            .is_some_and(|target| target.contains("msvc"))
+        self.target_triple.as_deref().is_some_and(|target| {
+            let mut fields = target.split('-').skip(1);
+            let abi = match (fields.next(), fields.next(), fields.next()) {
+                // arch-vendor-os-abi, or arch-windows-abi when the vendor is omitted.
+                (_, _, Some(abi)) | (Some("windows"), Some(abi), None) => abi,
+                _ => return false,
+            };
+            abi.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') == "msvc"
+        })
     }
 
     pub fn targets_apple_darwin(&self) -> bool {
@@ -960,6 +957,9 @@ mod tests {
     #[test]
     fn detects_msvc_target_triple() {
         assert!(fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")).targets_msvc());
+        assert!(fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc19.43")).targets_msvc());
+        assert!(fake_cc(CCKind::Clang, Some("x86_64-windows-msvc")).targets_msvc());
+        assert!(!fake_cc(CCKind::Clang, Some("x86_64-msvc-windows-gnu")).targets_msvc());
         assert!(fake_cc(CCKind::Gcc, Some("aarch64-pc-windows-msvc")).targets_msvc());
         assert!(!fake_cc(CCKind::Gcc, Some("x86_64-w64-windows-gnu")).targets_msvc());
         assert!(!fake_cc(CCKind::Gcc, None).targets_msvc());
@@ -1027,10 +1027,6 @@ mod tests {
         assert!(toolchain.uses_msvc_abi());
         assert!(toolchain.uses_msvc_cli());
         assert_eq!(toolchain.msvc_crt_policy(), Some(MsvcCrtPolicy::StaticMt));
-        assert_eq!(
-            toolchain.msvc_crt_compiler_flag(),
-            Some(WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
-        );
     }
 
     #[test]
@@ -1041,10 +1037,7 @@ mod tests {
         assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
         assert!(!toolchain.uses_msvc_cli());
-        assert_eq!(
-            toolchain.msvc_crt_compiler_flag(),
-            Some("-fms-runtime-lib=static")
-        );
+        assert_eq!(toolchain.msvc_crt_policy(), Some(MsvcCrtPolicy::StaticMt));
     }
 
     #[test]

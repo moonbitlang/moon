@@ -67,7 +67,7 @@ pub(crate) struct MooncLinkCore<'a> {
     // Target and compilation configuration
     /// The target backend to link for.
     pub target_backend: TargetBackend,
-    /// Concrete direct object-code backend selected under native, if any.
+    /// Target for direct object emission under the native backend, if selected.
     pub direct_object_target: Option<DirectObjectTarget>,
     /// Compilation flags - reuse existing structure, symbols maps to -g, no_opt maps to -O0
     pub flags: CompilationFlags,

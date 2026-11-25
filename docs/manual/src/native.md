@@ -2,9 +2,9 @@
 
 ## Backend selection
 
-For `--target native`, debug builds on macOS AArch64, Linux x86_64, and Windows
-x86_64 use the new native backend by default, with `moonc` emitting object files
-directly. Set `MOONBIT_NEW_NATIVE=0` to use generated C instead; other values keep
+For `--target native`, `moonc` emits object files directly by default in debug
+builds on macOS AArch64, Linux x86_64, and Windows x86_64.
+Set `MOONBIT_NEW_NATIVE=0` to use generated C instead. Other values keep
 the default. Unsupported hosts and release builds use generated C even when
 `MOONBIT_NEW_NATIVE=1` is set. If a selected executable package configures
 `link.native.cc-flags`, or `MOON_CC` selects a compiler for another target, the
@@ -12,7 +12,9 @@ invocation also uses generated C.
 
 On x64 Windows, direct object builds require the MSVC ABI for the runtime, C
 stubs, and final link. Supported drivers include `cl`, `clang-cl`, and plain
-`clang` targeting x64 Windows MSVC.
+`clang` targeting x64 Windows MSVC, even with GNU-style command-line options.
+When a selected compiler targets the Windows GNU ABI (MinGW), Moon falls back
+to generated C.
 
 ## C compiler caching
 

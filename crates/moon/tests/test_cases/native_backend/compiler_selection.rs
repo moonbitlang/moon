@@ -25,29 +25,41 @@ fn assert_msvc_clang_run(dir: &TestDir, env_cc: Option<&str>) {
         return;
     }
     let sdk = moonutil::compiler_flags::resolve_windows_msvc_toolchain().unwrap();
-    moon_cmd(dir)
-        .envs(
-            sdk.msvc_environment()
-                .unwrap()
-                .command_env()
-                .iter()
-                .cloned(),
-        )
+    let sdk_env = sdk.msvc_environment().unwrap().command_env();
+    let probe = std::process::Command::new("clang")
+        .envs(sdk_env.iter().cloned())
+        .arg("-dumpmachine")
+        .output()
+        .expect("probe Clang in the selected SDK environment");
+    assert!(probe.status.success(), "{probe:?}");
+    let target = std::str::from_utf8(&probe.stdout).unwrap().trim();
+    let (arch, _) = target.split_once('-').expect("Clang target triple");
+    let command = moon_cmd(dir)
+        .envs(sdk_env.iter().cloned())
         .env_remove("MOON_CC")
         .env_remove("MOON_AR")
         .env_remove("MOON_CC_WRAPPER")
         .envs(env_cc.map(|cc| ("MOON_CC", cc)))
         .env("MOONBIT_NEW_NATIVE", "1")
-        .args(["run", "main", "--target", "native", "--debug"])
-        .assert()
-        .success()
-        .stdout_eq("1\n");
+        .args(["run", "main", "--target", "native", "--debug"]);
+    // The SDK libraries match the Moon binary. A Clang with a different target
+    // can verify the fallback plan without linking or running a mixed-ABI binary.
+    if arch != std::env::consts::ARCH || !target.contains("-windows-msvc") {
+        command
+            .arg("--dry-run")
+            .assert()
+            .success()
+            .stdout_eq(snapbox::str![[r#"
+...
+[..]moonc[..] link-core[..] -o [..]main.c[..]
+...
+"#]]);
+        return;
+    }
+    command.assert().success().stdout_eq("1\n");
     let main_dir = dir.join("_build/native/debug/build/main");
     assert!(main_dir.join("__moonbit_link_core__/main.obj").is_file());
-    assert_eq!(
-        main_dir.join("main.c").is_file(),
-        !cfg!(target_arch = "x86_64")
-    );
+    assert_eq!(main_dir.join("main.c").is_file(), arch != "x86_64");
 }
 
 #[test]

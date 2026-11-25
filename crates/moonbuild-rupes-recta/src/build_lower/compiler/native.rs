@@ -503,7 +503,7 @@ where
 
     gnu::add_cc_common_libraries(cc, &mut buf, &config);
     buf.extend(cc_flags.iter().map(|s| s.as_ref().to_string()));
-    buf.extend(toolchain.msvc_crt_compiler_flag().map(str::to_owned));
+    msvc::add_cc_runtime_flags(toolchain, &mut buf);
     // Finish compiler options before /link; MSVC otherwise ignores linker
     // options such as prebuild-provided /LIBPATH entries.
     msvc::add_cc_linker_flags(cc, &mut buf, &config, &paths.lib_path);
