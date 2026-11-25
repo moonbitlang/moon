@@ -22,7 +22,8 @@ use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{
     CompileConfig, ResolvedProject, RunMode,
     model::{
-        BackendConfig, DebugInfoRequest, ENV_MOONBIT_NEW_NATIVE, NativeTarget, OperatingSystem,
+        BackendConfig, DebugInfoRequest, DirectObjectTarget, ENV_MOONBIT_NEW_NATIVE,
+        OperatingSystem,
     },
     target_layout::{ArtifactPathResolver, TargetLayout, stdlib_core_path, stdlib_mi_path},
 };
@@ -72,13 +73,14 @@ pub fn prepare_backend(
         },
         TargetBackend::Js => BackendConfig::Js,
         TargetBackend::Native => {
-            let new_native_env = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
+            let direct_object_candidate = match std::env::var(ENV_MOONBIT_NEW_NATIVE).as_deref() {
+                Ok("0") => None,
+                // FIXME: Use the requested architecture once Native has an explicit target.
+                // An x64 Moon on ARM64 Windows currently selects x64 direct objects.
+                _ => DirectObjectTarget::from_host(std::env::consts::ARCH, std::env::consts::OS),
+            };
             BackendConfig::Native {
-                direct_object_candidate: NativeTarget::from_host_with_new_native_env(
-                    std::env::consts::ARCH,
-                    std::env::consts::OS,
-                    new_native_env.as_deref(),
-                ),
+                direct_object_candidate,
                 allocator: compiler_flags::NativeAllocator::from_env()?,
                 collect_ref_cycle,
                 os: std::env::consts::OS

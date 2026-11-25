@@ -123,8 +123,8 @@ mod tests {
         },
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
-            BackendConfig, BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode,
-            NativeTarget, OperatingSystem, TargetKind,
+            BackendConfig, BuildPlanNode, BuildTarget, DirectObjectTarget, NativeBackendMode,
+            OperatingSystem, TargetKind,
         },
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::PackageRelations,
@@ -670,14 +670,12 @@ mod tests {
             ),
             None,
         );
-        let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
-            NativeTarget::X86_64PcWindowsMsvc,
-        ));
+        let native_mode = NativeBackendMode::DirectObject(DirectObjectTarget::X86_64PcWindowsMsvc);
         plan.test_backend_plan_mut()
             .test_set_native_mode(Some(native_mode));
         let options = {
             let backend = BackendConfig::Native {
-                direct_object_candidate: Some(NativeTarget::X86_64PcWindowsMsvc),
+                direct_object_candidate: Some(DirectObjectTarget::X86_64PcWindowsMsvc),
                 collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
                 os: OperatingSystem::Windows,
@@ -939,7 +937,7 @@ mod tests {
                 compiler_paths: compiler_paths.clone(),
             },
             BackendConfig::Native {
-                direct_object_candidate: Some(NativeTarget::Aarch64AppleDarwin),
+                direct_object_candidate: Some(DirectObjectTarget::Aarch64AppleDarwin),
                 collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
                 os: OperatingSystem::MacOS,
@@ -948,9 +946,7 @@ mod tests {
         ] {
             plan.test_backend_plan_mut().test_set_native_mode(
                 matches!(backend, BackendConfig::Native { .. }).then_some(
-                    NativeBackendMode::DirectObject(DirectNativeMode::Target(
-                        NativeTarget::Aarch64AppleDarwin,
-                    )),
+                    NativeBackendMode::DirectObject(DirectObjectTarget::Aarch64AppleDarwin),
                 ),
             );
             let artifact_paths = ArtifactPathResolver::new(

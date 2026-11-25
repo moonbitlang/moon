@@ -323,8 +323,9 @@ When `MOON_CC` is unset and no package-specific override is being applied to tha
 for a default native toolchain.
 
 On Windows, Moon first tries to discover an MSVC toolchain environment for the current 64-bit host
-architecture using `find-msvc-tools`. The discovery target is
-`x86_64-pc-windows-msvc` on x64 Windows hosts and `aarch64-pc-windows-msvc` on ARM64 Windows hosts.
+architecture using `find-msvc-tools`. The discovery target follows the Moon binary:
+`x86_64-pc-windows-msvc` for x64 Moon (including under ARM64 emulation),
+or `aarch64-pc-windows-msvc` for ARM64 Moon.
 Moon does not model cross compilation in this path. This discovery is needed so generated-C builds
 can use `cl.exe` outside a Developer Command Prompt. If MSVC discovery fails, or on non-Windows
 hosts, Moon falls back to PATH probing in this order:

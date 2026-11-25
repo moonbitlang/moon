@@ -27,7 +27,7 @@ use moonutil::target::TargetBackend;
 use crate::build_lower::compiler::{
     CmdlineAbstraction, CompilationFlags, CompiledPackageName, PackageSource,
 };
-use crate::model::NativeTarget;
+use crate::model::DirectObjectTarget;
 
 /// Abstraction for `moonc link-core`.
 ///
@@ -68,7 +68,7 @@ pub(crate) struct MooncLinkCore<'a> {
     /// The target backend to link for.
     pub target_backend: TargetBackend,
     /// Concrete direct object-code backend selected under native, if any.
-    pub native_target: Option<NativeTarget>,
+    pub direct_object_target: Option<DirectObjectTarget>,
     /// Compilation flags - reuse existing structure, symbols maps to -g, no_opt maps to -O0
     pub flags: CompilationFlags,
     /// Whether this project is linked to be used for testing. Test projects
@@ -204,8 +204,8 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
         // Target backend
         args.push("-target".to_string());
         args.push(
-            self.native_target
-                .map(NativeTarget::moonc_target_flag)
+            self.direct_object_target
+                .map(DirectObjectTarget::moonc_target_flag)
                 .unwrap_or_else(|| self.target_backend.to_flag())
                 .to_string(),
         );

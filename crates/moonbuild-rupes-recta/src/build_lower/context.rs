@@ -217,7 +217,7 @@ impl<'a> LoweringContext<'a> {
             BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
             BackendConfig::Native { .. } => (
                 ExecutableArtifact::NativeExecutable,
-                if self.plan.backend_plan().direct_native_target().is_some() {
+                if self.plan.backend_plan().direct_object_target().is_some() {
                     LinkedCoreArtifact::NativeObject { os }
                 } else {
                     LinkedCoreArtifact::NativeC

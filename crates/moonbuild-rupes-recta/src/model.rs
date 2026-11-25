@@ -77,7 +77,7 @@ pub enum BackendConfig {
     Native {
         /// Direct object target permitted by the caller's host/environment.
         /// Planning may still select generated C based on profile and packages.
-        direct_object_candidate: Option<NativeTarget>,
+        direct_object_candidate: Option<DirectObjectTarget>,
         allocator: NativeAllocator,
         /// Enable cycle collection in the native runtime for either payload form.
         collect_ref_cycle: bool,
@@ -113,12 +113,9 @@ pub enum DebugSymbols {
     Full,
 }
 
-/// Concrete native object-code backend selected under the `native` surface target.
-///
-/// `TargetBackend::Native` remains the user-visible native backend. This type
-/// only describes the experimental direct object-code lowering used behind it.
+/// Targets for which `moonc link-core` can emit a native object directly.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
-pub enum NativeTarget {
+pub enum DirectObjectTarget {
     Aarch64AppleDarwin,
     X86_64UnknownLinuxGnu,
     X86_64PcWindowsMsvc,
@@ -130,26 +127,10 @@ pub(crate) enum NativeBackendMode {
     /// Legacy generated-C native path.
     GeneratedC,
     /// Experimental direct object-code native path.
-    DirectObject(DirectNativeMode),
+    DirectObject(DirectObjectTarget),
 }
 
-/// Concrete direct object-code native implementation.
-#[derive(Clone, Debug)]
-pub(crate) enum DirectNativeMode {
-    Target(NativeTarget),
-}
-
-impl NativeTarget {
-    /// Interpret caller-supplied host and `MOONBIT_NEW_NATIVE` observations.
-    pub fn from_host_with_new_native_env(
-        arch: &str,
-        os: &str,
-        env_value: Option<&str>,
-    ) -> Option<Self> {
-        let target = Self::from_host(arch, os)?;
-        (env_value != Some("0")).then_some(target)
-    }
-
+impl DirectObjectTarget {
     pub fn from_host(arch: &str, os: &str) -> Option<Self> {
         match (arch, os) {
             ("aarch64", "macos") => Some(Self::Aarch64AppleDarwin),
@@ -169,13 +150,9 @@ impl NativeTarget {
 }
 
 impl NativeBackendMode {
-    pub fn direct_target(&self) -> Option<NativeTarget> {
-        self.direct_native_mode().map(DirectNativeMode::target)
-    }
-
-    pub fn direct_native_mode(&self) -> Option<&DirectNativeMode> {
+    pub fn direct_target(&self) -> Option<DirectObjectTarget> {
         match self {
-            Self::DirectObject(mode) => Some(mode),
+            Self::DirectObject(target) => Some(*target),
             Self::GeneratedC => None,
         }
     }
@@ -235,14 +212,6 @@ impl BackendConfig {
                 ..
             }
         )
-    }
-}
-
-impl DirectNativeMode {
-    pub fn target(&self) -> NativeTarget {
-        match self {
-            Self::Target(target) => *target,
-        }
     }
 }
 
@@ -680,87 +649,24 @@ impl std::str::FromStr for OperatingSystem {
 
 #[cfg(test)]
 mod tests {
-    use super::{DirectNativeMode, NativeTarget};
+    use super::DirectObjectTarget;
 
     #[test]
-    fn native_target_selection_is_host_specific() {
+    fn direct_object_target_selection_is_host_specific() {
         assert_eq!(
-            NativeTarget::from_host("aarch64", "macos"),
-            Some(NativeTarget::Aarch64AppleDarwin)
+            DirectObjectTarget::from_host("aarch64", "macos"),
+            Some(DirectObjectTarget::Aarch64AppleDarwin)
         );
-        assert_eq!(NativeTarget::from_host("x86_64", "macos"), None);
+        assert_eq!(DirectObjectTarget::from_host("x86_64", "macos"), None);
         assert_eq!(
-            NativeTarget::from_host("x86_64", "linux"),
-            Some(NativeTarget::X86_64UnknownLinuxGnu)
-        );
-        assert_eq!(
-            NativeTarget::from_host("x86_64", "windows"),
-            Some(NativeTarget::X86_64PcWindowsMsvc)
-        );
-        assert_eq!(NativeTarget::from_host("aarch64", "linux"), None);
-    }
-
-    #[test]
-    fn new_native_defaults_on_for_supported_hosts() {
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("aarch64", "macos", None),
-            Some(NativeTarget::Aarch64AppleDarwin)
+            DirectObjectTarget::from_host("x86_64", "linux"),
+            Some(DirectObjectTarget::X86_64UnknownLinuxGnu)
         );
         assert_eq!(
-            NativeTarget::from_host_with_new_native_env("aarch64", "macos", Some("1")),
-            Some(NativeTarget::Aarch64AppleDarwin)
+            DirectObjectTarget::from_host("x86_64", "windows"),
+            Some(DirectObjectTarget::X86_64PcWindowsMsvc)
         );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("aarch64", "macos", Some("0")),
-            None
-        );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("aarch64", "macos", Some("other")),
-            Some(NativeTarget::Aarch64AppleDarwin)
-        );
-
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("x86_64", "linux", None),
-            Some(NativeTarget::X86_64UnknownLinuxGnu)
-        );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("x86_64", "linux", Some("1")),
-            Some(NativeTarget::X86_64UnknownLinuxGnu)
-        );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("x86_64", "linux", Some("0")),
-            None
-        );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("x86_64", "linux", Some("other")),
-            Some(NativeTarget::X86_64UnknownLinuxGnu)
-        );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("x86_64", "windows", None),
-            Some(NativeTarget::X86_64PcWindowsMsvc)
-        );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("x86_64", "windows", Some("0")),
-            None
-        );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("x86_64", "windows", Some("1")),
-            Some(NativeTarget::X86_64PcWindowsMsvc)
-        );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("x86_64", "windows", Some("other")),
-            Some(NativeTarget::X86_64PcWindowsMsvc)
-        );
-        assert_eq!(
-            NativeTarget::from_host_with_new_native_env("x86_64", "macos", Some("1")),
-            None
-        );
-    }
-
-    #[test]
-    fn direct_native_mode_carries_only_target_choice() {
-        let mode = DirectNativeMode::Target(NativeTarget::X86_64PcWindowsMsvc);
-
-        assert_eq!(mode.target(), NativeTarget::X86_64PcWindowsMsvc);
+        assert_eq!(DirectObjectTarget::from_host("aarch64", "linux"), None);
+        assert_eq!(DirectObjectTarget::from_host("aarch64", "windows"), None);
     }
 }
