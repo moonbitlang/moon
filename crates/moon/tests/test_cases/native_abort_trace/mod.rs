@@ -40,7 +40,10 @@ fn test_native_abort_trace() {
     // runtime reports a runtime error and exits 255.
     let exits_via_signal = cfg!(any(
         all(target_os = "macos", target_arch = "aarch64"),
-        all(target_os = "linux", target_arch = "x86_64")
+        all(
+            target_os = "linux",
+            any(target_arch = "aarch64", target_arch = "x86_64")
+        )
     ));
     let expected_stderr = if exits_via_signal {
         snapbox::str![[r#"
