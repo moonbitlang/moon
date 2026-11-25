@@ -50,9 +50,8 @@ use crate::{
     cond_comp,
     discover::{DiscoveredPackage, resolve_prebuild_path},
     model::{
-        BackendConfig, BuildPlanNode, BuildTarget, CCOptLevel, DebugSymbols, DirectNativeMode,
-        NativeBackendMode, NativeLinkArg, NativeTarget, OperatingSystem, PackageId, TargetKind,
-        WasmObject,
+        BackendConfig, BuildPlanNode, BuildTarget, CCOptLevel, DebugSymbols, DirectObjectTarget,
+        NativeBackendMode, NativeLinkArg, OperatingSystem, PackageId, TargetKind, WasmObject,
     },
     pkg_name::PackageFQNWithSource,
     special_cases::WASM_ERROR_TABLE_PACKAGES,
@@ -75,12 +74,12 @@ fn should_generate_llvm_dsym(debug_symbols: bool, os: OperatingSystem) -> bool {
 }
 
 fn should_generate_direct_native_dsym(
-    mode: &DirectNativeMode,
+    target: DirectObjectTarget,
     source_info: bool,
     toolchain: &Toolchain,
 ) -> bool {
     source_info
-        && mode.target() == NativeTarget::Aarch64AppleDarwin
+        && target == DirectObjectTarget::Aarch64AppleDarwin
         && toolchain.cc().targets_apple_darwin()
 }
 
@@ -1415,8 +1414,8 @@ impl<'a> BuildPlanConstructor<'a> {
         let generate_dsym = match self.config.backend() {
             BackendConfig::Llvm { os, .. } => should_generate_llvm_dsym(moonc_debug_info, *os),
             BackendConfig::Native { os, .. } => match self.res.backend.native_mode() {
-                NativeBackendMode::DirectObject(mode) => should_generate_direct_native_dsym(
-                    mode,
+                NativeBackendMode::DirectObject(target) => should_generate_direct_native_dsym(
+                    *target,
                     moonc_debug_info || self.config.debug_info.runtime_backtrace,
                     &native.effective_native_toolchain,
                 ),
@@ -1510,7 +1509,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let info = PackageNativeConfig {
             effective_native_toolchain,
             cc_flags: c_flags,
-            driver_debug_info: self.res.backend.direct_native_target().is_none()
+            driver_debug_info: self.res.backend.direct_object_target().is_none()
                 && self.config.debug_info.symbols != DebugSymbols::None,
             driver_opt_level: match self.config.configuration().profile {
                 OptLevel::Debug => CCOptLevel::Debug,
@@ -2239,24 +2238,24 @@ mod tests {
     fn dsym_generation_policy_is_backend_specific() {
         let apple_toolchain = toolchain("arm64-apple-darwin");
         let linux_toolchain = toolchain("x86_64-unknown-linux-gnu");
-        let direct_apple = DirectNativeMode::Target(NativeTarget::Aarch64AppleDarwin);
+        let direct_apple = DirectObjectTarget::Aarch64AppleDarwin;
 
         assert!(should_generate_llvm_dsym(true, OperatingSystem::MacOS));
         assert!(!should_generate_llvm_dsym(true, OperatingSystem::Linux));
         assert!(!should_generate_llvm_dsym(false, OperatingSystem::MacOS));
 
         assert!(should_generate_direct_native_dsym(
-            &direct_apple,
+            direct_apple,
             true,
             &apple_toolchain
         ));
         assert!(!should_generate_direct_native_dsym(
-            &direct_apple,
+            direct_apple,
             false,
             &apple_toolchain
         ));
         assert!(!should_generate_direct_native_dsym(
-            &direct_apple,
+            direct_apple,
             true,
             &linux_toolchain
         ));

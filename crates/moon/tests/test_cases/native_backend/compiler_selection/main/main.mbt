@@ -1,5 +1,5 @@
-extern "C" fn is_clang_cl() -> Int = "compiler_selection_is_clang_cl"
+extern "C" fn uses_clang_with_static_msvc_crt() -> Int = "uses_clang_with_static_msvc_crt"
 
 fn main {
-  println(is_clang_cl())
+  println(uses_clang_with_static_msvc_crt())
 }

@@ -159,13 +159,12 @@ impl<'a> super::LoweringContext<'a> {
         let source = &info.source_files[index as usize];
 
         let runtime_toolchain = &info.effective_native_toolchain;
-        let mut command = if let Some(crt) = runtime_toolchain.msvc_crt_policy() {
+        let mut command = if runtime_toolchain.uses_msvc_cli() {
             let command = compiler::native::msvc::compile_runtime_command(
                 runtime_toolchain,
                 source,
                 &artifact_path,
                 &compiler_paths.include_path,
-                crt,
                 info.native_allocator,
                 self.opt.backend().collect_ref_cycle(),
             );

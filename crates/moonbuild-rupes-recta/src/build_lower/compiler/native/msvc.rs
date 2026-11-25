@@ -24,10 +24,23 @@ use super::{CCConfig, LinkerConfig, OutputType, render_link_arg};
 
 use moonutil::compiler_flags::{
     CC, CCKind, MsvcCrtPolicy, NativeAllocator, Toolchain, WINDOWS_MSVC_C_STANDARD_FLAG,
-    WINDOWS_MSVC_DEFAULT_LIBS,
+    WINDOWS_MSVC_DEFAULT_LIBS, WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
 };
 
 use crate::model::NativeLinkArg;
+
+const CLANG_MSVC_STATIC_RUNTIME_FLAG: &str = "-fms-runtime-lib=static";
+
+pub(super) fn add_cc_runtime_flags(toolchain: &Toolchain, args: &mut Vec<String>) {
+    let Some(crt) = toolchain.msvc_crt_policy() else {
+        return;
+    };
+    let flag = match (crt, toolchain.uses_msvc_cli()) {
+        (MsvcCrtPolicy::StaticMt, true) => WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
+        (MsvcCrtPolicy::StaticMt, false) => CLANG_MSVC_STATIC_RUNTIME_FLAG,
+    };
+    args.push(flag.to_owned());
+}
 
 pub(in crate::build_lower) fn command_env(toolchain: &Toolchain) -> Vec<(String, String)> {
     toolchain
@@ -41,7 +54,6 @@ pub(in crate::build_lower) fn compile_runtime_command(
     source: &Path,
     dest: &Path,
     moon_include_path: &str,
-    crt: MsvcCrtPolicy,
     native_allocator: NativeAllocator,
     collect_ref_cycle: bool,
 ) -> Vec<String> {
@@ -55,17 +67,19 @@ pub(in crate::build_lower) fn compile_runtime_command(
         "/c".to_string(),
         "/Z7".to_string(),
         "/O2".to_string(),
-        crt.compiler_flag().to_string(),
+    ];
+    add_cc_runtime_flags(toolchain, &mut command);
+    command.extend([
         format!("/Fo{}", dunce::simplified(dest).display()),
         format!(
             "/I{}",
             dunce::simplified(Path::new(moon_include_path)).display()
         ),
-    ];
-    command.push(format!(
-        "/DMOONBIT_ALLOCATOR={}",
-        native_allocator.moonbit_allocator_macro(toolchain.cc(), false)
-    ));
+        format!(
+            "/DMOONBIT_ALLOCATOR={}",
+            native_allocator.moonbit_allocator_macro(toolchain.cc(), false)
+        ),
+    ]);
     if collect_ref_cycle {
         command.push("/DMOONBIT_TRIAL_DELETION=1".to_string());
     }
@@ -80,28 +94,44 @@ pub(in crate::build_lower) fn link_executable_command(
     dest: &str,
     lib_path: &str,
 ) -> Vec<String> {
-    let mut command = vec![
-        toolchain.cc_command_path(),
-        "/nologo".to_string(),
-        format!("/Fe{}", dunce::simplified(Path::new(dest)).display()),
-    ];
+    let cc = toolchain.cc();
+    let dest = dunce::simplified(Path::new(dest)).display();
+    let (mut command, linker_args, library_prefix) = if cc.uses_msvc_cli() {
+        (
+            vec![
+                toolchain.cc_command_path(),
+                "/nologo".into(),
+                format!("/Fe{dest}"),
+            ],
+            vec![
+                "/link".into(),
+                "/nologo".into(),
+                "/subsystem:console".into(),
+                format!("/LIBPATH:{lib_path}"),
+            ],
+            "",
+        )
+    } else {
+        // A bare .lib is a file input to clang. Forward the name to the linker
+        // so it searches the SDK and CRT library paths.
+        (
+            vec![toolchain.cc_command_path(), "-o".into(), dest.to_string()],
+            vec!["-Wl,/subsystem:console".into(), format!("-L{lib_path}")],
+            "-Wl,",
+        )
+    };
     command.extend(
         sources
             .iter()
-            .map(|source| dunce::simplified(Path::new(source)).display().to_string()),
+            .map(|s| dunce::simplified(Path::new(s)).display().to_string()),
     );
-    command.push("/link".to_string());
-    command.extend([
-        "/nologo".to_string(),
-        "/subsystem:console".to_string(),
-        format!("/LIBPATH:{lib_path}"),
-    ]);
+    command.extend(linker_args);
+    command.extend(link_args.iter().map(|arg| render_link_arg(arg, cc)));
     command.extend(
-        link_args
+        WINDOWS_MSVC_DEFAULT_LIBS
             .iter()
-            .map(|arg| render_link_arg(arg, toolchain.cc())),
+            .map(|lib| format!("{library_prefix}{lib}")),
     );
-    command.extend(WINDOWS_MSVC_DEFAULT_LIBS.iter().map(|lib| lib.to_string()));
     command
 }
 
@@ -152,14 +182,6 @@ pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_fla
     buf.push("/nologo".to_string());
 }
 
-pub(super) fn add_cc_runtime_flags(cc: &CC, toolchain: &Toolchain, buf: &mut Vec<String>) {
-    if cc.uses_msvc_cli()
-        && let Some(crt) = toolchain.msvc_crt_policy()
-    {
-        buf.push(crt.compiler_flag().to_string());
-    }
-}
-
 pub(super) fn add_cc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
     if cc.uses_msvc_cli() && config.output_ty != OutputType::Object {
         buf.push("/link".to_string());
@@ -200,7 +222,6 @@ mod tests {
                 Path::new("runtime.c"),
                 Path::new("runtime.obj"),
                 "moon/include",
-                MsvcCrtPolicy::StaticMt,
                 NativeAllocator::Default,
                 collect_ref_cycle,
             );
@@ -214,7 +235,7 @@ mod tests {
             assert!(
                 command
                     .iter()
-                    .any(|arg| arg == MsvcCrtPolicy::StaticMt.compiler_flag())
+                    .any(|arg| arg == WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
             );
             assert!(
                 command
@@ -228,6 +249,48 @@ mod tests {
                 collect_ref_cycle
             );
         }
+    }
+
+    #[test]
+    fn plain_clang_links_msvc_objects_using_driver_and_linker_arguments() {
+        let toolchain = Toolchain::from_env_override(CC {
+            cc_kind: CCKind::Clang,
+            cc_path: "clang".into(),
+            ar_kind: ARKind::GnuAr,
+            ar_path: "llvm-ar".into(),
+            target_triple: Some("x86_64-pc-windows-msvc".into()),
+            is_env_override: true,
+        });
+        let args = link_executable_command(
+            &toolchain,
+            &["main.obj".into()],
+            &[
+                NativeLinkArg::SearchPath("custom libs".into()),
+                NativeLinkArg::Library("custom".into()),
+            ],
+            "main.exe",
+            "moon/lib",
+        );
+        assert_eq!(
+            args,
+            [
+                "clang",
+                "-o",
+                "main.exe",
+                "main.obj",
+                "-Wl,/subsystem:console",
+                "-Lmoon/lib",
+                "-Lcustom libs",
+                "-lcustom",
+                "-Wl,libcmt.lib",
+                "-Wl,oldnames.lib",
+                "-Wl,kernel32.lib",
+                "-Wl,shell32.lib",
+                "-Wl,user32.lib",
+                "-Wl,dbghelp.lib",
+                "-Wl,uuid.lib",
+            ]
+        );
     }
 
     #[test]

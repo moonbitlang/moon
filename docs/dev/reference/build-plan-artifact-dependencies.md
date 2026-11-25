@@ -31,7 +31,7 @@ pub enum BackendConfig {
     WasmGc { use_wat: bool },
     Js,
     Native {
-        direct_object_candidate: Option<NativeTarget>,
+        direct_object_candidate: Option<DirectObjectTarget>,
         allocator: NativeAllocator,
         collect_ref_cycle: bool,
         os: OperatingSystem,

@@ -567,7 +567,7 @@ impl<'a> LoweringContext<'a> {
             package_sources: &package_sources,
             stdlib_core_source: None,
             target_backend: self.opt.configuration().backend,
-            native_target: self.plan.backend_plan().direct_native_target(),
+            direct_object_target: self.plan.backend_plan().direct_object_target(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(target, package),
@@ -646,7 +646,7 @@ impl<'a> LoweringContext<'a> {
             package_sources: &package_sources,
             stdlib_core_source: None,
             target_backend: TargetBackend::Wasm,
-            native_target: None,
+            direct_object_target: None,
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.wasm_object_config(),
@@ -1332,7 +1332,7 @@ impl<'a> LoweringContext<'a> {
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
-        let command = if native.effective_native_toolchain.uses_msvc_cli() {
+        let command = if native.effective_native_toolchain.uses_msvc_abi() {
             let commandline = compiler::native::msvc::link_executable_command(
                 &native.effective_native_toolchain,
                 &source_args,

@@ -7,7 +7,7 @@ Native builds have separate choices that are easy to conflate: the native payloa
 - Direct object mode records the native target triple, not an MSVC-specific backend mode.
 - Build planning resolves native compiler/linker selections into toolchains before lowering.
 - Explicit compiler choices take precedence over automatic Native payload selection. Planning selects the required toolchains first, then chooses a compatible payload form; later stages consume those selections.
-- Windows direct object mode for `x86_64-pc-windows-msvc` requires a cl-compatible MSVC toolchain.
+- Windows direct object mode for `x86_64-pc-windows-msvc` requires all selected toolchains to target the MSVC ABI. Each driver uses its own command-line syntax for the shared static CRT policy.
 - Generated-C native builds also consume toolchains, so MSVC CRT policy is not limited to the direct object path.
 - Lowering must branch on the toolchain for MSVC-specific runtime, C stub, and executable-link behavior, not on backend mode.
 

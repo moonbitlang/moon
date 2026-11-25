@@ -175,7 +175,8 @@ mod tests {
         build_plan::{ArtifactKey, InputDirective, build_plan},
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
         model::{
-            BackendConfig, BuildPlanNode, DebugInfoRequest, DebugSymbols, NativeTarget, TargetKind,
+            BackendConfig, BuildPlanNode, DebugInfoRequest, DebugSymbols, DirectObjectTarget,
+            TargetKind,
         },
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::{DepEdge, PackageRelations},
@@ -270,13 +271,13 @@ mod tests {
         for (candidate, c_flags, opt_level, generated_c) in [
             (None, None, OptLevel::Debug, true),
             (
-                Some(NativeTarget::X86_64UnknownLinuxGnu),
+                Some(DirectObjectTarget::X86_64UnknownLinuxGnu),
                 None,
                 OptLevel::Debug,
                 false,
             ),
             (
-                Some(NativeTarget::X86_64UnknownLinuxGnu),
+                Some(DirectObjectTarget::X86_64UnknownLinuxGnu),
                 Some("-DGENERATED_C_DEBUG_TEST"),
                 OptLevel::Debug,
                 true,
@@ -558,7 +559,7 @@ mod tests {
     fn native_payload_selection_uses_only_requested_executables() {
         use crate::{
             build_plan::{build_plan, resolve_native_backend_mode},
-            model::{NativeTarget, OperatingSystem},
+            model::{DirectObjectTarget, OperatingSystem},
         };
 
         let module_source = ModuleSource::local_path(
@@ -615,9 +616,9 @@ mod tests {
         // Include foreign targets and None so a planner-side host read cannot pass.
         for candidate in [
             None,
-            Some(NativeTarget::Aarch64AppleDarwin),
-            Some(NativeTarget::X86_64UnknownLinuxGnu),
-            Some(NativeTarget::X86_64PcWindowsMsvc),
+            Some(DirectObjectTarget::Aarch64AppleDarwin),
+            Some(DirectObjectTarget::X86_64UnknownLinuxGnu),
+            Some(DirectObjectTarget::X86_64PcWindowsMsvc),
         ] {
             for (opt_level, collect_ref_cycle) in [
                 (OptLevel::Debug, false),
@@ -663,7 +664,7 @@ mod tests {
                 )
                 .expect("empty plan should not need host tools");
                 assert_eq!(
-                    plan.backend_plan().direct_native_target(),
+                    plan.backend_plan().direct_object_target(),
                     candidate.filter(|_| opt_level == OptLevel::Debug),
                     "candidate={candidate:?}, opt_level={opt_level:?}, collect_ref_cycle={collect_ref_cycle}"
                 );
@@ -683,6 +684,12 @@ mod tests {
         for (kind, triple, permits_direct_object) in [
             (CCKind::Msvc, None, true),
             (CCKind::ClangCl, None, true),
+            (
+                CCKind::Clang,
+                Some("x86_64-pc-windows-msvc"),
+                cfg!(all(windows, target_arch = "x86_64")),
+            ),
+            (CCKind::Clang, Some("x86_64-w64-windows-gnu"), false),
             (CCKind::Clang, None, false),
             (CCKind::Gcc, None, false),
             (CCKind::ClangCl, Some("wasm32-unknown-none"), false),
@@ -699,7 +706,7 @@ mod tests {
                 &resolved,
                 std::slice::from_ref(&plain_exe),
                 OptLevel::Debug,
-                Some(NativeTarget::X86_64PcWindowsMsvc),
+                Some(DirectObjectTarget::X86_64PcWindowsMsvc),
                 [&selected],
             );
             assert_eq!(mode.direct_target().is_some(), permits_direct_object);
@@ -722,9 +729,9 @@ mod tests {
         ] {
             for candidate in [
                 None,
-                Some(NativeTarget::Aarch64AppleDarwin),
-                Some(NativeTarget::X86_64UnknownLinuxGnu),
-                Some(NativeTarget::X86_64PcWindowsMsvc),
+                Some(DirectObjectTarget::Aarch64AppleDarwin),
+                Some(DirectObjectTarget::X86_64UnknownLinuxGnu),
+                Some(DirectObjectTarget::X86_64PcWindowsMsvc),
             ] {
                 let mode = resolve_native_backend_mode(
                     &resolved,

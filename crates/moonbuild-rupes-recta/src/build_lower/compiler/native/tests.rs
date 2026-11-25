@@ -534,52 +534,48 @@ fn archiver_flags_follow_the_resolved_archiver_kind() {
 }
 
 #[test]
-fn msvc_toolchain_adds_mt_to_cc_command() {
-    let mut cc = fake_cc(CCKind::Msvc, None);
-    cc.cc_path = "cl.exe".to_string();
-    cc.ar_kind = ARKind::MsvcLib;
-    cc.ar_path = "lib.exe".to_string();
-    let toolchain = Toolchain::from_path_probe(cc);
+fn msvc_abi_enforces_static_crt_after_user_compile_flags() {
     let paths = CompilerPaths {
         include_path: "moon/include".to_string(),
         lib_path: "moon/lib".to_string(),
     };
 
-    let command = make_cc_command(
-        &toolchain,
-        CCConfig {
-            debug_info: false,
-            link_moonbitrun: false,
-            link_libbacktrace: false,
-            no_sys_header: true,
-            output_ty: OutputType::Object,
-            opt_level: OptLevel::Speed,
-            allow_stacktrace: false,
-            define_use_shared_runtime_macro: false,
-            use_simdutf: false,
-            collect_ref_cycle: false,
-            native_allocator: None,
-        },
-        &["/MD"],
-        &[],
-        ["stub.c".to_string()],
-        "pkg",
-        Some("stub.obj"),
-        &paths,
-    )
-    .commandline
-    .args()
-    .to_vec();
-
-    let md_position = command
-        .iter()
-        .position(|arg| arg == "/MD")
-        .expect("test command should include user runtime flag");
-    let mt_position = command
-        .iter()
-        .position(|arg| arg == WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
-        .expect("test command should force static runtime flag");
-    assert!(mt_position > md_position);
+    for (cc, user_flag, expected_flag) in [
+        (
+            fake_cc(CCKind::Msvc, None),
+            "/MD",
+            WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
+        ),
+        (
+            fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")),
+            "-fms-runtime-lib=dll",
+            "-fms-runtime-lib=static",
+        ),
+    ] {
+        let command = make_cc_command(
+            &Toolchain::from_path_probe(cc),
+            CCConfig {
+                output_ty: OutputType::Object,
+                ..executable_cc_config()
+            },
+            &[user_flag],
+            &[],
+            ["stub.c"],
+            "pkg",
+            Some("stub.obj"),
+            &paths,
+        );
+        let args = command.commandline.args();
+        let user = args
+            .iter()
+            .position(|arg| arg == user_flag)
+            .expect("user-supplied CRT flag");
+        let forced = args
+            .iter()
+            .position(|arg| arg == expected_flag)
+            .expect("toolchain's static CRT flag");
+        assert!(user < forced, "{args:?}");
+    }
 }
 
 #[test]

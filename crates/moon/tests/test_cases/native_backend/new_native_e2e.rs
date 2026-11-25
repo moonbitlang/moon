@@ -9,9 +9,10 @@ fn command_mentions_c_source(line: &str) -> bool {
         .any(|arg| arg.trim_matches(['\'', '"']).ends_with(".c"))
 }
 
-fn assert_debug_uses_direct_object_without_env(dir: &TestDir, args: &[&str]) {
+fn assert_debug_uses_direct_object(dir: &TestDir, args: &[&str], new_native: Option<&str>) {
     let output = moon_process_cmd(dir)
         .env_remove("MOONBIT_NEW_NATIVE")
+        .envs(new_native.map(|v| ("MOONBIT_NEW_NATIVE", v)))
         .env_remove("MOON_CC")
         .args(args)
         .output()
@@ -160,15 +161,15 @@ fn test_new_native_is_default_for_run_and_test_e2e() {
 fn test_new_native_is_default_for_debug_build_run_and_test() {
     let dir = TestDir::new("native_backend/new_native_e2e");
 
-    assert_debug_uses_direct_object_without_env(
-        &dir,
-        &["build", "--target", "native", "--dry-run"],
-    );
-    assert_debug_uses_direct_object_without_env(
+    for value in [None, Some("other")] {
+        assert_debug_uses_direct_object(&dir, &["build", "--target", "native", "--dry-run"], value);
+    }
+    assert_debug_uses_direct_object(
         &dir,
         &["run", "main", "--target", "native", "--dry-run"],
+        None,
     );
-    assert_debug_uses_direct_object_without_env(&dir, &["test", "--target", "native", "--dry-run"]);
+    assert_debug_uses_direct_object(&dir, &["test", "--target", "native", "--dry-run"], None);
 }
 
 #[test]

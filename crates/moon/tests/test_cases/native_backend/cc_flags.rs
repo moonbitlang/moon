@@ -327,9 +327,10 @@ fn test_native_backend_clang_uses_target_specific_libm_behavior() {
         eprintln!("skipping native clang test: clang -dumpmachine is unavailable");
         return;
     };
+    let targets_windows_msvc = target.contains("-windows-msvc");
     if in_ci {
         assert!(
-            target.contains("msvc"),
+            targets_windows_msvc,
             "expected clang target to be msvc on Windows CI, got `{target}`"
         );
     }
@@ -346,7 +347,7 @@ fn test_native_backend_clang_uses_target_specific_libm_behavior() {
         !link_lines.is_empty(),
         "expected at least one link command using resolved clang path `{clang_path}`:\n{output}"
     );
-    if target.contains("msvc") {
+    if targets_windows_msvc {
         assert!(
             link_lines.iter().all(|line| !line.contains(" -lm")),
             "unexpected -lm for clang target `{target}`:\n{}",

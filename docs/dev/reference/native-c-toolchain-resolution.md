@@ -141,8 +141,7 @@ compares the architecture, operating system, and ABI of the probed target
 triple with the host. On Linux the ABI after the OS must be absent or `gnu`, so
 targets such as `gnux32`, `musl`, and `android` do not match. Other Unix hosts
 require no ABI component. Windows does not compare the ABI, because the shipped
-objects are not used there. Windows direct object selection separately requires
-a cl-compatible driver.
+objects are not used there. Windows direct object selection checks the MSVC ABI separately.
 When they differ, Moon does not link `libmoonbitrun.o` or `libbacktrace.a`,
 and it does not define `MOONBIT_USE_SIMDUTF` or archive the SIMDUTF objects. The runtime then uses its scalar UTF code path. Runtime
 backtraces depend on `libbacktrace.a`, so Moon also does not define
@@ -270,8 +269,8 @@ their own bindings, which can select different toolchains.
 
 Automatic Native payload selection then checks those selected toolchains. A
 compiler targeting another platform requires generated C. The Windows direct
-object target also requires every selected driver to be cl-compatible; a selected
-GCC-style driver therefore uses generated C. Debug/profile and package C-flag
+object target requires every selected toolchain to use the MSVC ABI, including
+plain Clang when its reported target is x64 Windows MSVC. Debug/profile and package C-flag
 constraints still apply. An explicit compiler request is honored or produces an
 error; payload selection never substitutes another compiler to keep direct objects.
 
@@ -323,8 +322,9 @@ When `MOON_CC` is unset and no package-specific override is being applied to tha
 for a default native toolchain.
 
 On Windows, Moon first tries to discover an MSVC toolchain environment for the current 64-bit host
-architecture using `find-msvc-tools`. The discovery target is
-`x86_64-pc-windows-msvc` on x64 Windows hosts and `aarch64-pc-windows-msvc` on ARM64 Windows hosts.
+architecture using `find-msvc-tools`. The discovery target follows the Moon binary:
+`x86_64-pc-windows-msvc` for x64 Moon (including under ARM64 emulation),
+or `aarch64-pc-windows-msvc` for ARM64 Moon.
 Moon does not model cross compilation in this path. This discovery is needed so generated-C builds
 can use `cl.exe` outside a Developer Command Prompt. If MSVC discovery fails, or on non-Windows
 hosts, Moon falls back to PATH probing in this order:
@@ -497,12 +497,9 @@ Selecting the payload form per executable requires those shared products to be k
 effective native toolchain and realization; changing only `LinkCore` and `MakeExecutable` would
 allow incompatible shared artifacts in mixed-mode builds.
 
-The direct object native target `x86_64-pc-windows-msvc` is stricter: it requires selecting a
-`cl`-compatible compiler driver and preserving the discovered Visual Studio command environment.
-
-The MSVC CRT policy is a separate axis from the ABI family. Moon currently forces the static CRT
-flag `/MT` for `cl`-style compile commands, matching the default MSVC runtime library list that uses
-`libcmt.lib`. `/MD` is not currently modeled as a selectable policy. `/LD` is not a CRT policy; it
+The MSVC CRT policy is a separate axis from the ABI family. Moon selects the static CRT
+with `/MT` for cl-compatible drivers and `-fms-runtime-lib=static` for plain Clang
+targeting MSVC. Both select `libcmt.lib`. `/MD` is not currently modeled as a selectable policy. `/LD` is not a CRT policy; it
 is emitted when the requested output type is a shared library.
 
 ## Flags Depend on Both Tool and Target

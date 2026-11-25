@@ -63,8 +63,8 @@ use tracing::instrument;
 use crate::{
     CompileConfig, ResolvedProject,
     model::{
-        BackendConfig, BuildPlanNode, BuildTarget, CCOptLevel, DebugSymbols, NativeBackendMode,
-        NativeLinkArg, NativeTarget, PackageId, WasmObject,
+        BackendConfig, BuildPlanNode, BuildTarget, CCOptLevel, DebugSymbols, DirectObjectTarget,
+        NativeBackendMode, NativeLinkArg, PackageId, WasmObject,
     },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
@@ -176,7 +176,7 @@ impl BackendPlan {
             .expect("Native planning must select a payload form")
     }
 
-    pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {
+    pub(crate) fn direct_object_target(&self) -> Option<DirectObjectTarget> {
         self.native_mode
             .as_ref()
             .and_then(NativeBackendMode::direct_target)
@@ -607,23 +607,20 @@ pub(super) fn resolve_native_backend_mode<'a>(
     resolved: &ResolvedProject,
     requested_artifacts: &[ArtifactKey],
     opt_level: OptLevel,
-    native_target: Option<crate::model::NativeTarget>,
+    candidate: Option<DirectObjectTarget>,
     toolchains: impl IntoIterator<Item = &'a Toolchain>,
-) -> crate::model::NativeBackendMode {
-    use crate::model::{DirectNativeMode, NativeBackendMode};
-
+) -> NativeBackendMode {
     // TODO: Before selecting payload form per executable, key shared runtime
     // and C-stub artifacts by toolchain and realization. A plan currently
     // requires one mode so its executables can safely share those artifacts.
-    let Some(native_target) = native_target.filter(|_| opt_level == OptLevel::Debug) else {
+    let Some(target) = candidate.filter(|_| opt_level == OptLevel::Debug) else {
         return NativeBackendMode::GeneratedC;
     };
     // Explicit compiler choices constrain the automatic payload selection.
-    // Windows direct objects currently require a cl-compatible link driver.
+    // Windows direct objects and every linked C input must agree on the MSVC ABI.
     if toolchains.into_iter().any(|toolchain| {
         !toolchain.cc().targets_host()
-            || (native_target == crate::model::NativeTarget::X86_64PcWindowsMsvc
-                && !toolchain.uses_msvc_cli())
+            || (target == DirectObjectTarget::X86_64PcWindowsMsvc && !toolchain.uses_msvc_abi())
     }) {
         return NativeBackendMode::GeneratedC;
     }
@@ -646,7 +643,7 @@ pub(super) fn resolve_native_backend_mode<'a>(
         tracing::info!("Disabling direct object native output: C/C++ compiler flags are set");
         NativeBackendMode::GeneratedC
     } else {
-        NativeBackendMode::DirectObject(DirectNativeMode::Target(native_target))
+        NativeBackendMode::DirectObject(target)
     }
 }
 
@@ -692,10 +689,10 @@ pub fn build_plan(
         DebugSymbols::Full => true,
         // Direct objects use -stacktrace for backtrace metadata. Generated C
         // needs moonc -g for accurate source locations in its #line directives.
-        DebugSymbols::Backtrace => constructor.res.backend.direct_native_target().is_none(),
+        DebugSymbols::Backtrace => constructor.res.backend.direct_object_target().is_none(),
     };
     constructor.res.backend.moonc_stacktrace = config.debug_info.symbols == DebugSymbols::Backtrace
-        && constructor.res.backend.direct_native_target().is_some();
+        && constructor.res.backend.direct_object_target().is_some();
     constructor.build(input.into_iter())?;
     let result = constructor.finish();
 
