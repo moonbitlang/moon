@@ -188,3 +188,14 @@ fn tls_set_server_files_checks_file_policy_before_backend_load() {
     );
     host.free(handle).unwrap();
 }
+
+#[test]
+fn ported_implementations_reference_upstream_sources() {
+    #[cfg(not(windows))]
+    let symbols = super::openssl::ported_symbols();
+    #[cfg(windows)]
+    let symbols = super::schannel::ported_symbols();
+    for symbol in symbols {
+        symbol.assert_source_exists();
+    }
+}

@@ -429,27 +429,6 @@ fn read_guest_os_path(memory: &[u8], ptr: u32, len: u32) -> AsyncHostResult<Path
 }
 
 #[cfg(test)]
-pub(super) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
-    PORTED_IMPORTS
-        .iter()
-        .flat_map(|import| {
-            import
-                .sources
-                .iter()
-                .map(move |source| crate::async_sys::PortedSymbol {
-                    rust_module: import.rust_module,
-                    rust_symbol: import.rust_symbol,
-                    native_symbol: import
-                        .native_symbol
-                        .expect("TLS ABI provenance uses explicit wasm import symbols"),
-                    root: source.root,
-                    source: source.path,
-                })
-        })
-        .collect()
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -18,10 +18,9 @@
 
 //! V8-free async host operations ported from `moonbitlang/async` native stubs.
 //!
-//! Files under this module follow the async package's source layout where a
-//! wasm import has a live implementation. The provenance macros record the
-//! native source path and symbol so the adapter registry can stay aligned with
-//! the C implementation. Moonrun-only runtime state stays in `async_host`.
+//! The provenance macros link host implementations to their upstream source
+//! paths and symbols independently of the Wasm ABI adapters. Implementations
+//! also live in the host domains; no matching Wasm import is required.
 
 pub(crate) mod internal;
 pub(crate) mod os_error;
@@ -51,7 +50,6 @@ impl SourceRoot {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct PortedSymbol {
     pub(crate) rust_module: &'static str,
@@ -59,6 +57,29 @@ pub(crate) struct PortedSymbol {
     pub(crate) native_symbol: &'static str,
     pub(crate) root: SourceRoot,
     pub(crate) source: &'static str,
+}
+
+#[cfg(test)]
+impl PortedSymbol {
+    pub(crate) fn assert_source_exists(&self) {
+        let source_path = self.root.path(self.source);
+        let contents = std::fs::read_to_string(&source_path).unwrap_or_else(|error| {
+            panic!(
+                "failed to read upstream source {source_path:?} for {}::{}: {error}",
+                self.rust_module, self.rust_symbol,
+            )
+        });
+        let symbol =
+            regex::Regex::new(&format!(r"(?-u:\b{}\b)", regex::escape(self.native_symbol)))
+                .expect("escaped upstream symbol is a valid regex");
+        assert!(
+            symbol.is_match(&contents),
+            "upstream source {source_path:?} does not contain symbol {} for {}::{}",
+            self.native_symbol,
+            self.rust_module,
+            self.rust_symbol,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -72,10 +93,12 @@ pub(crate) struct CompatSymbol {
     pub(crate) replacement: &'static str,
 }
 
+// An implementation can combine several upstream functions, or have no Wasm
+// import at all. Emit provenance only for tests; leave its executable body intact.
 macro_rules! ported_fns {
     (@root source) => { crate::async_sys::SourceRoot::MoonbitAsync };
     (@root runtime) => { crate::async_sys::SourceRoot::MoonbitRuntime };
-    (@collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]) => {
+    (@collect [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]) => {
         #[cfg(test)]
         pub(crate) const PORTED_SYMBOLS: &[crate::async_sys::PortedSymbol] = &[
             $($entries)*
@@ -90,27 +113,38 @@ macro_rules! ported_fns {
         $($out)*
     };
     (
-        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        @collect [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
         #[ported($source_root:ident = $source:literal, original = $original:literal)]
-        #[cfg($($cfg:tt)*)]
+        $($rest:tt)*
+    ) => {
+        ported_fns!(
+            @collect [$prefix] [$($entries)*] [$($compat_entries)*] [$($out)*]
+            #[ported($source_root = $source, original = [$original])]
+            $($rest)*
+        );
+    };
+    (
+        @collect [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        #[ported($source_root:ident = $source:literal, original = [$($original:literal),+ $(,)?])]
+        #[cfg($cfg:meta)]
         $(#[$meta:meta])*
         $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
         $($rest:tt)*
     ) => {
         ported_fns!(
-            @collect [
+            @collect [$prefix] [
                 $($entries)*
-                #[cfg($($cfg)*)]
+                $(#[cfg($cfg)]
                 crate::async_sys::PortedSymbol {
                     rust_module: module_path!(),
-                    rust_symbol: stringify!($name),
+                    rust_symbol: concat!($prefix, stringify!($name)),
                     native_symbol: $original,
                     root: ported_fns!(@root $source_root),
                     source: $source,
-                },
+                },)+
             ] [$($compat_entries)*] [
                 $($out)*
-                #[cfg($($cfg)*)]
+                #[cfg($cfg)]
                 $(#[$meta])*
                 $vis fn $name($($args)*) $(-> $ret)? $body
             ]
@@ -118,22 +152,22 @@ macro_rules! ported_fns {
         );
     };
     (
-        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
-        #[ported($source_root:ident = $source:literal, original = $original:literal)]
+        @collect [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        #[ported($source_root:ident = $source:literal, original = [$($original:literal),+ $(,)?])]
         $(#[$meta:meta])*
         $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
         $($rest:tt)*
     ) => {
         ported_fns!(
-            @collect [
+            @collect [$prefix] [
                 $($entries)*
-                crate::async_sys::PortedSymbol {
+                $(crate::async_sys::PortedSymbol {
                     rust_module: module_path!(),
-                    rust_symbol: stringify!($name),
+                    rust_symbol: concat!($prefix, stringify!($name)),
                     native_symbol: $original,
                     root: ported_fns!(@root $source_root),
                     source: $source,
-                },
+                },)+
             ] [$($compat_entries)*] [
                 $($out)*
                 $(#[$meta])*
@@ -143,7 +177,7 @@ macro_rules! ported_fns {
         );
     };
     (
-        @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        @collect [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
         #[compat(
             source = $source:literal,
             original = $original:literal,
@@ -155,11 +189,11 @@ macro_rules! ported_fns {
         $($rest:tt)*
     ) => {
         ported_fns!(
-            @collect [$($entries)*] [
+            @collect [$prefix] [$($entries)*] [
                 $($compat_entries)*
                 crate::async_sys::CompatSymbol {
                     rust_module: module_path!(),
-                    rust_symbol: stringify!($name),
+                    rust_symbol: concat!($prefix, stringify!($name)),
                     native_symbol: $original,
                     historical_source: $source,
                     upstream_pr: $upstream_pr,
@@ -173,11 +207,16 @@ macro_rules! ported_fns {
             $($rest)*
         );
     };
-    (@collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*] $item:item $($rest:tt)*) => {
-        ported_fns!(@collect [$($entries)*] [$($compat_entries)*] [$($out)* $item] $($rest)*);
+    (@collect [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*] $item:item $($rest:tt)*) => {
+        ported_fns!(@collect [$prefix] [$($entries)*] [$($compat_entries)*] [$($out)* $item] $($rest)*);
+    };
+    (impl $self_ty:ty { $($items:tt)* }) => {
+        impl $self_ty {
+            ported_fns!(@collect [concat!(stringify!($self_ty), "::")] [] [] [] $($items)*);
+        }
     };
     ($($items:tt)*) => {
-        ported_fns!(@collect [] [] [] $($items)*);
+        ported_fns!(@collect [""] [] [] [] $($items)*);
     };
 }
 
@@ -217,4 +256,97 @@ pub(crate) fn compat_symbols() -> Vec<CompatSymbol> {
     symbols.extend(crate::filesystem::compat_symbols());
     symbols.extend_from_slice(os_error::stub::COMPAT_SYMBOLS);
     symbols
+}
+
+#[cfg(test)]
+mod tests {
+    const UPSTREAM_HELPER: super::PortedSymbol = super::PortedSymbol {
+        rust_module: module_path!(),
+        rust_symbol: "channel_binding",
+        native_symbol: "get_channel_binding",
+        root: super::SourceRoot::MoonbitAsync,
+        source: "src/tls/schannel.c",
+    };
+
+    struct MethodExample;
+
+    ported_fns! {
+        impl MethodExample {
+            #[ported(source = "src/tls/schannel.c", original = [
+                "get_channel_binding",
+                "moonbitlang_async_schannel_unique_channel_binding",
+            ])]
+            fn identity(&self, value: u32) -> u32 {
+                value
+            }
+
+            #[ported(source = "missing.c", original = ["disabled_a", "disabled_b"])]
+            #[cfg(any())]
+            fn disabled(&self) {
+                unavailable_on_this_platform();
+            }
+        }
+    }
+
+    #[test]
+    fn methods_keep_all_sources_and_exclude_disabled_functions() {
+        assert_eq!(MethodExample.identity(42), 42);
+        let symbols = MethodExample::PORTED_SYMBOLS;
+        assert_eq!(symbols.len(), 2);
+        assert!(
+            symbols
+                .iter()
+                .all(|symbol| symbol.rust_symbol == "MethodExample::identity")
+        );
+        assert_eq!(symbols[0].native_symbol, "get_channel_binding");
+        assert_eq!(
+            symbols[1].native_symbol,
+            "moonbitlang_async_schannel_unique_channel_binding"
+        );
+        for symbol in symbols {
+            symbol.assert_source_exists();
+        }
+    }
+
+    #[test]
+    fn upstream_helper_does_not_need_a_wasm_import() {
+        UPSTREAM_HELPER.assert_source_exists();
+    }
+
+    #[test]
+    #[should_panic(expected = "does not contain symbol get_channel_bindin")]
+    fn source_check_rejects_symbol_prefixes() {
+        super::PortedSymbol {
+            native_symbol: "get_channel_bindin",
+            ..UPSTREAM_HELPER
+        }
+        .assert_source_exists();
+    }
+
+    #[test]
+    #[should_panic(expected = "does not contain symbol get_channel_binding")]
+    fn source_check_rejects_the_wrong_source_file() {
+        super::PortedSymbol {
+            source: "src/tls/openssl.c",
+            ..UPSTREAM_HELPER
+        }
+        .assert_source_exists();
+    }
+
+    #[test]
+    #[should_panic(expected = "failed to read upstream source")]
+    fn source_check_rejects_missing_files() {
+        super::PortedSymbol {
+            source: "src/tls/missing-schannel.c",
+            ..UPSTREAM_HELPER
+        }
+        .assert_source_exists();
+    }
+
+    #[test]
+    fn ported_implementations_reference_upstream_sources() {
+        for symbol in super::ported_symbols() {
+            symbol.assert_source_exists();
+        }
+    }
 }
