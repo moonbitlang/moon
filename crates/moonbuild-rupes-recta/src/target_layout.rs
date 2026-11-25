@@ -245,26 +245,25 @@ impl TargetLayout {
     /// In the workspace layout, all packages go under
     /// `_build/<backend>[/<opt_level>/build]/<...module>/<...package>`.
     pub fn package_dir(&self, pkg: &PackageFQN) -> PathBuf {
-        let dir = self.run_mode_dir();
-
-        self.mode.package_dir(dir, pkg)
+        self.mode.package_dir(self.run_mode_dir(), pkg)
     }
 
+    /// Artifact root for the selected backend, profile, and run mode.
     pub fn run_mode_dir(&self) -> PathBuf {
-        Self::configuration_dir(&self.target_base_dir, self.configuration)
-            .join(self.run_mode.to_dir_name())
-    }
-
-    /// The shared parent of this configuration's build and profiling outputs.
-    pub fn configuration_dir(base: &Path, configuration: crate::BuildConfiguration) -> PathBuf {
         // FIXME: Distinguish targets within one Windows predicate when the
         // configuration also identifies architecture and ABI.
-        let backend_dir = match (configuration.backend, configuration.windows_cfg_override) {
+        let backend_dir = match (
+            self.configuration.backend,
+            self.configuration.windows_cfg_override,
+        ) {
             (TargetBackend::Native, Some(true)) => "native-windows",
             (TargetBackend::Native, Some(false)) => "native-unix",
             (backend, _) => backend.to_dir_name(),
         };
-        base.join(backend_dir).join(configuration.profile.as_str())
+        self.target_base_dir
+            .join(backend_dir)
+            .join(self.configuration.profile.as_str())
+            .join(self.run_mode.to_dir_name())
     }
 
     pub fn core_of_build_target(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
@@ -1749,9 +1748,15 @@ mod tests {
             (Some(false), "native-unix"),
         ] {
             configuration.windows_cfg_override = predicate;
+            let layout = TargetLayout::new(
+                base.to_owned(),
+                TargetLayoutMode::Workspace,
+                configuration,
+                RunMode::Build,
+            );
             assert_eq!(
-                TargetLayout::configuration_dir(base, configuration),
-                base.join(directory).join("release")
+                layout.run_mode_dir(),
+                base.join(directory).join("release/build")
             );
         }
     }

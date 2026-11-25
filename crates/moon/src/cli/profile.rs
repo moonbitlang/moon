@@ -29,14 +29,14 @@ use std::{
 use anyhow::{Context, bail};
 use chrono::Local;
 use moonbuild::BuildMeta;
-use moonbuild_rupes_recta::{RunMode, target_layout::TargetLayout};
+use moonbuild_rupes_recta::RunMode;
 use moonutil::{
     command_output::CommandOutput, cond_expr::OptLevel, target::TargetBackend, toolchain::BINARIES,
 };
 use serde::Serialize;
 
 use super::{RunSubcommand, UniversalFlags};
-use crate::cli::run::{BuildRunExecutableOptions, build_run_executable};
+use crate::cli::run::{BuildRunExecutableOptions, RunArtifact, build_run_executable};
 
 const DEFAULT_TOP: usize = 12;
 const MIN_ACTIONABLE_SAMPLES: usize = 100;
@@ -294,22 +294,21 @@ fn run_profile_materialized(
     )?;
     built.ensure_build_success()?;
 
-    let target_backend = built.configuration.backend;
-    if target_backend != TargetBackend::Native {
-        bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend");
-    }
-
-    let output_dir = default_output_dir(
-        &TargetLayout::configuration_dir(&built.target_dir, built.configuration),
-        &built.executable,
-    );
+    let layout = match &built.artifact {
+        RunArtifact::Built(layout) if layout.configuration().backend == TargetBackend::Native => {
+            layout
+        }
+        _ => bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend"),
+    };
+    let configuration = layout.configuration();
+    let output_dir = default_output_dir(&layout.run_mode_dir(), &built.executable);
     if !cli.dry_run {
         built.release_lock();
     }
     let request = ProfileRequest {
         run_mode: RunMode::Run,
-        target_backend,
-        opt_level: built.configuration.profile,
+        target_backend: configuration.backend,
+        opt_level: configuration.profile,
         executable: built.executable,
         display_executable: None,
         args: cmd.args,
@@ -520,7 +519,6 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
 pub(super) fn profile_tests(
     cli: &UniversalFlags,
     source_dir: &Path,
-    target_dir: &Path,
     builds: &[(BuildMeta, crate::run::TestFilter)],
     include_skipped: bool,
     output: &CommandOutput,
@@ -531,7 +529,6 @@ pub(super) fn profile_tests(
             let result = profile_test_invocations(
                 cli,
                 source_dir,
-                target_dir,
                 build_meta,
                 filter,
                 include_skipped,
@@ -544,7 +541,6 @@ pub(super) fn profile_tests(
 fn profile_test_invocations(
     cli: &UniversalFlags,
     source_dir: &Path,
-    target_dir: &Path,
     build_meta: &BuildMeta,
     filter: &crate::run::TestFilter,
     include_skipped: bool,
@@ -563,8 +559,12 @@ fn profile_test_invocations(
         return Ok(0);
     }
 
-    let session_dir = TargetLayout::configuration_dir(target_dir, build_meta.configuration())
-        .join("profile/test")
+    let session_dir = build_meta
+        .artifact_paths()
+        .target_layout()
+        .run_mode_dir()
+        .with_file_name("profile")
+        .join("test")
         .join(profile_timestamp());
     // Each selected test executable is a separate process and therefore a
     // separate profiler recording. Keep raw artifacts separated, then merge
@@ -664,11 +664,10 @@ fn sanitize_path_component(input: &str) -> String {
 }
 
 /// Place the recording beside the executable's build tree, preserving its package path.
-fn default_output_dir(configuration_dir: &Path, executable: &Path) -> PathBuf {
-    let build_root = configuration_dir.join(RunMode::Run.to_dir_name());
-    let mut profile_dir = configuration_dir.join("profile");
+fn default_output_dir(build_root: &Path, executable: &Path) -> PathBuf {
+    let mut profile_dir = build_root.with_file_name("profile");
     let executable_dir = executable.parent().unwrap_or(executable);
-    if let Some(package_dir) = strip_prefix_lenient(executable_dir, &build_root)
+    if let Some(package_dir) = strip_prefix_lenient(executable_dir, build_root)
         && !package_dir.as_os_str().is_empty()
     {
         profile_dir.push(package_dir);
@@ -2166,11 +2165,11 @@ mod tests {
     #[test]
     fn profile_output_reuses_run_artifact_package_dir() {
         let dir = default_output_dir(
-            Path::new("./_build/native/release"),
-            Path::new("./_build/native/release/build/cmd/main/main.exe"),
+            Path::new("./_build/native-windows/release/build"),
+            Path::new("./_build/native-windows/release/build/cmd/main/main.exe"),
         );
 
-        assert!(dir.starts_with("./_build/native/release/profile/cmd/main"));
+        assert!(dir.starts_with("./_build/native-windows/release/profile/cmd/main"));
     }
 
     #[test]

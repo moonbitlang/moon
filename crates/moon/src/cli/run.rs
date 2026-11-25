@@ -26,10 +26,11 @@ use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    BuildConfiguration, DiscoveredProject, RunMode,
+    DiscoveredProject, RunMode,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
     model::PackageId,
+    target_layout::TargetLayout,
 };
 use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
@@ -174,6 +175,11 @@ pub(super) struct EmbeddedMbtxPolicy {
     source_dir_override: Option<PathBuf>,
 }
 
+pub(super) enum RunArtifact {
+    WasmFile,
+    Built(TargetLayout),
+}
+
 /// A built executable plus the state needed to consume it.
 ///
 /// Normal builds keep the target-directory lock alive until the caller
@@ -183,9 +189,7 @@ pub(super) struct EmbeddedMbtxPolicy {
 pub(super) struct RunExecutable {
     /// Path to the executable-like artifact that should be launched or reported.
     pub(super) executable: PathBuf,
-    /// Selected configuration used for runtime selection and profiling.
-    pub(super) configuration: BuildConfiguration,
-    pub(super) target_dir: PathBuf,
+    pub(super) artifact: RunArtifact,
     pub(super) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
     source_dir: PathBuf,
     build_exit_code: Option<i32>,
@@ -351,11 +355,7 @@ fn build_wasm_file_executable_from_arg(
 
     Ok(RunExecutable {
         executable: wasm_path,
-        configuration: BuildConfiguration::new(
-            TargetBackend::WasmGC,
-            moonutil::cond_expr::OptLevel::Debug,
-        ),
-        target_dir: print_dir.clone(),
+        artifact: RunArtifact::WasmFile,
         embedded_mbtx_policy: None,
         source_dir: print_dir,
         build_exit_code: (!cli.dry_run).then_some(0),
@@ -813,12 +813,7 @@ fn build_executable_from_plan(
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
-        configuration: build_meta.configuration(),
-        target_dir: build_meta
-            .artifact_paths()
-            .target_layout()
-            .target_base_dir()
-            .to_path_buf(),
+        artifact: RunArtifact::Built(build_meta.artifact_paths().target_layout().clone()),
         embedded_mbtx_policy: options.embedded_mbtx_policy,
         source_dir: source_dir.to_path_buf(),
         build_exit_code,
@@ -861,8 +856,14 @@ fn run_executable(
         )?;
         return Ok(0);
     }
+    let mode = match &executable.artifact {
+        RunArtifact::Built(layout) => {
+            crate::run::ExecutionMode::from(layout.configuration().backend)
+        }
+        RunArtifact::WasmFile => crate::run::ExecutionMode::MoonRun,
+    };
     let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
-        crate::run::ExecutionMode::from(executable.configuration.backend),
+        mode,
         executable.executable.as_path(),
         None,
         moonrun_policy,

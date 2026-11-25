@@ -1090,7 +1090,6 @@ fn run_test_workflow(
         return profile::profile_tests(
             cli,
             source_dir,
-            target_dir,
             &build_metas_and_filters,
             cmd.include_skipped,
             output,
