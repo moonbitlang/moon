@@ -649,6 +649,11 @@ mod tests {
         );
         assert_eq!(DirectObjectTarget::from_host("x86_64", "macos"), None);
         assert_eq!(
+            DirectObjectTarget::from_host("aarch64", "linux")
+                .map(DirectObjectTarget::moonc_target_flag),
+            Some("aarch64-unknown-linux-gnu")
+        );
+        assert_eq!(
             DirectObjectTarget::from_host("x86_64", "linux"),
             Some(DirectObjectTarget::X86_64UnknownLinuxGnu)
         );
@@ -656,7 +661,6 @@ mod tests {
             DirectObjectTarget::from_host("x86_64", "windows"),
             Some(DirectObjectTarget::X86_64PcWindowsMsvc)
         );
-        assert_eq!(DirectObjectTarget::from_host("aarch64", "linux"), None);
         assert_eq!(DirectObjectTarget::from_host("aarch64", "windows"), None);
     }
 }
