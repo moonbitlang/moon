@@ -20,6 +20,35 @@ use super::*;
 use crate::async_host::tests::{default_host, default_host_with_keys};
 
 #[test]
+fn connect_on_an_already_bound_socket_returns_an_error_without_pending_io() {
+    use crate::network::os::address;
+
+    assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+    let host = default_host();
+    let socket = host.make_tcp_socket(4).unwrap();
+    let mut addr = vec![0; address::ipv4_addr_size()];
+    address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
+    host.bind(socket, &addr).unwrap();
+
+    // A guest can bind before calling the ConnectEx import, even though normal
+    // async code uses a fresh socket. Reject this ordering without panicking or
+    // retaining an operation that was never submitted.
+    address::init_ip_addr(&mut addr, 0x7f000001, 80).unwrap();
+    let addr_len = addr.len() as u32;
+    let result = host
+        .make_connect_io_result(addr.as_mut_slice(), 0, addr_len)
+        .unwrap();
+    assert_eq!(
+        host.connect_io_result(socket, result),
+        Err(AsyncHostError::Native(
+            windows_sys::Win32::Networking::WinSock::WSAEINVAL
+        ))
+    );
+    host.free_io_result(result).unwrap();
+    host.close_fd(socket).unwrap();
+}
+
+#[test]
 fn io_result_status_rejects_wrong_fd_without_clearing_pending() {
     let mut result = HostIoResult::for_file_read(0, 0).unwrap();
     let pending_resource = Arc::new(Resource::invalid());
