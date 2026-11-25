@@ -21,6 +21,80 @@
 mod test_init;
 
 #[test]
+fn socket_addresses_preserve_guest_port_and_scope_encoding() {
+    let engine = moonrun::Engine::default();
+    // Guest ports use i32, while native ports use u16. Keep truncation in the
+    // adapter and preserve IPv6 scope when writing an unaligned native buffer.
+    let module = engine.compile("socket-addresses.wasm", wat::parse_str(r#"(module
+        (import "moonbitlang/async" "socket/ipv4_addr_size" (func $size4 (result i32)))
+        (import "moonbitlang/async" "socket/ipv6_addr_size" (func $size6 (result i32)))
+        (import "moonbitlang/async" "socket/init_ip_addr" (func $init4 (param i32 i32 i32)))
+        (import "moonbitlang/async" "socket/init_ipv6_addr" (func $init6 (param i32 i32 i32 i32)))
+        (import "moonbitlang/async" "socket/ip_addr_get_ip" (func $ip (param i32 i32) (result i32)))
+        (import "moonbitlang/async" "socket/ip_addr_get_port" (func $port (param i32 i32) (result i32)))
+        (import "moonbitlang/async" "socket/addr_is_ipv6" (func $is6 (param i32 i32) (result i32)))
+        (import "moonbitlang/async" "socket/addr_get_ipv6_scope_id" (func $scope (param i32 i32) (result i32)))
+        (import "moonbitlang/async" "socket/addr_get_ipv6_bytes_offset" (func $offset (result i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 128) "\fe\80\00\00\00\00\00\00\00\00\00\00\00\00\00\01")
+        (func (export "_start")
+            (call $init4 (i32.const 1) (i32.const 0x7f000001) (i32.const 66770))
+            (if (i32.ne (call $ip (i32.const 1) (call $size4)) (i32.const 0x7f000001)) (then unreachable))
+            (if (i32.ne (call $port (i32.const 1) (call $size4)) (i32.const 1234)) (then unreachable))
+            (call $init6 (i32.const 65) (i32.const 128) (i32.const 443) (i32.const 17))
+            (if (i32.eqz (call $is6 (i32.const 65) (call $size6))) (then unreachable))
+            (if (i32.ne (call $scope (i32.const 65) (call $size6)) (i32.const 17)) (then unreachable))
+            (if (i32.ne (i32.load8_u (i32.add (i32.const 65) (call $offset))) (i32.const 254)) (then unreachable))))"#).unwrap()).unwrap();
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[test]
+fn short_socket_addresses_preserve_guest_fault_diagnostics() {
+    let engine = moonrun::Engine::default();
+    // The memory range itself is valid; native address decoding rejects its
+    // length. That must retain the same guest trap as other malformed inputs.
+    let module = engine
+        .compile(
+            "short-socket-address.wasm",
+            wat::parse_str(
+                r#"(module
+        (import "moonbitlang/async" "socket/ip_addr_get_ip" (func $ip (param i32 i32) (result i32)))
+        (memory (export "memory") 1)
+        (func (export "_start") (drop (call $ip (i32.const 0) (i32.const 0)))))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let error = engine
+        .run(&module, moonrun::RunOptions::default())
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("Fault"), "{error:#}");
+}
+
+#[cfg(unix)]
+#[test]
+fn interface_names_reject_unpaired_guest_surrogates() {
+    let engine = moonrun::Engine::default();
+    // Unix interface lookup needs UTF-8. Reject invalid guest UTF-16 before
+    // calling the OS, keeping the zero sentinel and EINVAL result.
+    let module = engine.compile("invalid-interface-name.wasm", wat::parse_str(format!(r#"(module
+        (import "moonbitlang/async" "socket/if_nametoindex" (func $index (param i32 i32) (result i32)))
+        (import "moonbitlang/async" "os_error/get_errno" (func $errno (result i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "\00\d8")
+        (func (export "_start")
+            (if (call $index (i32.const 0) (i32.const 1)) (then unreachable))
+            (if (i32.ne (call $errno) (i32.const {})) (then unreachable))))"#, libc::EINVAL)).unwrap()).unwrap();
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[test]
 fn async_resource_spawn_requires_reserved_absence_sentinel() {
     #[cfg(unix)]
     let (imports, inputs, flags) = (

@@ -23,8 +23,8 @@ use super::{
     WindowsWatcherBufferLease, handle_from_key, key_from_handle,
 };
 use crate::async_sys::internal::event_loop::poll::{self, CompletionPort, PollInstance};
-use crate::async_sys::socket::RawSocket;
 use crate::guest_memory::GuestMemory;
+use crate::network::os::RawSocket;
 use crate::resource::{Resource, ResourceClass, ResourceRef};
 use crate::runtime::{Handles, HostKeys};
 use std::cell::RefCell;
