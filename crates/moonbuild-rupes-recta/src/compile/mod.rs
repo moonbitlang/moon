@@ -684,6 +684,12 @@ mod tests {
         for (kind, triple, permits_direct_object) in [
             (CCKind::Msvc, None, true),
             (CCKind::ClangCl, None, true),
+            (
+                CCKind::Clang,
+                Some("x86_64-pc-windows-msvc"),
+                cfg!(all(windows, target_arch = "x86_64")),
+            ),
+            (CCKind::Clang, Some("x86_64-w64-windows-gnu"), false),
             (CCKind::Clang, None, false),
             (CCKind::Gcc, None, false),
             (CCKind::ClangCl, Some("wasm32-unknown-none"), false),

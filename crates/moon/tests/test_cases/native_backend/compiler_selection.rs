@@ -16,9 +16,9 @@ fn missing_compiler_override_is_not_replaced_by_msvc() {
 "#]]);
 }
 
-// Real Clang and Windows SDK are required. The C stub reports its compiler;
-// the generated file additionally proves that the payload switched to C.
-fn assert_clang_run_uses_generated_c(dir: &TestDir, env_cc: Option<&str>) {
+// The stub reports whether Clang used the static MSVC CRT. The intermediate
+// distinguishes direct object output from a successful generated-C fallback.
+fn assert_msvc_clang_run(dir: &TestDir, env_cc: Option<&str>) {
     if which::which("clang").is_err() {
         assert!(std::env::var_os("CI").is_none(), "clang missing in CI");
         eprintln!("skipping compiler selection test: clang is unavailable");
@@ -42,17 +42,22 @@ fn assert_clang_run_uses_generated_c(dir: &TestDir, env_cc: Option<&str>) {
         .assert()
         .success()
         .stdout_eq("1\n");
-    assert!(dir.join("_build/native/debug/build/main/main.c").is_file());
+    let main_dir = dir.join("_build/native/debug/build/main");
+    assert!(main_dir.join("__moonbit_link_core__/main.obj").is_file());
+    assert_eq!(
+        main_dir.join("main.c").is_file(),
+        !cfg!(target_arch = "x86_64")
+    );
 }
 
 #[test]
-fn env_clang_builds_and_runs_generated_c() {
+fn env_clang_builds_and_runs_native() {
     let dir = TestDir::new("native_backend/compiler_selection");
-    assert_clang_run_uses_generated_c(&dir, Some("clang"));
+    assert_msvc_clang_run(&dir, Some("clang"));
 }
 
 #[test]
-fn package_clang_builds_and_runs_generated_c() {
+fn package_clang_builds_and_runs_native() {
     let dir = TestDir::new("native_backend/compiler_selection");
     std::fs::write(
         dir.join("main/moon.pkg"),
@@ -65,11 +70,11 @@ options(
 "#,
     )
     .unwrap();
-    assert_clang_run_uses_generated_c(&dir, None);
+    assert_msvc_clang_run(&dir, None);
 }
 
 #[test]
-fn stub_clang_builds_and_runs_generated_c() {
+fn stub_clang_builds_and_runs_native() {
     let dir = TestDir::new("native_backend/compiler_selection");
     // The program uses the default compiler; only its stub requests Clang.
     std::fs::write(
@@ -83,7 +88,7 @@ options(
 "#,
     )
     .unwrap();
-    assert_clang_run_uses_generated_c(&dir, None);
+    assert_msvc_clang_run(&dir, None);
 }
 
 #[test]
