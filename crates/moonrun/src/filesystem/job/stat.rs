@@ -541,10 +541,12 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_fstatx_reports_socket_kind_before_get_file_type_error() {
-        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
-        let raw_socket =
-            crate::network::os::socket::make_tcp_socket(crate::network::os::IpFamily::V4).unwrap();
-        let resource = std::sync::Arc::new(Resource::tcp_socket(raw_socket, 4));
+        assert_eq!(crate::network::os::init_wsa(), 0);
+        let resource = std::sync::Arc::new(
+            crate::network::HostNetwork::new(None)
+                .make_tcp_socket(4)
+                .unwrap(),
+        );
         let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
         let mut result = None;
 
@@ -570,6 +572,6 @@ mod tests {
         assert_eq!(&result.unwrap().as_bytes()[4..8], &0_u32.to_le_bytes());
 
         drop(resource);
-        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+        assert_eq!(crate::network::os::cleanup_wsa(), 0);
     }
 }

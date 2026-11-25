@@ -202,16 +202,16 @@ declare_async_imports! {
     ported event_loop::get_platform() -> i32 => "runtime/get_platform";
 
     #[cfg(windows)]
-    ported event_loop::init_wsa() -> i32 => "runtime/init_WSA";
+    ported socket::init_wsa() -> i32 => "runtime/init_WSA";
 
     #[cfg(not(windows))]
-    fake event_loop::init_wsa() -> i32 => "runtime/init_WSA";
+    fake socket::init_wsa() -> i32 => "runtime/init_WSA";
 
     #[cfg(windows)]
-    ported event_loop::cleanup_wsa() -> i32 => "runtime/cleanup_WSA";
+    ported socket::cleanup_wsa() -> i32 => "runtime/cleanup_WSA";
 
     #[cfg(not(windows))]
-    fake event_loop::cleanup_wsa() -> i32 => "runtime/cleanup_WSA";
+    fake socket::cleanup_wsa() -> i32 => "runtime/cleanup_WSA";
 
     ported event_bus::create() -> u64 => "event_bus/create";
 

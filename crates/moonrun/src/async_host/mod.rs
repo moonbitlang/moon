@@ -36,7 +36,7 @@ use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
-use std::os::windows::io::{AsRawHandle, AsRawSocket};
+use std::os::windows::io::AsRawHandle;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -56,7 +56,6 @@ use crate::filesystem::RawFile as RawFd;
 use crate::filesystem::{FsOperation, FsPath};
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
-use crate::network::os::RawSocket;
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 use crate::run_signal::SignalReceiver;
@@ -341,14 +340,6 @@ impl ResourceHandles {
     ) -> AsyncHostResult<&Resource> {
         let resource = self.resource(handle)?;
         if resource.resource_class() != class {
-            return Err(AsyncHostError::Inval);
-        }
-        Ok(resource)
-    }
-
-    fn socket(&self, handle: HostHandle) -> AsyncHostResult<&Resource> {
-        let resource = self.resource(handle)?;
-        if !resource.resource_class().is_socket() {
             return Err(AsyncHostError::Inval);
         }
         Ok(resource)
@@ -2007,6 +1998,10 @@ impl AsyncHost {
         crate::filesystem::watch::add_file(&self.filesystem, &kqueue, &file, file_handle)
     }
 
+    pub(crate) fn network(&self) -> &HostNetwork {
+        &self.network
+    }
+
     #[cfg(all(test, unix))]
     pub(crate) fn filesystem(&self) -> &HostFs {
         &self.filesystem
@@ -2113,36 +2108,6 @@ impl AsyncHost {
 
     fn untrack_process_handle(&self, handle: HostHandle) {
         self.process.untrack_process_handle(handle);
-    }
-
-    pub(crate) fn with_raw_resource_class<T>(
-        &self,
-        handle: HostHandle,
-        class: ResourceClass,
-        f: impl FnOnce(RawSocket) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        debug_assert!(class.is_socket());
-        self.with_resource_of_class(handle, class, |file| {
-            #[cfg(unix)]
-            let socket = file.as_fd()?.as_raw_fd();
-            #[cfg(windows)]
-            let socket = file.as_socket()?.as_raw_socket();
-            f(socket)
-        })
-    }
-
-    pub(crate) fn with_raw_socket<T>(
-        &self,
-        handle: HostHandle,
-        f: impl FnOnce(RawSocket) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        let handles = self.resources.borrow();
-        let file = handles.socket(handle)?;
-        #[cfg(unix)]
-        let socket = file.as_fd()?.as_raw_fd();
-        #[cfg(windows)]
-        let socket = file.as_socket()?.as_raw_socket();
-        f(socket)
     }
 
     #[cfg(any(windows, target_os = "linux"))]
@@ -4224,29 +4189,33 @@ mod tests {
     }
 
     #[test]
-    fn resource_class_rejects_tcp_and_udp_mixups() {
+    fn socket_options_reject_tcp_and_udp_mixups() {
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+        assert_eq!(crate::network::os::init_wsa(), 0);
 
         let host = default_host();
         let tcp = host.make_tcp_socket(4).unwrap();
         let udp = host.make_udp_socket(4, false).unwrap();
 
         assert!(
-            host.with_raw_resource_class(tcp, ResourceClass::TcpSocket, |_| Ok(()))
+            host.with_resource(tcp, |socket| host.network().disable_nagle(socket))
                 .is_ok()
         );
         assert_eq!(host.acquire_resource(tcp).unwrap().socket_family(), Some(4));
         assert_eq!(
-            host.with_raw_resource_class(tcp, ResourceClass::UdpSocket, |_| Ok(())),
+            host.with_resource(tcp, |socket| host
+                .network()
+                .set_multicast_loopback(socket, true, 4)),
             Err(AsyncHostError::Inval)
         );
         assert!(
-            host.with_raw_resource_class(udp, ResourceClass::UdpSocket, |_| Ok(()))
+            host.with_resource(udp, |socket| host
+                .network()
+                .set_multicast_loopback(socket, true, 4))
                 .is_ok()
         );
         assert_eq!(
-            host.with_raw_resource_class(udp, ResourceClass::TcpSocket, |_| Ok(())),
+            host.with_resource(udp, |socket| host.network().disable_nagle(socket)),
             Err(AsyncHostError::Inval)
         );
 
@@ -4254,7 +4223,7 @@ mod tests {
         host.close_fd(udp).unwrap();
 
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+        assert_eq!(crate::network::os::cleanup_wsa(), 0);
     }
 
     #[cfg(unix)]
@@ -4708,7 +4677,7 @@ mod tests {
     #[test]
     fn address_info_handles_preserve_results_and_reject_other_families() {
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+        assert_eq!(crate::network::os::init_wsa(), 0);
 
         let host = default_host();
         let job = host
@@ -4771,7 +4740,7 @@ mod tests {
         assert!(host.leak_summary().is_none());
 
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+        assert_eq!(crate::network::os::cleanup_wsa(), 0);
     }
 
     #[test]

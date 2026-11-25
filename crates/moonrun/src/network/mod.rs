@@ -21,6 +21,7 @@
 mod job;
 #[cfg(windows)]
 mod overlapped;
+mod socket;
 
 #[cfg(windows)]
 pub(crate) use os::overlapped::AcceptBuffer;
@@ -34,7 +35,7 @@ use std::os::fd::AsRawFd;
 use std::os::windows::io::AsRawSocket;
 
 use self::os::IpFamily;
-use self::os::{address, socket as sys};
+use self::os::address;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::policy::{NetOperation, NetPolicy, ResolvedConnectRule};
 use crate::resource::{Resource, ResourceClass, ResourceRef};
@@ -60,94 +61,6 @@ impl HostNetwork {
             policy,
             resolved_connect: RefCell::new(Vec::new()),
         }
-    }
-
-    pub(crate) fn make_tcp_socket(&self, family: i32) -> AsyncHostResult<Resource> {
-        let socket = sys::make_tcp_socket(decode_ip_family(family)?)?;
-        Ok(Resource::tcp_socket(socket, family))
-    }
-
-    pub(crate) fn make_udp_socket(
-        &self,
-        family: i32,
-        multicast: bool,
-    ) -> AsyncHostResult<Resource> {
-        let socket = sys::make_udp_socket(decode_ip_family(family)?, multicast)?;
-        Ok(Resource::udp_socket(socket, family))
-    }
-
-    pub(crate) fn bind(&self, socket: &Resource, addr: &[u8]) -> AsyncHostResult<()> {
-        self.check_bind(addr)?;
-        sys::bind(raw_socket(socket)?, addr).map_err(Into::into)
-    }
-
-    pub(crate) fn listen(&self, socket: &Resource) -> AsyncHostResult<()> {
-        let mut local_addr = vec![0; address::buffer_len()];
-        let raw_socket = raw_socket_of_class(socket, ResourceClass::TcpSocket)?;
-        let implicit_addr = match sys::getsockname(raw_socket, &mut local_addr) {
-            Ok(()) if address::socket_addr(&local_addr)?.port() == 0 => Some(local_addr),
-            Ok(()) => None,
-            Err(error) => Some(listen_bind_addr_after_getsockname_error(
-                socket,
-                error.into(),
-            )?),
-        };
-        if let Some(addr) = implicit_addr {
-            self.check_bind(&addr)?;
-        }
-        sys::listen(raw_socket).map_err(Into::into)
-    }
-
-    pub(crate) fn connect_udp(&self, socket: &Resource, addr: &[u8]) -> AsyncHostResult<()> {
-        self.check_connect(addr)?;
-        sys::udp_client_connect(raw_socket_of_class(socket, ResourceClass::UdpSocket)?, addr)
-            .map_err(Into::into)
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn connect_tcp(&self, socket: &Resource, addr: &[u8]) -> AsyncHostResult<()> {
-        self.check_connect(addr)?;
-        sys::connect(raw_socket_of_class(socket, ResourceClass::TcpSocket)?, addr)
-            .map_err(Into::into)
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn recv_from(
-        &self,
-        socket: &Resource,
-        data: &mut [u8],
-        addr: &mut [u8],
-    ) -> AsyncHostResult<usize> {
-        sys::recvfrom(
-            raw_socket_of_class(socket, ResourceClass::UdpSocket)?,
-            data,
-            addr,
-        )
-        .map_err(Into::into)
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn send_to(
-        &self,
-        socket: &Resource,
-        data: &[u8],
-        addr: &[u8],
-    ) -> AsyncHostResult<usize> {
-        self.check_connect(addr)?;
-        sys::sendto(
-            raw_socket_of_class(socket, ResourceClass::UdpSocket)?,
-            data,
-            addr,
-        )
-        .map_err(Into::into)
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn accept(&self, socket: &Resource, addr: &mut [u8]) -> AsyncHostResult<Resource> {
-        let raw_socket = raw_socket_of_class(socket, ResourceClass::TcpSocket)?;
-        let family = socket.socket_family().ok_or(AsyncHostError::Inval)?;
-        let accepted = sys::accept(raw_socket, addr)?;
-        Ok(Resource::tcp_socket(accepted, family))
     }
 
     pub(crate) fn make_bind_job(&self, socket: ResourceRef, addr: Vec<u8>) -> AsyncHostResult<Job> {
@@ -205,7 +118,7 @@ impl HostNetwork {
 }
 
 /// Decode the async IP family selector before invoking native socket operations.
-pub(crate) fn decode_ip_family(family: i32) -> AsyncHostResult<IpFamily> {
+fn decode_ip_family(family: i32) -> AsyncHostResult<IpFamily> {
     match family {
         4 => Ok(IpFamily::V4),
         6 => Ok(IpFamily::V6),
@@ -237,35 +150,6 @@ fn raw_socket_of_class(
         return Err(AsyncHostError::Inval);
     }
     raw_socket(resource)
-}
-
-#[cfg(unix)]
-fn listen_bind_addr_after_getsockname_error(
-    _socket: &Resource,
-    error: AsyncHostError,
-) -> AsyncHostResult<Vec<u8>> {
-    Err(error)
-}
-
-#[cfg(windows)]
-fn listen_bind_addr_after_getsockname_error(
-    socket: &Resource,
-    _error: AsyncHostError,
-) -> AsyncHostResult<Vec<u8>> {
-    let family = socket.socket_family().ok_or(AsyncHostError::Inval)?;
-    match family {
-        4 => {
-            let mut addr = vec![0; address::ipv4_addr_size()];
-            address::init_ip_addr(&mut addr, 0, 0)?;
-            Ok(addr)
-        }
-        6 => {
-            let mut addr = vec![0; address::ipv6_addr_size()];
-            address::init_ipv6_addr(&mut addr, &[0; 16], 0, 0)?;
-            Ok(addr)
-        }
-        _ => Err(AsyncHostError::Inval),
-    }
 }
 
 #[cfg(test)]
@@ -312,7 +196,7 @@ mod tests {
     #[test]
     fn tcp_and_udp_operations_reject_the_other_resource_class() {
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+        assert_eq!(crate::network::os::init_wsa(), 0);
 
         let network = network(None);
         let tcp = network.make_tcp_socket(4).unwrap();
@@ -325,13 +209,13 @@ mod tests {
 
         drop((tcp, udp));
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+        assert_eq!(crate::network::os::cleanup_wsa(), 0);
     }
 
     #[test]
     fn bind_propagates_socket_errors() {
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+        assert_eq!(crate::network::os::init_wsa(), 0);
 
         let network = network(None);
         let first = network.make_tcp_socket(4).unwrap();
@@ -339,19 +223,19 @@ mod tests {
         let mut addr = vec![0; address::ipv4_addr_size()];
         address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
         network.bind(&first, &addr).unwrap();
-        sys::getsockname(raw_socket(&first).unwrap(), &mut addr).unwrap();
+        network.getsockname(&first, &mut addr).unwrap();
 
         assert!(network.bind(&second, &addr).is_err());
 
         drop((first, second));
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+        assert_eq!(crate::network::os::cleanup_wsa(), 0);
     }
 
     #[test]
     fn listen_checks_bind_policy_for_unbound_socket() {
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+        assert_eq!(crate::network::os::init_wsa(), 0);
 
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("deny-all.toml");
@@ -367,7 +251,7 @@ mod tests {
 
         drop(socket);
         #[cfg(windows)]
-        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+        assert_eq!(crate::network::os::cleanup_wsa(), 0);
     }
 
     #[test]

@@ -17,19 +17,23 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! Native networking mechanisms. Runtime authority, guest encoding and async
-//! request ownership belong to their callers; native failures use `io::Error`.
+//! request ownership belong to their callers; native socket failures use `io::Error`.
+
+use crate::async_sys::ported_fns;
 
 pub(crate) mod address;
 pub(crate) mod dns;
 pub(crate) mod interface;
 #[cfg(windows)]
 pub(super) mod overlapped;
-pub(crate) mod socket;
+pub(super) mod socket;
+#[cfg(test)]
+pub(crate) use socket::PORTED_SYMBOLS as SOCKET_PORTED_SYMBOLS;
 
 #[cfg(unix)]
-pub(crate) type RawSocket = std::os::fd::RawFd;
+pub(super) type RawSocket = std::os::fd::RawFd;
 #[cfg(windows)]
-pub(crate) type RawSocket = std::os::windows::io::RawSocket;
+pub(super) type RawSocket = std::os::windows::io::RawSocket;
 
 #[cfg(unix)]
 const INVALID_INPUT: i32 = libc::EINVAL;
@@ -41,7 +45,7 @@ const INVALID_ADDRESS: i32 = libc::EFAULT;
 const INVALID_ADDRESS: i32 = windows_sys::Win32::Foundation::ERROR_INVALID_ADDRESS as i32;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum IpFamily {
+pub(super) enum IpFamily {
     V4,
     V6,
 }
@@ -68,4 +72,27 @@ fn last_wsa_error() -> std::io::Error {
         windows_sys::Win32::Foundation::SetLastError(errno as u32);
     }
     std::io::Error::from_raw_os_error(errno)
+}
+
+ported_fns! {
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_init_WSA"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn init_wsa() -> i32 {
+        use windows_sys::Win32::Networking::WinSock::{WSADATA, WSAStartup};
+
+        let mut data = std::mem::MaybeUninit::<WSADATA>::uninit();
+        unsafe { WSAStartup(0x0202, data.as_mut_ptr()) }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_cleanup_WSA"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn cleanup_wsa() -> i32 {
+        unsafe { windows_sys::Win32::Networking::WinSock::WSACleanup() }
+    }
 }

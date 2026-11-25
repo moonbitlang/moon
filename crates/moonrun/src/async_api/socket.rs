@@ -20,8 +20,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::guest_memory::GuestMemory;
 #[cfg(unix)]
 use crate::network::os::dns;
-use crate::network::os::{address, interface, socket as sys};
-use crate::resource::ResourceClass;
+use crate::network::os::{address, interface};
 
 use super::context::ImportContext;
 use super::os_string;
@@ -38,6 +37,24 @@ fn address_error(error: std::io::Error) -> AsyncHostError {
 }
 
 ported_imports! {
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_init_WSA"
+)]
+#[cfg(windows)]
+pub(super) fn init_wsa(_context: &mut ImportContext<'_>) -> i32 {
+    crate::network::os::init_wsa()
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_cleanup_WSA"
+)]
+#[cfg(windows)]
+pub(super) fn cleanup_wsa(_context: &mut ImportContext<'_>) -> i32 {
+    crate::network::os::cleanup_wsa()
+}
+
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn ipv4_addr_size(_context: &mut ImportContext<'_>) -> u32 {
     address::ipv4_addr_size() as u32
@@ -273,10 +290,10 @@ pub(super) fn join_multicast_group(
 ) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
-        let multi_addr = memory.read_exact(multi_addr, multi_addr_len)?.to_vec();
-        let local_addr = memory.read_exact(local_addr, local_addr_len)?.to_vec();
-        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
-            sys::join_multicast_group(fd, &multi_addr, &local_addr).map_err(Into::into)
+        let multi_addr = memory.read_exact(multi_addr, multi_addr_len)?;
+        let local_addr = memory.read_exact(local_addr, local_addr_len)?;
+        host.with_resource(fd, |socket| {
+            host.network().join_multicast_group(socket, multi_addr, local_addr)
         })
     });
     zero_or_minus_one(context, result)
@@ -292,9 +309,9 @@ pub(super) fn join_multicast_group_v6(
 ) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
-        let multi_addr = memory.read_exact(multi_addr, multi_addr_len)?.to_vec();
-        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
-            sys::join_multicast_group_v6(fd, &multi_addr, interface_index).map_err(Into::into)
+        let multi_addr = memory.read_exact(multi_addr, multi_addr_len)?;
+        host.with_resource(fd, |socket| {
+            host.network().join_multicast_group_v6(socket, multi_addr, interface_index)
         })
     });
     zero_or_minus_one(context, result)
@@ -309,9 +326,9 @@ pub(super) fn set_multicast_interface(
 ) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
-        let local_addr = memory.read_exact(local_addr, local_addr_len)?.to_vec();
-        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
-            sys::set_multicast_interface(fd, &local_addr).map_err(Into::into)
+        let local_addr = memory.read_exact(local_addr, local_addr_len)?;
+        host.with_resource(fd, |socket| {
+            host.network().set_multicast_interface(socket, local_addr)
         })
     });
     zero_or_minus_one(context, result)
@@ -326,8 +343,8 @@ pub(super) fn set_multicast_interface_v6(
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
-            sys::set_multicast_interface_v6(fd, interface_index).map_err(Into::into)
+        host.with_resource(fd, |socket| {
+            host.network().set_multicast_interface_v6(socket, interface_index)
         }),
     )
 }
@@ -342,9 +359,8 @@ pub(super) fn set_multicast_ttl(
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
-            let family = crate::network::decode_ip_family(family)?;
-            sys::set_multicast_ttl(fd, ttl, family).map_err(Into::into)
+        host.with_resource(fd, |socket| {
+            host.network().set_multicast_ttl(socket, ttl, family)
         }),
     )
 }
@@ -359,9 +375,8 @@ pub(super) fn set_multicast_loopback(
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
-            let family = crate::network::decode_ip_family(family)?;
-            sys::set_multicast_loopback(fd, enable != 0, family).map_err(Into::into)
+        host.with_resource(fd, |socket| {
+            host.network().set_multicast_loopback(socket, enable != 0, family)
         }),
     )
 }
@@ -371,8 +386,8 @@ pub(super) fn disable_nagle(context: &mut ImportContext<'_>, fd: u64) -> i32 {
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_resource_class(fd, ResourceClass::TcpSocket, |fd| {
-            sys::disable_nagle(fd).map_err(Into::into)
+        host.with_resource(fd, |socket| {
+            host.network().disable_nagle(socket)
         }),
     )
 }
@@ -380,16 +395,16 @@ pub(super) fn disable_nagle(context: &mut ImportContext<'_>, fd: u64) -> i32 {
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn allow_reuse_addr(context: &mut ImportContext<'_>, fd: u64) -> i32 {
     let host = context.host;
-    zero_or_minus_one(context, host.with_raw_socket(fd, |fd| {
-        sys::allow_reuse_addr(fd).map_err(Into::into)
+    zero_or_minus_one(context, host.with_resource(fd, |socket| {
+        host.network().allow_reuse_addr(socket)
     }))
 }
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn allow_reuse_port(context: &mut ImportContext<'_>, fd: u64) -> i32 {
     let host = context.host;
-    zero_or_minus_one(context, host.with_raw_socket(fd, |fd| {
-        sys::allow_reuse_port(fd).map_err(Into::into)
+    zero_or_minus_one(context, host.with_resource(fd, |socket| {
+        host.network().allow_reuse_port(socket)
     }))
 }
 
@@ -398,8 +413,8 @@ pub(super) fn set_ipv6_only(context: &mut ImportContext<'_>, fd: u64, ipv6_only:
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_socket(fd, |fd| {
-            sys::set_ipv6_only(fd, ipv6_only != 0).map_err(Into::into)
+        host.with_resource(fd, |socket| {
+            host.network().set_ipv6_only(socket, ipv6_only != 0)
         }),
     )
 }
@@ -421,8 +436,8 @@ pub(super) fn enable_keepalive(
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_resource_class(fd, ResourceClass::TcpSocket, |fd| {
-            sys::enable_keepalive(fd, keep_idle, keep_count, keep_intvl).map_err(Into::into)
+        host.with_resource(fd, |socket| {
+            host.network().enable_keepalive(socket, keep_idle, keep_count, keep_intvl)
         }),
     )
 }
@@ -432,7 +447,7 @@ pub(super) fn getsockname(context: &mut ImportContext<'_>, fd: u64, addr: u32, a
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact_mut(addr, addr_len)?;
-        host.with_raw_socket(fd, |fd| sys::getsockname(fd, addr).map_err(Into::into))
+        host.with_resource(fd, |socket| host.network().getsockname(socket, addr))
     });
     zero_or_minus_one(context, result)
 }
@@ -580,7 +595,7 @@ pub(super) fn connect(context: &mut ImportContext<'_>, fd: u64, addr: u32, addr_
 #[cfg(unix)]
 pub(super) fn getsockerr(context: &mut ImportContext<'_>, fd: u64) -> i32 {
     let host = context.host;
-    match host.with_raw_socket(fd, |fd| sys::getsockerr(fd).map_err(Into::into)) {
+    match host.with_resource(fd, |socket| host.network().getsockerr(socket)) {
         Ok(err) => err,
         Err(error) => {
             context.host.record_error(error);

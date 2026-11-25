@@ -66,7 +66,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_make_tcp_socket"
     )]
-    pub(crate) fn make_tcp_socket(family: IpFamily) -> io::Result<RawSocket> {
+    pub(in crate::network) fn make_tcp_socket(family: IpFamily) -> io::Result<RawSocket> {
         #[cfg(unix)]
         {
             let fd = unsafe { libc::socket(family.as_raw(), libc::SOCK_STREAM, 0) };
@@ -188,7 +188,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_join_multicast_group"
     )]
-    pub(crate) fn join_multicast_group(
+    pub(in crate::network) fn join_multicast_group(
         fd: RawSocket,
         multi_addr: &[u8],
         local_addr: &[u8],
@@ -240,7 +240,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_join_multicast_group_v6"
     )]
-    pub(crate) fn join_multicast_group_v6(
+    pub(in crate::network) fn join_multicast_group_v6(
         fd: RawSocket,
         multi_addr: &[u8],
         interface_index: u32,
@@ -294,7 +294,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_set_multicast_interface"
     )]
-    pub(crate) fn set_multicast_interface(fd: RawSocket, local_addr: &[u8]) -> io::Result<()> {
+    pub(in crate::network) fn set_multicast_interface(fd: RawSocket, local_addr: &[u8]) -> io::Result<()> {
         #[cfg(unix)]
         {
             let local_addr = read_sockaddr_in(local_addr)?;
@@ -332,7 +332,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_set_multicast_interface_v6"
     )]
-    pub(crate) fn set_multicast_interface_v6(fd: RawSocket, interface_index: u32) -> io::Result<()> {
+    pub(in crate::network) fn set_multicast_interface_v6(fd: RawSocket, interface_index: u32) -> io::Result<()> {
         #[cfg(unix)]
         {
             let interface_index = interface_index as libc::c_uint;
@@ -369,7 +369,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_set_multicast_ttl"
     )]
-    pub(crate) fn set_multicast_ttl(fd: RawSocket, ttl: i32, family: IpFamily) -> io::Result<()> {
+    pub(in crate::network) fn set_multicast_ttl(fd: RawSocket, ttl: i32, family: IpFamily) -> io::Result<()> {
         #[cfg(unix)]
         {
             let (level, option) = match family {
@@ -406,7 +406,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_set_multicast_loopback"
     )]
-    pub(crate) fn set_multicast_loopback(
+    pub(in crate::network) fn set_multicast_loopback(
         fd: RawSocket,
         enable: bool,
         family: IpFamily,
@@ -447,7 +447,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_disable_nagle"
     )]
-    pub(crate) fn disable_nagle(fd: RawSocket) -> io::Result<()> {
+    pub(in crate::network) fn disable_nagle(fd: RawSocket) -> io::Result<()> {
         #[cfg(unix)]
         {
             let enable: libc::c_int = 1;
@@ -476,7 +476,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_allow_reuse_addr"
     )]
-    pub(crate) fn allow_reuse_addr(fd: RawSocket) -> io::Result<()> {
+    pub(in crate::network) fn allow_reuse_addr(fd: RawSocket) -> io::Result<()> {
         #[cfg(unix)]
         {
             let enable: libc::c_int = 1;
@@ -506,7 +506,7 @@ ported_fns! {
         original = "moonbitlang_async_allow_reuse_port"
     )]
     #[cfg(unix)]
-    pub(crate) fn allow_reuse_port(fd: RawSocket) -> io::Result<()> {
+    pub(in crate::network) fn allow_reuse_port(fd: RawSocket) -> io::Result<()> {
         let enable: libc::c_int = 1;
         if unsafe {
             libc::setsockopt(
@@ -529,7 +529,7 @@ ported_fns! {
         original = "moonbitlang_async_allow_reuse_port"
     )]
     #[cfg(windows)]
-    pub(crate) fn allow_reuse_port(_fd: RawSocket) -> io::Result<()> {
+    pub(in crate::network) fn allow_reuse_port(_fd: RawSocket) -> io::Result<()> {
         // Native treats platforms without SO_REUSEPORT as a successful no-op.
         Ok(())
     }
@@ -538,7 +538,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_set_ipv6_only"
     )]
-    pub(crate) fn set_ipv6_only(fd: RawSocket, ipv6_only: bool) -> io::Result<()> {
+    pub(in crate::network) fn set_ipv6_only(fd: RawSocket, ipv6_only: bool) -> io::Result<()> {
         #[cfg(unix)]
         {
             let value: libc::c_int = i32::from(ipv6_only);
@@ -583,7 +583,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_enable_keepalive"
     )]
-    pub(crate) fn enable_keepalive(
+    pub(in crate::network) fn enable_keepalive(
         fd: RawSocket,
         keep_idle: i32,
         keep_count: i32,
@@ -653,7 +653,7 @@ ported_fns! {
         source = "src/socket/socket.c",
         original = "moonbitlang_async_getsockname"
     )]
-    pub(crate) fn getsockname(fd: RawSocket, addr_out: &mut [u8]) -> io::Result<()> {
+    pub(in crate::network) fn getsockname(fd: RawSocket, addr_out: &mut [u8]) -> io::Result<()> {
         #[cfg(unix)]
         {
             let mut len = libc::socklen_t::try_from(addr_out.len())
@@ -732,7 +732,7 @@ ported_fns! {
         original = "moonbitlang_async_getsockerr"
     )]
     #[cfg(unix)]
-    pub(crate) fn getsockerr(fd: RawSocket) -> io::Result<i32> {
+    pub(in crate::network) fn getsockerr(fd: RawSocket) -> io::Result<i32> {
         let mut err = 0;
         let mut len = std::mem::size_of_val(&err) as libc::socklen_t;
         if unsafe {

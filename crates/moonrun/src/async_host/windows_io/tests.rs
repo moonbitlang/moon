@@ -23,7 +23,7 @@ use crate::async_host::tests::{default_host, default_host_with_keys};
 fn connect_on_an_already_bound_socket_returns_an_error_without_pending_io() {
     use crate::network::os::address;
 
-    assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+    assert_eq!(crate::network::os::init_wsa(), 0);
     let host = default_host();
     let socket = host.make_tcp_socket(4).unwrap();
     let mut addr = vec![0; address::ipv4_addr_size()];
@@ -51,9 +51,9 @@ fn connect_on_an_already_bound_socket_returns_an_error_without_pending_io() {
 #[test]
 fn denied_network_submission_does_not_bind_or_retain_the_socket() {
     use crate::async_host::tests::host_with_policy;
-    use crate::network::os::{address, socket as sys};
+    use crate::network::os::address;
 
-    assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+    assert_eq!(crate::network::os::init_wsa(), 0);
     let dir = tempfile::tempdir().unwrap();
     let policy = dir.path().join("deny-all.toml");
     std::fs::write(&policy, "").unwrap();
@@ -71,12 +71,13 @@ fn denied_network_submission_does_not_bind_or_retain_the_socket() {
         Err(AsyncHostError::PermissionDenied)
     );
     // Authorization must precede ConnectEx's implicit local bind.
-    host.with_raw_socket(tcp, |socket| {
+    host.with_resource(tcp, |socket| {
         assert_eq!(
-            sys::getsockname(socket, &mut vec![0; len as usize])
+            host.network()
+                .getsockname(socket, &mut vec![0; len as usize])
                 .unwrap_err()
-                .raw_os_error(),
-            Some(windows_sys::Win32::Networking::WinSock::WSAEINVAL)
+                .errno(),
+            windows_sys::Win32::Networking::WinSock::WSAEINVAL
         );
         Ok(())
     })
@@ -99,7 +100,7 @@ fn denied_network_submission_does_not_bind_or_retain_the_socket() {
 
 #[test]
 fn pending_udp_receive_keeps_address_outputs_until_completion() {
-    use crate::network::os::{address, socket as sys};
+    use crate::network::os::address;
     use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
     use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
 
@@ -114,14 +115,16 @@ fn pending_udp_receive_keeps_address_outputs_until_completion() {
             .assert().success();
         return;
     }
-    assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+    assert_eq!(crate::network::os::init_wsa(), 0);
     let host = default_host();
     let socket = host.make_udp_socket(4, false).unwrap();
     let mut addr = vec![0; address::ipv4_addr_size()];
     address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
     host.bind(socket, &addr).unwrap();
-    host.with_raw_socket(socket, |socket| Ok(sys::getsockname(socket, &mut addr)?))
-        .unwrap();
+    host.with_resource(socket, |socket| {
+        host.network().getsockname(socket, &mut addr)
+    })
+    .unwrap();
     let endpoint = SocketAddrV4::new(
         Ipv4Addr::LOCALHOST,
         address::ip_addr_get_port(&addr).unwrap(),
@@ -173,7 +176,7 @@ fn pending_udp_receive_keeps_address_outputs_until_completion() {
 
 #[test]
 fn pending_accept_keeps_both_sockets_and_returns_the_peer_address() {
-    use crate::network::os::{address, socket as sys};
+    use crate::network::os::address;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
     use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
 
@@ -186,7 +189,7 @@ fn pending_accept_keeps_both_sockets_and_returns_the_peer_address() {
             .assert().success();
         return;
     }
-    assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+    assert_eq!(crate::network::os::init_wsa(), 0);
     let host = default_host();
     let server = host.make_tcp_socket(4).unwrap();
     let connection = host.make_tcp_socket(4).unwrap();
@@ -194,8 +197,10 @@ fn pending_accept_keeps_both_sockets_and_returns_the_peer_address() {
     address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
     host.bind(server, &addr).unwrap();
     host.listen(server).unwrap();
-    host.with_raw_socket(server, |socket| Ok(sys::getsockname(socket, &mut addr)?))
-        .unwrap();
+    host.with_resource(server, |socket| {
+        host.network().getsockname(socket, &mut addr)
+    })
+    .unwrap();
     let endpoint = SocketAddr::V4(SocketAddrV4::new(
         Ipv4Addr::LOCALHOST,
         address::ip_addr_get_port(&addr).unwrap(),

@@ -202,7 +202,8 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     symbols.extend_from_slice(os_error::stub::PORTED_SYMBOLS);
     symbols.extend_from_slice(process::PORTED_SYMBOLS);
     symbols.extend_from_slice(signal::PORTED_SYMBOLS);
-    symbols.extend_from_slice(crate::network::os::socket::PORTED_SYMBOLS);
+    symbols.extend_from_slice(crate::network::os::PORTED_SYMBOLS);
+    symbols.extend_from_slice(crate::network::os::SOCKET_PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::network::os::interface::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::network::os::address::PORTED_SYMBOLS);
     #[cfg(unix)]
