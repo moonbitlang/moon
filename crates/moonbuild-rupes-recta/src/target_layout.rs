@@ -649,15 +649,9 @@ impl TargetLayout {
         self.target_base_dir.join(PACKAGES_INDEX_JSON)
     }
 
-    /// Returns the backend/profile/run-mode-scoped `packages.json` path.
+    /// Returns the package inventory for this artifact root.
     pub fn packages_json_path(&self) -> PathBuf {
-        // IDE clients look up this document by backend name, including for cross builds.
-        // The document itself contains the target-specific artifact paths.
-        self.target_base_dir
-            .join(self.configuration.backend.to_dir_name())
-            .join(self.configuration.profile.as_str())
-            .join(self.run_mode.to_dir_name())
-            .join(PACKAGES_JSON)
+        self.artifact_root().join(PACKAGES_JSON)
     }
 }
 

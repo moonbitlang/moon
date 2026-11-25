@@ -102,12 +102,14 @@ fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
             .is_file()
     );
 
-    // IDEs open the native debug inventory and use the interface path it records.
+    // A cross check publishes its inventory beside its interfaces.
+    let check_dir = std::path::Path::new(platform).join("debug/check");
     let packages: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(build.join("native/debug/check/packages.json")).unwrap(),
+        &std::fs::read(build.join(&check_dir).join("packages.json")).unwrap(),
     )
     .unwrap();
-    let interface = std::path::Path::new(platform).join("debug/check/cross.mi");
+    assert!(!build.join("native/debug/check/packages.json").exists());
+    let interface = check_dir.join("cross.mi");
     assert!(build.join(&interface).is_file());
     assert!(packages["packages"].as_array().unwrap().iter().any(|pkg| {
         pkg["artifact"]
