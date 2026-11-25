@@ -91,6 +91,16 @@ or import was removed or replaced, including the upstream PR and its
 replacement. It describes the provenance of the adapter, not whether the
 currently pinned wasm wrapper still calls it during a staged migration.
 
+Implementation provenance is independent of Wasm import registration.
+`ported_fns!` records the upstream implementation being followed, including
+helpers with no import of their own. It also accepts inherent `impl` blocks;
+use `original = ["first_symbol", "second_symbol"]` when one Rust method combines
+upstream functions. Include each generated `PORTED_SYMBOLS` table in its domain's
+source check. Source checks verify the recorded file and whole symbol name;
+behavioral equivalence still requires review and tests. Keep `ported_imports!`
+on ABI adapters to track their guest contract separately, and never synthesize
+implementation provenance from those adapter declarations.
+
 - If a symbol only moved to another file, update `source` after confirming that
   its signature and behavior did not change.
 - If a symbol was removed, replaced, or generalized, do not point `original`
@@ -108,7 +118,7 @@ currently pinned wasm wrapper still calls it during a staged migration.
   separately from the compatibility adapter.
 
 The annotations must continue to expose unported upstream work. A passing
-substring check is not proof that two symbols are equivalent.
+source check is not proof that two symbols are equivalent.
 
 Do not record a thread-pool adapter as a ported implementation merely because
 upstream submits an operation to its thread pool. Job construction and domain

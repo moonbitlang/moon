@@ -1476,12 +1476,6 @@ mod tests {
         })
     }
 
-    fn rust_ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
-        let mut symbols = crate::async_sys::ported_symbols();
-        symbols.extend(tls::ported_symbols());
-        symbols
-    }
-
     #[test]
     fn wasm_import_names_are_unique() {
         let mut seen = BTreeSet::new();
@@ -1906,37 +1900,6 @@ mod tests {
                 }),
                 "async import {} has no ported provenance",
                 import.wasm_symbol
-            );
-        }
-    }
-
-    #[test]
-    fn tracked_ported_implementations_are_registered_imports() {
-        // Track native-shaped host implementations, not incidental Job
-        // construction or worker-delegation adapters.
-        let api_ported_imports = async_api_ported_imports();
-        for ported in rust_ported_symbols() {
-            assert!(
-                api_ported_imports.iter().any(|ported_import| {
-                    let Some(registered_import) = registered_import_for_ported(ported_import)
-                    else {
-                        return false;
-                    };
-                    let native_symbol = native_symbol_for(registered_import, ported_import);
-                    ASYNC_IMPORTS
-                        .iter()
-                        .any(|import| import.wasm_symbol == registered_import.wasm_symbol)
-                        && ported_import.sources.iter().any(|source| {
-                            native_symbol == ported.native_symbol
-                                && source.root == ported.root
-                                && source.path == ported.source
-                        })
-                }),
-                "ported symbol {}::{} from {} / {} is not registered",
-                ported.rust_module,
-                ported.rust_symbol,
-                ported.source,
-                ported.native_symbol
             );
         }
     }

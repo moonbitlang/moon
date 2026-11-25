@@ -131,757 +131,780 @@ enum SchannelPhase {
     Closed,
 }
 
-impl TlsConnection {
-    pub(super) fn client(host: &str, _sni: bool, config: TlsConfig) -> Result<Self, String> {
-        let TlsConfig::Client {
-            trust,
-            root_certificates,
-        } = config
-        else {
-            return Err("TLS client requires client configuration".to_string());
-        };
-        if trust != TlsTrust::CustomRoot && !root_certificates.is_empty() {
-            return Err("TLS root certificates require custom root trust".to_string());
+ported_fns! {
+    impl TlsConnection {
+        pub(super) fn client(host: &str, _sni: bool, config: TlsConfig) -> Result<Self, String> {
+            let TlsConfig::Client {
+                trust,
+                root_certificates,
+            } = config
+            else {
+                return Err("TLS client requires client configuration".to_string());
+            };
+            if trust != TlsTrust::CustomRoot && !root_certificates.is_empty() {
+                return Err("TLS root certificates require custom root trust".to_string());
+            }
+            // Native Windows currently ignores `sni=false`; the target name is
+            // passed to SChannel whenever a host is available.
+            let target_host = (!host.is_empty()).then_some(host);
+            let mut schannel = SchannelContext::client(target_host, trust == TlsTrust::SystemRoot)?;
+            if trust == TlsTrust::CustomRoot {
+                for root in &root_certificates {
+                    schannel
+                        .add_root_certificate(root)
+                        .map_err(|error| format!("failed to add TLS root certificate: {error}"))?;
+                }
+            }
+            let custom_root_verifier_host = (trust == TlsTrust::CustomRoot).then(|| host.to_string());
+            Ok(Self::new(schannel, custom_root_verifier_host))
         }
-        // Native Windows currently ignores `sni=false`; the target name is
-        // passed to SChannel whenever a host is available.
-        let target_host = (!host.is_empty()).then_some(host);
-        let mut schannel = SchannelContext::client(target_host, trust == TlsTrust::SystemRoot)?;
-        if trust == TlsTrust::CustomRoot {
-            for root in &root_certificates {
-                schannel
-                    .add_root_certificate(root)
-                    .map_err(|error| format!("failed to add TLS root certificate: {error}"))?;
+
+        pub(super) fn server(config: TlsConfig) -> Result<Self, String> {
+            let pfx_content = match config {
+                TlsConfig::ServerPfx { pfx_content } => pfx_content,
+                TlsConfig::ServerFiles {
+                    private_key_file: _private_key_file,
+                    private_key_type: _private_key_type,
+                    certificate_file: _certificate_file,
+                    certificate_type: _certificate_type,
+                } => {
+                    return Err(
+                        "SChannel TLS servers require a PKCS#12/PFX certificate context on Windows"
+                            .to_string(),
+                    );
+                }
+                TlsConfig::Client { .. } => {
+                    return Err("TLS server requires server configuration".to_string());
+                }
+            };
+            let schannel = SchannelContext::server(&pfx_content)?;
+            Ok(Self::new(schannel, None))
+        }
+
+        fn new(schannel: SchannelContext, custom_root_verifier_host: Option<String>) -> Self {
+            Self {
+                schannel,
+                plain_input: RingBuffer::new(TLS_PLAINTEXT_INPUT_LIMIT),
+                custom_root_verifier_host,
+                peer_verified: false,
+                phase: SchannelPhase::Handshaking,
+                local_shutdown_started: false,
+                local_shutdown_complete: false,
+                last_error: None,
+                last_want_read: false,
+                last_want_write: false,
             }
         }
-        let custom_root_verifier_host = (trust == TlsTrust::CustomRoot).then(|| host.to_string());
-        Ok(Self::new(schannel, custom_root_verifier_host))
-    }
 
-    pub(super) fn server(config: TlsConfig) -> Result<Self, String> {
-        let pfx_content = match config {
-            TlsConfig::ServerPfx { pfx_content } => pfx_content,
-            TlsConfig::ServerFiles {
-                private_key_file: _private_key_file,
-                private_key_type: _private_key_type,
-                certificate_file: _certificate_file,
-                certificate_type: _certificate_type,
-            } => {
-                return Err(
-                    "SChannel TLS servers require a PKCS#12/PFX certificate context on Windows"
-                        .to_string(),
-                );
+        #[ported(source = "src/tls/schannel.c", original = "moonbitlang_async_schannel_read")]
+        pub(super) fn read_plain(
+            &mut self,
+            input: &mut [u8],
+            dst: &mut [u8],
+            _output: &mut [u8],
+        ) -> i32 {
+            self.schannel.bytes_read = 0;
+            self.schannel.bytes_to_write = 0;
+            if dst.is_empty() {
+                return 0;
             }
-            TlsConfig::Client { .. } => {
-                return Err("TLS server requires server configuration".to_string());
+            if !self.plain_input.is_empty() {
+                return self.pop_plain_input(dst);
             }
-        };
-        let schannel = SchannelContext::server(&pfx_content)?;
-        Ok(Self::new(schannel, None))
-    }
-
-    fn new(schannel: SchannelContext, custom_root_verifier_host: Option<String>) -> Self {
-        Self {
-            schannel,
-            plain_input: RingBuffer::new(TLS_PLAINTEXT_INPUT_LIMIT),
-            custom_root_verifier_host,
-            peer_verified: false,
-            phase: SchannelPhase::Handshaking,
-            local_shutdown_started: false,
-            local_shutdown_complete: false,
-            last_error: None,
-            last_want_read: false,
-            last_want_write: false,
-        }
-    }
-
-    pub(super) fn read_plain(
-        &mut self,
-        input: &mut [u8],
-        dst: &mut [u8],
-        _output: &mut [u8],
-    ) -> i32 {
-        self.schannel.bytes_read = 0;
-        self.schannel.bytes_to_write = 0;
-        if dst.is_empty() {
-            return 0;
-        }
-        if !self.plain_input.is_empty() {
-            return self.pop_plain_input(dst);
-        }
-        if self.phase == SchannelPhase::Closed {
-            return TLS_CLOSED_STATUS;
-        }
-        if self.is_handshaking() {
-            self.last_want_read = !self.output_pending();
-            self.last_want_write = self.output_pending();
-            return TLS_RENEGOTIATION_STATUS;
-        }
-        match self.decrypt_plain(input, dst) {
-            Ok(read) if read > 0 => read,
-            Ok(status) if status == TLS_CLOSED_STATUS => TLS_CLOSED_STATUS,
-            Ok(status) if status == TLS_WOULD_BLOCK_STATUS => TLS_WOULD_BLOCK_STATUS,
-            Ok(status) if status == TLS_RENEGOTIATION_STATUS => TLS_RENEGOTIATION_STATUS,
-            Ok(status) if status == TLS_ERROR_STATUS => {
-                unreachable!("TLS errors are returned through Err")
+            if self.phase == SchannelPhase::Closed {
+                return TLS_CLOSED_STATUS;
             }
-            Ok(status) => status,
-            Err(error) => self.error(error),
-        }
-    }
-
-    fn decrypt_plain(&mut self, input: &mut [u8], dst: &mut [u8]) -> Result<i32, String> {
-        if input.is_empty() {
-            self.last_want_read = true;
-            self.last_want_write = self.output_pending();
-            return Ok(TLS_WOULD_BLOCK_STATUS);
-        }
-
-        let input_len = input.len();
-        let mut buffers = [
-            sec_buffer(SECBUFFER_DATA, input),
-            empty_sec_buffer(),
-            empty_sec_buffer(),
-            empty_sec_buffer(),
-        ];
-        let desc = sec_buffer_desc(&mut buffers);
-        let status =
-            unsafe { DecryptMessage(&self.schannel.context, &desc, 0, std::ptr::null_mut()) };
-        match status {
-            SEC_E_OK => {
-                self.schannel.bytes_read = consumed_len(input_len, &buffers);
-                let plain = sec_buffer_slice(&buffers, SECBUFFER_DATA, input).unwrap_or(&[]);
-                let plain_is_empty = plain.is_empty();
-                let read = plain.len().min(dst.len());
-                dst[..read].copy_from_slice(&plain[..read]);
-                self.append_plain_input(&plain[read..])?;
-                // A zero-length TLS application record is legal. If no
-                // plaintext was produced, MoonBit first drops consumed
-                // transport bytes and then retries or reads more input.
-                self.last_want_read = plain_is_empty
-                    && (self.schannel.bytes_read == 0 || self.schannel.bytes_read == input_len);
+            if self.is_handshaking() {
+                self.last_want_read = !self.output_pending();
                 self.last_want_write = self.output_pending();
-                if read > 0 {
-                    i32::try_from(read).map_err(|_| "TLS plaintext read size overflow".to_string())
-                } else {
+                return TLS_RENEGOTIATION_STATUS;
+            }
+            match self.decrypt_plain(input, dst) {
+                Ok(read) if read > 0 => read,
+                Ok(status) if status == TLS_CLOSED_STATUS => TLS_CLOSED_STATUS,
+                Ok(status) if status == TLS_WOULD_BLOCK_STATUS => TLS_WOULD_BLOCK_STATUS,
+                Ok(status) if status == TLS_RENEGOTIATION_STATUS => TLS_RENEGOTIATION_STATUS,
+                Ok(status) if status == TLS_ERROR_STATUS => {
+                    unreachable!("TLS errors are returned through Err")
+                }
+                Ok(status) => status,
+                Err(error) => self.error(error),
+            }
+        }
+
+        fn decrypt_plain(&mut self, input: &mut [u8], dst: &mut [u8]) -> Result<i32, String> {
+            if input.is_empty() {
+                self.last_want_read = true;
+                self.last_want_write = self.output_pending();
+                return Ok(TLS_WOULD_BLOCK_STATUS);
+            }
+
+            let input_len = input.len();
+            let mut buffers = [
+                sec_buffer(SECBUFFER_DATA, input),
+                empty_sec_buffer(),
+                empty_sec_buffer(),
+                empty_sec_buffer(),
+            ];
+            let desc = sec_buffer_desc(&mut buffers);
+            let status =
+                unsafe { DecryptMessage(&self.schannel.context, &desc, 0, std::ptr::null_mut()) };
+            match status {
+                SEC_E_OK => {
+                    self.schannel.bytes_read = consumed_len(input_len, &buffers);
+                    let plain = sec_buffer_slice(&buffers, SECBUFFER_DATA, input).unwrap_or(&[]);
+                    let plain_is_empty = plain.is_empty();
+                    let read = plain.len().min(dst.len());
+                    dst[..read].copy_from_slice(&plain[..read]);
+                    self.append_plain_input(&plain[read..])?;
+                    // A zero-length TLS application record is legal. If no
+                    // plaintext was produced, MoonBit first drops consumed
+                    // transport bytes and then retries or reads more input.
+                    self.last_want_read = plain_is_empty
+                        && (self.schannel.bytes_read == 0 || self.schannel.bytes_read == input_len);
+                    self.last_want_write = self.output_pending();
+                    if read > 0 {
+                        i32::try_from(read).map_err(|_| "TLS plaintext read size overflow".to_string())
+                    } else {
+                        Ok(TLS_WOULD_BLOCK_STATUS)
+                    }
+                }
+                SEC_E_INCOMPLETE_MESSAGE => {
+                    self.schannel.bytes_read = 0;
+                    self.last_want_read = true;
+                    self.last_want_write = self.output_pending();
                     Ok(TLS_WOULD_BLOCK_STATUS)
                 }
+                SEC_I_CONTEXT_EXPIRED => {
+                    self.phase = SchannelPhase::Closed;
+                    self.last_want_read = false;
+                    self.last_want_write = self.output_pending();
+                    Ok(TLS_CLOSED_STATUS)
+                }
+                SEC_I_RENEGOTIATE => {
+                    self.schannel.bytes_read = 0;
+                    self.phase = SchannelPhase::Handshaking;
+                    self.last_want_read = true;
+                    self.last_want_write = self.output_pending();
+                    Ok(TLS_RENEGOTIATION_STATUS)
+                }
+                error => Err(schannel_status_error("TLS plaintext read failed", error)),
             }
-            SEC_E_INCOMPLETE_MESSAGE => {
-                self.schannel.bytes_read = 0;
-                self.last_want_read = true;
-                self.last_want_write = self.output_pending();
-                Ok(TLS_WOULD_BLOCK_STATUS)
+        }
+
+        pub(super) fn write_plain(&mut self, _input: &mut [u8], src: &[u8], output: &mut [u8]) -> i32 {
+            self.schannel.bytes_read = 0;
+            self.schannel.bytes_to_write = 0;
+            if src.is_empty() {
+                return 0;
             }
-            SEC_I_CONTEXT_EXPIRED => {
-                self.phase = SchannelPhase::Closed;
+            if self.is_handshaking() {
                 self.last_want_read = false;
                 self.last_want_write = self.output_pending();
-                Ok(TLS_CLOSED_STATUS)
+                return TLS_RENEGOTIATION_STATUS;
             }
-            SEC_I_RENEGOTIATE => {
-                self.schannel.bytes_read = 0;
-                self.phase = SchannelPhase::Handshaking;
-                self.last_want_read = true;
-                self.last_want_write = self.output_pending();
-                Ok(TLS_RENEGOTIATION_STATUS)
+            if self.phase == SchannelPhase::Closed || self.local_shutdown_started {
+                return TLS_CLOSED_STATUS;
             }
-            error => Err(schannel_status_error("TLS plaintext read failed", error)),
-        }
-    }
-
-    pub(super) fn write_plain(&mut self, _input: &mut [u8], src: &[u8], output: &mut [u8]) -> i32 {
-        self.schannel.bytes_read = 0;
-        self.schannel.bytes_to_write = 0;
-        if src.is_empty() {
-            return 0;
-        }
-        if self.is_handshaking() {
-            self.last_want_read = false;
-            self.last_want_write = self.output_pending();
-            return TLS_RENEGOTIATION_STATUS;
-        }
-        if self.phase == SchannelPhase::Closed || self.local_shutdown_started {
-            return TLS_CLOSED_STATUS;
-        }
-        match self.encrypt_plain(src, output) {
-            Ok(written) => i32::try_from(written)
-                .unwrap_or_else(|_| self.error("TLS plaintext write size overflow".to_string())),
-            Err(SchannelIoError {
-                kind: SchannelIoKind::WouldBlock,
-                ..
-            }) => {
-                self.last_want_read = false;
-                self.last_want_write = true;
-                TLS_WOULD_BLOCK_STATUS
-            }
-            Err(error) => self.error(error.message),
-        }
-    }
-
-    pub(super) fn wants_read(&self) -> bool {
-        self.last_want_read
-    }
-
-    pub(super) fn wants_write(&self) -> bool {
-        self.last_want_write
-    }
-
-    fn is_handshaking(&self) -> bool {
-        self.phase == SchannelPhase::Handshaking
-    }
-
-    pub(super) fn shutdown(&mut self) -> i32 {
-        if self.local_shutdown_complete {
-            return TLS_SUCCESS_STATUS;
-        }
-        if !self.local_shutdown_started {
-            if let Err(error) = self.apply_schannel_shutdown() {
-                return self.error(error);
-            }
-            self.local_shutdown_started = true;
-        }
-        TLS_SUCCESS_STATUS
-    }
-
-    pub(super) fn connect(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
-        if !self.schannel.is_client() {
-            return self.error("TLS connect requires a client handle".to_string());
-        }
-        self.advance_state(input, output)
-    }
-
-    pub(super) fn accept(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
-        if self.schannel.is_client() {
-            return self.error("TLS accept requires a server handle".to_string());
-        }
-        self.advance_state(input, output)
-    }
-
-    pub(super) fn bytes_read(&self) -> usize {
-        self.schannel.bytes_read
-    }
-
-    pub(super) fn bytes_to_write(&self) -> usize {
-        self.schannel.bytes_to_write
-    }
-
-    pub(super) fn peer_certificate(&mut self) -> Result<Option<Vec<u8>>, ()> {
-        match self.peer_certificate_der() {
-            Ok(certificate) => Ok(certificate),
-            Err(error) => {
-                self.error(error);
-                Err(())
+            match self.encrypt_plain(src, output) {
+                Ok(written) => i32::try_from(written)
+                    .unwrap_or_else(|_| self.error("TLS plaintext write size overflow".to_string())),
+                Err(SchannelIoError {
+                    kind: SchannelIoKind::WouldBlock,
+                    ..
+                }) => {
+                    self.last_want_read = false;
+                    self.last_want_write = true;
+                    TLS_WOULD_BLOCK_STATUS
+                }
+                Err(error) => self.error(error.message),
             }
         }
-    }
 
-    pub(super) fn unique_channel_binding(&mut self) -> Result<Option<Vec<u8>>, ()> {
-        match self.unique_channel_binding_bytes() {
-            Ok(binding) => Ok(binding),
-            Err(error) => {
-                self.error(error);
-                Err(())
+        pub(super) fn wants_read(&self) -> bool {
+            self.last_want_read
+        }
+
+        pub(super) fn wants_write(&self) -> bool {
+            self.last_want_write
+        }
+
+        fn is_handshaking(&self) -> bool {
+            self.phase == SchannelPhase::Handshaking
+        }
+
+        pub(super) fn shutdown(&mut self) -> i32 {
+            if self.local_shutdown_complete {
+                return TLS_SUCCESS_STATUS;
             }
-        }
-    }
-
-    pub(super) fn server_endpoint_channel_binding(&mut self) -> Result<Option<Vec<u8>>, ()> {
-        match self.server_endpoint_channel_binding_bytes() {
-            Ok(binding) => Ok(binding),
-            Err(error) => {
-                self.error(error);
-                Err(())
-            }
-        }
-    }
-
-    pub(super) fn take_error(&mut self) -> Option<String> {
-        self.last_error.take()
-    }
-
-    fn advance_state(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
-        self.schannel.bytes_read = 0;
-        self.schannel.bytes_to_write = 0;
-        if self.local_shutdown_started && !self.local_shutdown_complete {
-            return match self.drive_shutdown(input, output) {
-                Ok(true) => TLS_SUCCESS_STATUS,
-                Ok(false) => TLS_WOULD_BLOCK_STATUS,
-                Err(error) => self.error(error),
-            };
-        }
-        if self.phase == SchannelPhase::Open {
-            self.last_want_read = false;
-            self.last_want_write = self.generated_output_pending();
-            return TLS_SUCCESS_STATUS;
-        }
-        if self.phase == SchannelPhase::Closed {
-            self.last_want_read = false;
-            self.last_want_write = self.generated_output_pending();
-            return if self.local_shutdown_complete {
-                TLS_SUCCESS_STATUS
-            } else {
-                TLS_CLOSED_STATUS
-            };
-        }
-        match self.step_handshake(input, output) {
-            Ok(SchannelStep::Complete) => {
-                self.last_want_read = false;
-                self.last_want_write = self.generated_output_pending();
-                if let Err(error) = self.verify_peer_if_needed() {
+            if !self.local_shutdown_started {
+                if let Err(error) = self.apply_schannel_shutdown() {
                     return self.error(error);
                 }
-                self.phase = SchannelPhase::Open;
-                TLS_SUCCESS_STATUS
+                self.local_shutdown_started = true;
             }
-            Ok(SchannelStep::NeedMoreInput) => {
-                self.phase = SchannelPhase::Handshaking;
-                self.last_want_read = true;
-                self.last_want_write = self.generated_output_pending();
-                TLS_WOULD_BLOCK_STATUS
-            }
-            Ok(SchannelStep::Continue) => {
-                self.phase = SchannelPhase::Handshaking;
-                self.last_want_write = self.generated_output_pending();
-                self.last_want_read = !self.last_want_write;
-                TLS_WOULD_BLOCK_STATUS
-            }
-            Ok(SchannelStep::Closed) => {
-                self.phase = SchannelPhase::Closed;
-                self.last_want_read = false;
-                self.last_want_write = self.generated_output_pending();
-                TLS_CLOSED_STATUS
-            }
-            Err(error) => self.error(error),
+            TLS_SUCCESS_STATUS
         }
-    }
 
-    fn peer_certificate_der(&mut self) -> Result<Option<Vec<u8>>, String> {
-        self.peer_certificate_context()
-            .map(|certificate| certificate.map(|certificate| certificate.to_der().to_vec()))
-    }
-
-    fn unique_channel_binding_bytes(&self) -> Result<Option<Vec<u8>>, String> {
-        self.schannel.unique_channel_binding()
-    }
-
-    fn server_endpoint_channel_binding_bytes(&self) -> Result<Option<Vec<u8>>, String> {
-        self.schannel.server_endpoint_channel_binding()
-    }
-
-    fn verify_peer_if_needed(&mut self) -> Result<(), String> {
-        if self.peer_verified {
-            return Ok(());
+        pub(super) fn connect(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
+            if !self.schannel.is_client() {
+                return self.error("TLS connect requires a client handle".to_string());
+            }
+            self.advance_state(input, output)
         }
-        let Some(host) = self.custom_root_verifier_host.clone() else {
-            self.peer_verified = true;
-            return Ok(());
-        };
-        self.schannel.verify_peer_certificate(&host)?;
-        self.peer_verified = true;
-        Ok(())
-    }
 
-    fn step_handshake(
-        &mut self,
-        guest_input: &mut [u8],
-        output: &mut [u8],
-    ) -> Result<SchannelStep, String> {
-        let input_len = guest_input.len();
-        // Native SChannel receives a pointer into a buffer even when the
-        // logical input length is zero.
-        let mut empty_input = [0];
-        let input = if guest_input.is_empty() {
-            &mut empty_input[..]
-        } else {
-            guest_input
-        };
-
-        let mut output_buffers = [sec_buffer(SECBUFFER_TOKEN, output)];
-        let mut output_desc = sec_buffer_desc(&mut output_buffers);
-
-        let (status, bytes_read, bytes_to_write, is_client_step) = match &self.schannel.mode {
-            SchannelMode::Client { host } => {
-                let mut input_buffers = [
-                    sec_buffer_with_len(SECBUFFER_TOKEN, input, input_len),
-                    empty_sec_buffer(),
-                ];
-                let input_desc = sec_buffer_desc(&mut input_buffers);
-                let context_ptr = if self.schannel.is_context_initialized() {
-                    &self.schannel.context as *const _
-                } else {
-                    std::ptr::null()
-                };
-                let input_desc_ptr = if self.schannel.is_context_initialized() {
-                    &input_desc as *const _
-                } else {
-                    std::ptr::null()
-                };
-                let status = unsafe {
-                    InitializeSecurityContextW(
-                        &self.schannel.handle,
-                        context_ptr,
-                        host.as_ref()
-                            .map(|host| host.as_ptr())
-                            .unwrap_or(std::ptr::null()),
-                        ISC_REQ_CONFIDENTIALITY | ISC_REQ_INTEGRITY,
-                        0,
-                        0,
-                        input_desc_ptr,
-                        0,
-                        &mut self.schannel.context,
-                        &mut output_desc,
-                        &mut self.schannel.context_attrs,
-                        std::ptr::null_mut(),
-                    )
-                };
-                (
-                    status,
-                    consumed_len(input_len, &input_buffers),
-                    sec_buffer_slice(&output_buffers, SECBUFFER_TOKEN, output)
-                        .map(|output| output.len())
-                        .unwrap_or(0),
-                    true,
-                )
+        pub(super) fn accept(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
+            if self.schannel.is_client() {
+                return self.error("TLS accept requires a server handle".to_string());
             }
-            SchannelMode::Server => {
-                let mut input_buffers = [
-                    sec_buffer_with_len(SECBUFFER_TOKEN, input, input_len),
-                    empty_sec_buffer(),
-                ];
-                let input_desc = sec_buffer_desc(&mut input_buffers);
-                let context_ptr = if self.schannel.is_context_initialized() {
-                    &self.schannel.context as *const _
-                } else {
-                    std::ptr::null()
-                };
-                let status = unsafe {
-                    AcceptSecurityContext(
-                        &self.schannel.handle,
-                        context_ptr,
-                        &input_desc,
-                        ASC_REQ_CONFIDENTIALITY | ASC_REQ_INTEGRITY,
-                        0,
-                        &mut self.schannel.context,
-                        &mut output_desc,
-                        &mut self.schannel.context_attrs,
-                        std::ptr::null_mut(),
-                    )
-                };
-                (
-                    status,
-                    consumed_len(input_len, &input_buffers),
-                    sec_buffer_slice(&output_buffers, SECBUFFER_TOKEN, output)
-                        .map(|output| output.len())
-                        .unwrap_or(0),
-                    false,
-                )
-            }
-        };
-        self.finish_handshake_step(status, bytes_read, bytes_to_write, is_client_step)
-    }
+            self.advance_state(input, output)
+        }
 
-    fn finish_handshake_step(
-        &mut self,
-        status: i32,
-        bytes_read: usize,
-        bytes_to_write: usize,
-        is_client_step: bool,
-    ) -> Result<SchannelStep, String> {
-        match status {
-            SEC_E_OK | SEC_I_CONTINUE_NEEDED | SEC_I_CONTEXT_EXPIRED => {
-                self.mark_context_initialized_after_handshake_step(is_client_step);
-                self.schannel.bytes_read = bytes_read;
-                self.schannel.bytes_to_write = if status == SEC_I_CONTEXT_EXPIRED && !is_client_step
-                {
-                    0
-                } else {
-                    bytes_to_write
-                };
-                if status == SEC_E_OK {
-                    self.schannel.stream_sizes = Some(query_stream_sizes(&self.schannel.context)?);
-                    Ok(SchannelStep::Complete)
-                } else if status == SEC_I_CONTEXT_EXPIRED {
-                    Ok(SchannelStep::Closed)
-                } else {
-                    Ok(SchannelStep::Continue)
+        pub(super) fn bytes_read(&self) -> usize {
+            self.schannel.bytes_read
+        }
+
+        pub(super) fn bytes_to_write(&self) -> usize {
+            self.schannel.bytes_to_write
+        }
+
+        pub(super) fn peer_certificate(&mut self) -> Result<Option<Vec<u8>>, ()> {
+            match self.peer_certificate_der() {
+                Ok(certificate) => Ok(certificate),
+                Err(error) => {
+                    self.error(error);
+                    Err(())
                 }
             }
-            SEC_E_INCOMPLETE_MESSAGE => {
-                self.mark_context_initialized_after_handshake_step(is_client_step);
-                self.schannel.bytes_read = 0;
-                self.schannel.bytes_to_write = 0;
-                Ok(SchannelStep::NeedMoreInput)
+        }
+
+        pub(super) fn unique_channel_binding(&mut self) -> Result<Option<Vec<u8>>, ()> {
+            match self.unique_channel_binding_bytes() {
+                Ok(binding) => Ok(binding),
+                Err(error) => {
+                    self.error(error);
+                    Err(())
+                }
             }
-            error => Err(schannel_status_error(
-                if is_client_step {
-                    "TLS client handshake failed"
+        }
+
+        pub(super) fn server_endpoint_channel_binding(&mut self) -> Result<Option<Vec<u8>>, ()> {
+            match self.server_endpoint_channel_binding_bytes() {
+                Ok(binding) => Ok(binding),
+                Err(error) => {
+                    self.error(error);
+                    Err(())
+                }
+            }
+        }
+
+        pub(super) fn take_error(&mut self) -> Option<String> {
+            self.last_error.take()
+        }
+
+        fn advance_state(&mut self, input: &mut [u8], output: &mut [u8]) -> i32 {
+            self.schannel.bytes_read = 0;
+            self.schannel.bytes_to_write = 0;
+            if self.local_shutdown_started && !self.local_shutdown_complete {
+                return match self.drive_shutdown(input, output) {
+                    Ok(true) => TLS_SUCCESS_STATUS,
+                    Ok(false) => TLS_WOULD_BLOCK_STATUS,
+                    Err(error) => self.error(error),
+                };
+            }
+            if self.phase == SchannelPhase::Open {
+                self.last_want_read = false;
+                self.last_want_write = self.generated_output_pending();
+                return TLS_SUCCESS_STATUS;
+            }
+            if self.phase == SchannelPhase::Closed {
+                self.last_want_read = false;
+                self.last_want_write = self.generated_output_pending();
+                return if self.local_shutdown_complete {
+                    TLS_SUCCESS_STATUS
                 } else {
-                    "TLS server handshake failed"
+                    TLS_CLOSED_STATUS
+                };
+            }
+            match self.step_handshake(input, output) {
+                Ok(SchannelStep::Complete) => {
+                    self.last_want_read = false;
+                    self.last_want_write = self.generated_output_pending();
+                    if let Err(error) = self.verify_peer_if_needed() {
+                        return self.error(error);
+                    }
+                    self.phase = SchannelPhase::Open;
+                    TLS_SUCCESS_STATUS
+                }
+                Ok(SchannelStep::NeedMoreInput) => {
+                    self.phase = SchannelPhase::Handshaking;
+                    self.last_want_read = true;
+                    self.last_want_write = self.generated_output_pending();
+                    TLS_WOULD_BLOCK_STATUS
+                }
+                Ok(SchannelStep::Continue) => {
+                    self.phase = SchannelPhase::Handshaking;
+                    self.last_want_write = self.generated_output_pending();
+                    self.last_want_read = !self.last_want_write;
+                    TLS_WOULD_BLOCK_STATUS
+                }
+                Ok(SchannelStep::Closed) => {
+                    self.phase = SchannelPhase::Closed;
+                    self.last_want_read = false;
+                    self.last_want_write = self.generated_output_pending();
+                    TLS_CLOSED_STATUS
+                }
+                Err(error) => self.error(error),
+            }
+        }
+
+        fn peer_certificate_der(&mut self) -> Result<Option<Vec<u8>>, String> {
+            self.peer_certificate_context()
+                .map(|certificate| certificate.map(|certificate| certificate.to_der().to_vec()))
+        }
+
+        fn unique_channel_binding_bytes(&self) -> Result<Option<Vec<u8>>, String> {
+            self.schannel.unique_channel_binding()
+        }
+
+        fn server_endpoint_channel_binding_bytes(&self) -> Result<Option<Vec<u8>>, String> {
+            self.schannel.server_endpoint_channel_binding()
+        }
+
+        fn verify_peer_if_needed(&mut self) -> Result<(), String> {
+            if self.peer_verified {
+                return Ok(());
+            }
+            let Some(host) = self.custom_root_verifier_host.clone() else {
+                self.peer_verified = true;
+                return Ok(());
+            };
+            self.schannel.verify_peer_certificate(&host)?;
+            self.peer_verified = true;
+            Ok(())
+        }
+
+        #[ported(source = "src/tls/schannel.c", original = [
+            "moonbitlang_async_schannel_connect",
+            "moonbitlang_async_schannel_accept",
+        ])]
+        fn step_handshake(
+            &mut self,
+            guest_input: &mut [u8],
+            output: &mut [u8],
+        ) -> Result<SchannelStep, String> {
+            let input_len = guest_input.len();
+            // Native SChannel receives a pointer into a buffer even when the
+            // logical input length is zero.
+            let mut empty_input = [0];
+            let input = if guest_input.is_empty() {
+                &mut empty_input[..]
+            } else {
+                guest_input
+            };
+
+            let mut output_buffers = [sec_buffer(SECBUFFER_TOKEN, output)];
+            let mut output_desc = sec_buffer_desc(&mut output_buffers);
+
+            let (status, bytes_read, bytes_to_write, is_client_step) = match &self.schannel.mode {
+                SchannelMode::Client { host } => {
+                    let mut input_buffers = [
+                        sec_buffer_with_len(SECBUFFER_TOKEN, input, input_len),
+                        empty_sec_buffer(),
+                    ];
+                    let input_desc = sec_buffer_desc(&mut input_buffers);
+                    let context_ptr = if self.schannel.is_context_initialized() {
+                        &self.schannel.context as *const _
+                    } else {
+                        std::ptr::null()
+                    };
+                    let input_desc_ptr = if self.schannel.is_context_initialized() {
+                        &input_desc as *const _
+                    } else {
+                        std::ptr::null()
+                    };
+                    let status = unsafe {
+                        InitializeSecurityContextW(
+                            &self.schannel.handle,
+                            context_ptr,
+                            host.as_ref()
+                                .map(|host| host.as_ptr())
+                                .unwrap_or(std::ptr::null()),
+                            ISC_REQ_CONFIDENTIALITY | ISC_REQ_INTEGRITY,
+                            0,
+                            0,
+                            input_desc_ptr,
+                            0,
+                            &mut self.schannel.context,
+                            &mut output_desc,
+                            &mut self.schannel.context_attrs,
+                            std::ptr::null_mut(),
+                        )
+                    };
+                    (
+                        status,
+                        consumed_len(input_len, &input_buffers),
+                        sec_buffer_slice(&output_buffers, SECBUFFER_TOKEN, output)
+                            .map(|output| output.len())
+                            .unwrap_or(0),
+                        true,
+                    )
+                }
+                SchannelMode::Server => {
+                    let mut input_buffers = [
+                        sec_buffer_with_len(SECBUFFER_TOKEN, input, input_len),
+                        empty_sec_buffer(),
+                    ];
+                    let input_desc = sec_buffer_desc(&mut input_buffers);
+                    let context_ptr = if self.schannel.is_context_initialized() {
+                        &self.schannel.context as *const _
+                    } else {
+                        std::ptr::null()
+                    };
+                    let status = unsafe {
+                        AcceptSecurityContext(
+                            &self.schannel.handle,
+                            context_ptr,
+                            &input_desc,
+                            ASC_REQ_CONFIDENTIALITY | ASC_REQ_INTEGRITY,
+                            0,
+                            &mut self.schannel.context,
+                            &mut output_desc,
+                            &mut self.schannel.context_attrs,
+                            std::ptr::null_mut(),
+                        )
+                    };
+                    (
+                        status,
+                        consumed_len(input_len, &input_buffers),
+                        sec_buffer_slice(&output_buffers, SECBUFFER_TOKEN, output)
+                            .map(|output| output.len())
+                            .unwrap_or(0),
+                        false,
+                    )
+                }
+            };
+            self.finish_handshake_step(status, bytes_read, bytes_to_write, is_client_step)
+        }
+
+        #[ported(source = "src/tls/schannel.c", original = [
+            "moonbitlang_async_schannel_connect",
+            "moonbitlang_async_schannel_accept",
+        ])]
+        fn finish_handshake_step(
+            &mut self,
+            status: i32,
+            bytes_read: usize,
+            bytes_to_write: usize,
+            is_client_step: bool,
+        ) -> Result<SchannelStep, String> {
+            match status {
+                SEC_E_OK | SEC_I_CONTINUE_NEEDED | SEC_I_CONTEXT_EXPIRED => {
+                    self.mark_context_initialized_after_handshake_step(is_client_step);
+                    self.schannel.bytes_read = bytes_read;
+                    self.schannel.bytes_to_write = if status == SEC_I_CONTEXT_EXPIRED && !is_client_step
+                    {
+                        0
+                    } else {
+                        bytes_to_write
+                    };
+                    if status == SEC_E_OK {
+                        self.schannel.stream_sizes = Some(query_stream_sizes(&self.schannel.context)?);
+                        Ok(SchannelStep::Complete)
+                    } else if status == SEC_I_CONTEXT_EXPIRED {
+                        Ok(SchannelStep::Closed)
+                    } else {
+                        Ok(SchannelStep::Continue)
+                    }
+                }
+                SEC_E_INCOMPLETE_MESSAGE => {
+                    self.mark_context_initialized_after_handshake_step(is_client_step);
+                    self.schannel.bytes_read = 0;
+                    self.schannel.bytes_to_write = 0;
+                    Ok(SchannelStep::NeedMoreInput)
+                }
+                error => Err(schannel_status_error(
+                    if is_client_step {
+                        "TLS client handshake failed"
+                    } else {
+                        "TLS server handshake failed"
+                    },
+                    error,
+                )),
+            }
+        }
+
+        #[ported(source = "src/tls/schannel.c", original = [
+            "moonbitlang_async_schannel_connect",
+            "moonbitlang_async_schannel_accept",
+        ])]
+        fn mark_context_initialized_after_handshake_step(&mut self, is_client_step: bool) {
+            // Match the native SChannel shim: clients transition after any
+            // non-error step, while servers wait until AcceptSecurityContext
+            // publishes a real context handle for an incomplete ClientHello.
+            if self.schannel.state == SchannelContextState::HandleInitialized
+                && (is_client_step
+                    || self.schannel.context.dwLower != 0
+                    || self.schannel.context.dwUpper != 0)
+            {
+                self.schannel.state = SchannelContextState::ContextInitialized;
+            }
+        }
+
+        #[ported(source = "src/tls/schannel.c", original = "moonbitlang_async_schannel_write")]
+        fn encrypt_plain(&mut self, src: &[u8], output: &mut [u8]) -> Result<usize, SchannelIoError> {
+            if src.is_empty() {
+                return Ok(0);
+            }
+            let sizes = self.schannel.stream_sizes.ok_or_else(|| {
+                SchannelIoError::fatal("TLS plaintext write attempted before handshake completed")
+            })?;
+            let overhead = sizes.cbHeader as usize + sizes.cbTrailer as usize;
+            let output_remaining = output.len();
+            if output_remaining <= overhead {
+                return Err(SchannelIoError::would_block());
+            }
+            let len = src
+                .len()
+                .min(sizes.cbMaximumMessage as usize)
+                .min(output_remaining - overhead);
+            output[sizes.cbHeader as usize..sizes.cbHeader as usize + len].copy_from_slice(&src[..len]);
+            let header_len = sizes.cbHeader as usize;
+            let trailer_start = header_len + len;
+            let mut buffers = [
+                SecBuffer {
+                    cbBuffer: sizes.cbHeader,
+                    BufferType: SECBUFFER_STREAM_HEADER,
+                    pvBuffer: output.as_mut_ptr().cast(),
                 },
-                error,
-            )),
+                SecBuffer {
+                    cbBuffer: u32::try_from(len)
+                        .map_err(|_| SchannelIoError::fatal("TLS plaintext write size overflow"))?,
+                    BufferType: SECBUFFER_DATA,
+                    pvBuffer: unsafe { output.as_mut_ptr().add(header_len) }.cast(),
+                },
+                SecBuffer {
+                    cbBuffer: sizes.cbTrailer,
+                    BufferType: SECBUFFER_STREAM_TRAILER,
+                    pvBuffer: unsafe { output.as_mut_ptr().add(trailer_start) }.cast(),
+                },
+                empty_sec_buffer(),
+            ];
+            let desc = sec_buffer_desc(&mut buffers);
+            let status = unsafe { EncryptMessage(&self.schannel.context, 0, &desc, 0) };
+            if status != SEC_E_OK {
+                return Err(SchannelIoError::fatal(schannel_status_error(
+                    "TLS plaintext write failed",
+                    status,
+                )));
+            }
+            let encrypted_len = buffers[0].cbBuffer as usize
+                + buffers[1].cbBuffer as usize
+                + buffers[2].cbBuffer as usize;
+            self.schannel.bytes_to_write = encrypted_len;
+            self.last_want_read = false;
+            self.last_want_write = true;
+            Ok(len)
         }
-    }
 
-    fn mark_context_initialized_after_handshake_step(&mut self, is_client_step: bool) {
-        // Match the native SChannel shim: clients transition after any
-        // non-error step, while servers wait until AcceptSecurityContext
-        // publishes a real context handle for an incomplete ClientHello.
-        if self.schannel.state == SchannelContextState::HandleInitialized
-            && (is_client_step
-                || self.schannel.context.dwLower != 0
-                || self.schannel.context.dwUpper != 0)
-        {
-            self.schannel.state = SchannelContextState::ContextInitialized;
-        }
-    }
-
-    fn encrypt_plain(&mut self, src: &[u8], output: &mut [u8]) -> Result<usize, SchannelIoError> {
-        if src.is_empty() {
-            return Ok(0);
-        }
-        let sizes = self.schannel.stream_sizes.ok_or_else(|| {
-            SchannelIoError::fatal("TLS plaintext write attempted before handshake completed")
-        })?;
-        let overhead = sizes.cbHeader as usize + sizes.cbTrailer as usize;
-        let output_remaining = output.len();
-        if output_remaining <= overhead {
-            return Err(SchannelIoError::would_block());
-        }
-        let len = src
-            .len()
-            .min(sizes.cbMaximumMessage as usize)
-            .min(output_remaining - overhead);
-        output[sizes.cbHeader as usize..sizes.cbHeader as usize + len].copy_from_slice(&src[..len]);
-        let header_len = sizes.cbHeader as usize;
-        let trailer_start = header_len + len;
-        let mut buffers = [
-            SecBuffer {
-                cbBuffer: sizes.cbHeader,
-                BufferType: SECBUFFER_STREAM_HEADER,
-                pvBuffer: output.as_mut_ptr().cast(),
-            },
-            SecBuffer {
-                cbBuffer: u32::try_from(len)
-                    .map_err(|_| SchannelIoError::fatal("TLS plaintext write size overflow"))?,
-                BufferType: SECBUFFER_DATA,
-                pvBuffer: unsafe { output.as_mut_ptr().add(header_len) }.cast(),
-            },
-            SecBuffer {
-                cbBuffer: sizes.cbTrailer,
-                BufferType: SECBUFFER_STREAM_TRAILER,
-                pvBuffer: unsafe { output.as_mut_ptr().add(trailer_start) }.cast(),
-            },
-            empty_sec_buffer(),
-        ];
-        let desc = sec_buffer_desc(&mut buffers);
-        let status = unsafe { EncryptMessage(&self.schannel.context, 0, &desc, 0) };
-        if status != SEC_E_OK {
-            return Err(SchannelIoError::fatal(schannel_status_error(
-                "TLS plaintext write failed",
-                status,
-            )));
-        }
-        let encrypted_len = buffers[0].cbBuffer as usize
-            + buffers[1].cbBuffer as usize
-            + buffers[2].cbBuffer as usize;
-        self.schannel.bytes_to_write = encrypted_len;
-        self.last_want_read = false;
-        self.last_want_write = true;
-        Ok(len)
-    }
-
-    fn apply_schannel_shutdown(&mut self) -> Result<(), String> {
-        if !self.schannel.is_context_initialized() {
-            self.local_shutdown_complete = true;
-            return Ok(());
-        }
-        let mut shutdown = SCHANNEL_SHUTDOWN;
-        let mut buffers = [SecBuffer {
-            cbBuffer: std::mem::size_of::<u32>() as u32,
-            BufferType: SECBUFFER_TOKEN,
-            pvBuffer: (&mut shutdown as *mut u32).cast(),
-        }];
-        let desc = sec_buffer_desc(&mut buffers);
-        let status = unsafe { ApplyControlToken(&self.schannel.context, &desc) };
-        if status != SEC_E_OK {
-            return Err(schannel_status_error("TLS shutdown failed", status));
-        }
-        Ok(())
-    }
-
-    fn drive_shutdown(&mut self, input: &mut [u8], output: &mut [u8]) -> Result<bool, String> {
-        match self.step_handshake(input, output)? {
-            SchannelStep::Complete => {
-                self.phase = SchannelPhase::Open;
+        #[ported(source = "src/tls/schannel.c", original = "moonbitlang_async_schannel_shutdown")]
+        fn apply_schannel_shutdown(&mut self) -> Result<(), String> {
+            if !self.schannel.is_context_initialized() {
                 self.local_shutdown_complete = true;
-                self.last_want_read = false;
-                self.last_want_write = self.generated_output_pending();
-                Ok(true)
+                return Ok(());
             }
-            SchannelStep::Closed => {
-                self.phase = SchannelPhase::Closed;
-                self.local_shutdown_complete = true;
-                self.last_want_read = false;
-                self.last_want_write = self.generated_output_pending();
-                Ok(true)
+            let mut shutdown = SCHANNEL_SHUTDOWN;
+            let mut buffers = [SecBuffer {
+                cbBuffer: std::mem::size_of::<u32>() as u32,
+                BufferType: SECBUFFER_TOKEN,
+                pvBuffer: (&mut shutdown as *mut u32).cast(),
+            }];
+            let desc = sec_buffer_desc(&mut buffers);
+            let status = unsafe { ApplyControlToken(&self.schannel.context, &desc) };
+            if status != SEC_E_OK {
+                return Err(schannel_status_error("TLS shutdown failed", status));
             }
-            SchannelStep::NeedMoreInput => {
-                self.phase = SchannelPhase::Handshaking;
-                self.last_want_read = true;
-                self.last_want_write = self.generated_output_pending();
-                Ok(false)
-            }
-            SchannelStep::Continue => {
-                self.phase = SchannelPhase::Handshaking;
-                self.last_want_write = self.generated_output_pending();
-                self.last_want_read = !self.last_want_write;
-                Ok(false)
+            Ok(())
+        }
+
+        fn drive_shutdown(&mut self, input: &mut [u8], output: &mut [u8]) -> Result<bool, String> {
+            match self.step_handshake(input, output)? {
+                SchannelStep::Complete => {
+                    self.phase = SchannelPhase::Open;
+                    self.local_shutdown_complete = true;
+                    self.last_want_read = false;
+                    self.last_want_write = self.generated_output_pending();
+                    Ok(true)
+                }
+                SchannelStep::Closed => {
+                    self.phase = SchannelPhase::Closed;
+                    self.local_shutdown_complete = true;
+                    self.last_want_read = false;
+                    self.last_want_write = self.generated_output_pending();
+                    Ok(true)
+                }
+                SchannelStep::NeedMoreInput => {
+                    self.phase = SchannelPhase::Handshaking;
+                    self.last_want_read = true;
+                    self.last_want_write = self.generated_output_pending();
+                    Ok(false)
+                }
+                SchannelStep::Continue => {
+                    self.phase = SchannelPhase::Handshaking;
+                    self.last_want_write = self.generated_output_pending();
+                    self.last_want_read = !self.last_want_write;
+                    Ok(false)
+                }
             }
         }
-    }
 
-    fn peer_certificate_context(&self) -> Result<Option<CertContextHandle>, String> {
-        self.schannel.peer_certificate_context()
-    }
-
-    fn append_plain_input(&mut self, plain: &[u8]) -> Result<(), String> {
-        if plain.len() > self.plain_input.remaining() {
-            return Err("TLS plaintext input buffer limit exceeded".to_string());
+        fn peer_certificate_context(&self) -> Result<Option<CertContextHandle>, String> {
+            self.schannel.peer_certificate_context()
         }
-        self.plain_input.push(plain);
-        Ok(())
-    }
 
-    fn pop_plain_input(&mut self, dst: &mut [u8]) -> i32 {
-        let read = self.plain_input.pop(dst);
-        i32::try_from(read)
-            .unwrap_or_else(|_| self.error("TLS plaintext read size overflow".to_string()))
-    }
+        fn append_plain_input(&mut self, plain: &[u8]) -> Result<(), String> {
+            if plain.len() > self.plain_input.remaining() {
+                return Err("TLS plaintext input buffer limit exceeded".to_string());
+            }
+            self.plain_input.push(plain);
+            Ok(())
+        }
 
-    fn output_pending(&self) -> bool {
-        false
-    }
+        fn pop_plain_input(&mut self, dst: &mut [u8]) -> i32 {
+            let read = self.plain_input.pop(dst);
+            i32::try_from(read)
+                .unwrap_or_else(|_| self.error("TLS plaintext read size overflow".to_string()))
+        }
 
-    fn generated_output_pending(&self) -> bool {
-        self.output_pending() || self.schannel.bytes_to_write > 0
-    }
+        fn output_pending(&self) -> bool {
+            false
+        }
 
-    fn error(&mut self, message: String) -> i32 {
-        self.last_error = Some(message);
-        TLS_ERROR_STATUS
+        fn generated_output_pending(&self) -> bool {
+            self.output_pending() || self.schannel.bytes_to_write > 0
+        }
+
+        fn error(&mut self, message: String) -> i32 {
+            self.last_error = Some(message);
+            TLS_ERROR_STATUS
+        }
     }
 }
 
-impl SchannelContext {
-    fn new(mode: SchannelMode) -> Self {
-        schannel_new(mode)
-    }
-
-    fn client(host: Option<&str>, verify: bool) -> Result<Self, String> {
-        let mut context = Self::new(SchannelMode::Client {
-            host: host.map(|host| host.encode_utf16().chain(Some(0)).collect()),
-        });
-        context.init_client(verify)?;
-        Ok(context)
-    }
-
-    fn init_client(&mut self, verify: bool) -> Result<(), String> {
-        schannel_init_client(self, verify)
-    }
-
-    fn server(pfx_content: &[u8]) -> Result<Self, String> {
-        let mut context = Self::new(SchannelMode::Server);
-        context.init_server(pfx_content)?;
-        Ok(context)
-    }
-
-    fn init_server(&mut self, pfx_content: &[u8]) -> Result<(), String> {
-        schannel_init_server(self, pfx_content)
-    }
-
-    fn is_context_initialized(&self) -> bool {
-        self.state == SchannelContextState::ContextInitialized
-    }
-
-    fn is_client(&self) -> bool {
-        matches!(self.mode, SchannelMode::Client { .. })
-    }
-
-    fn add_root_certificate(&mut self, der: &[u8]) -> io::Result<()> {
-        schannel_add_root_certificate(self, der)
-    }
-
-    fn verify_peer_certificate(&mut self, host_name: &str) -> Result<(), String> {
-        schannel_verify_peer_certificate(self, host_name)
-    }
-
-    fn peer_certificate_context(&self) -> Result<Option<CertContextHandle>, String> {
-        if !self.is_context_initialized() {
-            return Ok(None);
+ported_fns! {
+    impl SchannelContext {
+        fn new(mode: SchannelMode) -> Self {
+            schannel_new(mode)
         }
-        let mut certificate: *mut CERT_CONTEXT = std::ptr::null_mut();
-        let status = unsafe {
-            QueryContextAttributesW(
-                &self.context,
-                SECPKG_ATTR_REMOTE_CERT_CONTEXT,
-                &mut certificate as *mut _ as _,
+
+        fn client(host: Option<&str>, verify: bool) -> Result<Self, String> {
+            let mut context = Self::new(SchannelMode::Client {
+                host: host.map(|host| host.encode_utf16().chain(Some(0)).collect()),
+            });
+            context.init_client(verify)?;
+            Ok(context)
+        }
+
+        fn init_client(&mut self, verify: bool) -> Result<(), String> {
+            schannel_init_client(self, verify)
+        }
+
+        fn server(pfx_content: &[u8]) -> Result<Self, String> {
+            let mut context = Self::new(SchannelMode::Server);
+            context.init_server(pfx_content)?;
+            Ok(context)
+        }
+
+        fn init_server(&mut self, pfx_content: &[u8]) -> Result<(), String> {
+            schannel_init_server(self, pfx_content)
+        }
+
+        fn is_context_initialized(&self) -> bool {
+            self.state == SchannelContextState::ContextInitialized
+        }
+
+        fn is_client(&self) -> bool {
+            matches!(self.mode, SchannelMode::Client { .. })
+        }
+
+        fn add_root_certificate(&mut self, der: &[u8]) -> io::Result<()> {
+            schannel_add_root_certificate(self, der)
+        }
+
+        fn verify_peer_certificate(&mut self, host_name: &str) -> Result<(), String> {
+            schannel_verify_peer_certificate(self, host_name)
+        }
+
+        #[ported(source = "src/tls/schannel.c", original = "moonbitlang_async_schannel_get_peer_certificate")]
+        fn peer_certificate_context(&self) -> Result<Option<CertContextHandle>, String> {
+            if !self.is_context_initialized() {
+                return Ok(None);
+            }
+            let mut certificate: *mut CERT_CONTEXT = std::ptr::null_mut();
+            let status = unsafe {
+                QueryContextAttributesW(
+                    &self.context,
+                    SECPKG_ATTR_REMOTE_CERT_CONTEXT,
+                    &mut certificate as *mut _ as _,
+                )
+            };
+            match status {
+                SEC_E_OK if certificate.is_null() => Ok(None),
+                SEC_E_OK => Ok(Some(CertContextHandle(certificate))),
+                SEC_E_NO_CREDENTIALS => Ok(None),
+                error => Err(schannel_status_error(
+                    "failed to get TLS peer certificate",
+                    error,
+                )),
+            }
+        }
+
+        #[ported(source = "src/tls/schannel.c", original = "moonbitlang_async_schannel_unique_channel_binding")]
+        fn unique_channel_binding(&self) -> Result<Option<Vec<u8>>, String> {
+            self.channel_binding(
+                SECPKG_ATTR_UNIQUE_BINDINGS,
+                "failed to get TLS unique channel binding",
             )
-        };
-        match status {
-            SEC_E_OK if certificate.is_null() => Ok(None),
-            SEC_E_OK => Ok(Some(CertContextHandle(certificate))),
-            SEC_E_NO_CREDENTIALS => Ok(None),
-            error => Err(schannel_status_error(
-                "failed to get TLS peer certificate",
-                error,
-            )),
-        }
-    }
-
-    fn unique_channel_binding(&self) -> Result<Option<Vec<u8>>, String> {
-        self.channel_binding(
-            SECPKG_ATTR_UNIQUE_BINDINGS,
-            "failed to get TLS unique channel binding",
-        )
-    }
-
-    fn server_endpoint_channel_binding(&self) -> Result<Option<Vec<u8>>, String> {
-        self.channel_binding(
-            SECPKG_ATTR_ENDPOINT_BINDINGS,
-            "failed to get TLS server endpoint channel binding",
-        )
-    }
-
-    fn channel_binding(
-        &self,
-        attribute: u32,
-        error_context: &str,
-    ) -> Result<Option<Vec<u8>>, String> {
-        if !self.is_context_initialized() {
-            return Ok(None);
-        }
-        let mut bindings = SecPkgContext_Bindings {
-            BindingsLength: 0,
-            Bindings: std::ptr::null_mut(),
-        };
-        let status = unsafe {
-            QueryContextAttributesW(&self.context, attribute, &mut bindings as *mut _ as _)
-        };
-        if status != SEC_E_OK {
-            return Err(schannel_status_error(error_context, status));
-        }
-        if bindings.Bindings.is_null() {
-            return Ok(None);
         }
 
-        let bindings = ChannelBindingsHandle {
-            bindings: bindings.Bindings,
-            len: bindings.BindingsLength as usize,
-        };
-        let binding = unsafe { bindings.application_data() }?;
-        Ok(Some(binding.to_vec()))
+        #[ported(source = "src/tls/schannel.c", original = "moonbitlang_async_schannel_server_endpoint_channel_binding")]
+        fn server_endpoint_channel_binding(&self) -> Result<Option<Vec<u8>>, String> {
+            self.channel_binding(
+                SECPKG_ATTR_ENDPOINT_BINDINGS,
+                "failed to get TLS server endpoint channel binding",
+            )
+        }
+
+        #[ported(source = "src/tls/schannel.c", original = "get_channel_binding")]
+        fn channel_binding(
+            &self,
+            attribute: u32,
+            error_context: &str,
+        ) -> Result<Option<Vec<u8>>, String> {
+            if !self.is_context_initialized() {
+                return Ok(None);
+            }
+            let mut bindings = SecPkgContext_Bindings {
+                BindingsLength: 0,
+                Bindings: std::ptr::null_mut(),
+            };
+            let status = unsafe {
+                QueryContextAttributesW(&self.context, attribute, &mut bindings as *mut _ as _)
+            };
+            if status != SEC_E_OK {
+                return Err(schannel_status_error(error_context, status));
+            }
+            if bindings.Bindings.is_null() {
+                return Ok(None);
+            }
+
+            let bindings = ChannelBindingsHandle {
+                bindings: bindings.Bindings,
+                len: bindings.BindingsLength as usize,
+            };
+            let binding = unsafe { bindings.application_data() }?;
+            Ok(Some(binding.to_vec()))
+        }
     }
 }
 
@@ -1158,7 +1181,14 @@ ported_fns! {
 }
 
 #[cfg(test)]
-const _: &[crate::async_sys::PortedSymbol] = PORTED_SYMBOLS;
+pub(super) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+    [
+        TlsConnection::PORTED_SYMBOLS,
+        SchannelContext::PORTED_SYMBOLS,
+        PORTED_SYMBOLS,
+    ]
+    .concat()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SchannelIoKind {
