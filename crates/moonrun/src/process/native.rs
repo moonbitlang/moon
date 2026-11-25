@@ -599,10 +599,13 @@ mod windows_tests {
 
     #[test]
     fn spawn_stdio_accepts_socket_resource() {
-        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
-        let raw_socket =
-            crate::network::os::socket::make_tcp_socket(crate::network::os::IpFamily::V4).unwrap();
-        let resource = Resource::tcp_socket(raw_socket, 4);
+        use std::os::windows::io::AsRawSocket;
+
+        assert_eq!(crate::network::os::init_wsa(), 0);
+        let resource = crate::network::HostNetwork::new(None)
+            .make_tcp_socket(4)
+            .unwrap();
+        let raw_socket = resource.as_socket().unwrap().as_raw_socket();
 
         assert_eq!(
             spawn_stdio_handle(&resource).unwrap() as usize,
@@ -610,6 +613,6 @@ mod windows_tests {
         );
 
         drop(resource);
-        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
+        assert_eq!(crate::network::os::cleanup_wsa(), 0);
     }
 }

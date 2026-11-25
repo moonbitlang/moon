@@ -21,27 +21,6 @@ use crate::async_sys::ported_fns;
 ported_fns! {
     #[ported(
         source = "src/internal/event_loop/io_windows.c",
-        original = "moonbitlang_async_init_WSA"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn init_wsa() -> i32 {
-        use windows_sys::Win32::Networking::WinSock::{WSADATA, WSAStartup};
-
-        let mut data = std::mem::MaybeUninit::<WSADATA>::uninit();
-        unsafe { WSAStartup(0x0202, data.as_mut_ptr()) }
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/io_windows.c",
-        original = "moonbitlang_async_cleanup_WSA"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn cleanup_wsa() -> i32 {
-        unsafe { windows_sys::Win32::Networking::WinSock::WSACleanup() }
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/io_windows.c",
         original = "moonbitlang_async_errno_is_read_EOF"
     )]
     #[cfg(windows)]
