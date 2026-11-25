@@ -64,6 +64,25 @@ fn open(
 }
 
 #[test]
+fn directory_entry_metadata_respects_the_resolved_child_name() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("work/private")).unwrap();
+    let alternate = dir.path().join("work/PRIVATE");
+    if !alternate.exists() {
+        return; // The volume is case-sensitive, so this spelling names no entry.
+    }
+    for config in ["[fs]\nread = ['work', { glob = '!work/private' }]"] {
+        let fs = filesystem(dir.path(), config);
+        assert!(matches!(
+            fs.authorize(crate::filesystem::FsOperation::InspectEntry(FsPath::Cwd(
+                alternate.as_os_str()
+            ))),
+            Err(crate::filesystem::FsError::Denied)
+        ));
+    }
+}
+
+#[test]
 fn data_metadata_locks_and_flush_share_the_captured_rights() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("file"), b"keep").unwrap();

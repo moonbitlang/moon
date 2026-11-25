@@ -86,6 +86,12 @@ pub(super) fn canonicalize_entry_path(path: &Path) -> Result<PathBuf, FsError> {
         }
         return canonicalize_existing_prefix(path);
     }
+    // Existing non-links have one resolved spelling, including on case-insensitive
+    // filesystems. Preserving guest casing could bypass a child restriction.
+    // A final symlink still needs entry authority, independently of its target.
+    if std::fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_symlink()) {
+        return std::fs::canonicalize(path).map_err(|_| FsError::Denied);
+    }
     let parent = path.parent().ok_or(FsError::Denied)?;
     let file_name = path.file_name().ok_or(FsError::Denied)?;
     Ok(normalize_path(
