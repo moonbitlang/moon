@@ -617,10 +617,10 @@ pub(super) fn resolve_native_backend_mode<'a>(
         return NativeBackendMode::GeneratedC;
     };
     // Explicit compiler choices constrain the automatic payload selection.
-    // Windows direct objects currently require a cl-compatible link driver.
+    // Windows direct objects and every linked C input must agree on the MSVC ABI.
     if toolchains.into_iter().any(|toolchain| {
         !toolchain.cc().targets_host()
-            || (target == DirectObjectTarget::X86_64PcWindowsMsvc && !toolchain.uses_msvc_cli())
+            || (target == DirectObjectTarget::X86_64PcWindowsMsvc && !toolchain.uses_msvc_abi())
     }) {
         return NativeBackendMode::GeneratedC;
     }

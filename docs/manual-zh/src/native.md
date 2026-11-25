@@ -9,8 +9,8 @@
 如果选中的可执行包配置了 `link.native.cc-flags`，或 `MOON_CC` 指定了面向其他
 目标的编译器，本次构建也会使用 C 后端。
 
-Windows 的新 native 后端要求兼容 `cl` 的 MSVC 工具链，例如 `cl.exe` 或
-`clang-cl.exe`，用于编译运行时、C stub 和链接可执行文件。
+在 x64 Windows 上直接生成目标文件时，编译运行时、C stub 和最终链接所用的工具链
+都需要采用 MSVC ABI。可使用 `cl`、`clang-cl`，或以 x64 Windows MSVC 为目标的 `clang`。
 
 ## C 编译缓存
 

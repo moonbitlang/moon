@@ -10,9 +10,9 @@ the default. Unsupported hosts and release builds use generated C even when
 `link.native.cc-flags`, or `MOON_CC` selects a compiler for another target, the
 invocation also uses generated C.
 
-On Windows, the new native backend requires a cl-compatible MSVC toolchain,
-such as `cl.exe` or `clang-cl.exe`, to compile the runtime and C stubs and link
-the executable.
+On x64 Windows, direct object builds require the MSVC ABI for the runtime, C
+stubs, and final link. Supported drivers include `cl`, `clang-cl`, and plain
+`clang` targeting x64 Windows MSVC.
 
 ## C compiler caching
 

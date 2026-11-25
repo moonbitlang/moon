@@ -112,14 +112,6 @@ pub enum MsvcCrtPolicy {
     StaticMt,
 }
 
-impl MsvcCrtPolicy {
-    pub fn compiler_flag(self) -> &'static str {
-        match self {
-            Self::StaticMt => WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
-        }
-    }
-}
-
 /// ABI family carried by a native compiler/linker selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeAbiFamily {
@@ -246,7 +238,16 @@ impl Toolchain {
     }
 
     pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
-        self.uses_msvc_cli().then_some(MsvcCrtPolicy::StaticMt)
+        self.uses_msvc_abi().then_some(MsvcCrtPolicy::StaticMt)
+    }
+
+    pub fn msvc_crt_compiler_flag(&self) -> Option<&'static str> {
+        match self.msvc_crt_policy()? {
+            MsvcCrtPolicy::StaticMt if self.uses_msvc_cli() => {
+                Some(WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
+            }
+            MsvcCrtPolicy::StaticMt => Some("-fms-runtime-lib=static"),
+        }
     }
 
     pub fn with_msvc_environment(mut self, environment: MsvcEnvironment) -> Self {
@@ -1027,23 +1028,23 @@ mod tests {
         assert!(toolchain.uses_msvc_cli());
         assert_eq!(toolchain.msvc_crt_policy(), Some(MsvcCrtPolicy::StaticMt));
         assert_eq!(
-            toolchain
-                .msvc_crt_policy()
-                .expect("MSVC toolchain has CRT policy")
-                .compiler_flag(),
-            WINDOWS_MSVC_STATIC_RUNTIME_FLAG
+            toolchain.msvc_crt_compiler_flag(),
+            Some(WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
         );
     }
 
     #[test]
-    fn toolchain_tracks_msvc_abi_without_cl_driver_crt_policy() {
+    fn msvc_abi_uses_static_crt_with_plain_clang() {
         let toolchain =
             Toolchain::from_path_probe(fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")));
 
         assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
         assert!(!toolchain.uses_msvc_cli());
-        assert_eq!(toolchain.msvc_crt_policy(), None);
+        assert_eq!(
+            toolchain.msvc_crt_compiler_flag(),
+            Some("-fms-runtime-lib=static")
+        );
     }
 
     #[test]

@@ -1332,7 +1332,7 @@ impl<'a> LoweringContext<'a> {
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
-        let command = if native.effective_native_toolchain.uses_msvc_cli() {
+        let command = if native.effective_native_toolchain.uses_msvc_abi() {
             let commandline = compiler::native::msvc::link_executable_command(
                 &native.effective_native_toolchain,
                 &source_args,
