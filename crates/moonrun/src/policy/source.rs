@@ -24,8 +24,8 @@ use std::path::{Component, Path, PathBuf};
 
 use super::{
     Policy,
-    config::{FsRuleConfig, PolicyConfig},
-    fs::{FsRule, FsRules},
+    config::{DirPermission, FsRuleConfig, PolicyConfig},
+    fs::{AccessRights, DirectoryRule, FsRule, FsRules},
     net::NetRules,
     process::ProcessRules,
 };
@@ -63,7 +63,49 @@ pub(super) fn resolve(config: PolicyConfig, directory: &Path) -> anyhow::Result<
         directory
     };
     let environment = config.env.unwrap_or_default();
-    let fs = config.fs.unwrap_or_default();
+    anyhow::ensure!(
+        config.fs.is_none() || config.dirs.is_none(),
+        "a policy source cannot combine `fs` and `dirs`"
+    );
+    let fs = if let Some(dirs) = config.dirs {
+        let mut roots = std::collections::BTreeSet::new();
+        let dirs = dirs
+            .into_iter()
+            .map(|(path, permissions)| {
+                let path = directory.join(path);
+                let root = std::fs::canonicalize(&path).with_context(|| {
+                    format!("failed to resolve permission directory {}", path.display())
+                })?;
+                anyhow::ensure!(
+                    root.is_dir(),
+                    "permission directory is not a directory: {}",
+                    path.display()
+                );
+                anyhow::ensure!(
+                    roots.insert(root.clone()),
+                    "duplicate permission directory: {}",
+                    path.display()
+                );
+                let access =
+                    permissions
+                        .into_iter()
+                        .fold(AccessRights::NONE, |access, permission| {
+                            access.union(match permission {
+                                DirPermission::Read => AccessRights::READ,
+                                DirPermission::Write => AccessRights::READ_WRITE,
+                            })
+                        });
+                Ok(DirectoryRule { root, access })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        FsRules::Directories(dirs)
+    } else {
+        let fs = config.fs.unwrap_or_default();
+        FsRules::Paths {
+            read_rules: resolve_fs_rules(fs.read, directory)?,
+            write_rules: resolve_fs_rules(fs.write, directory)?,
+        }
+    };
     let virtualize = config
         .process
         .as_ref()
@@ -71,10 +113,7 @@ pub(super) fn resolve(config: PolicyConfig, directory: &Path) -> anyhow::Result<
     let ipc = config.process.as_ref().is_some_and(|process| process.ipc);
     Ok(LoadedPolicy {
         policy: Policy::new(
-            FsRules {
-                read_rules: resolve_fs_rules(fs.read, directory)?,
-                write_rules: resolve_fs_rules(fs.write, directory)?,
-            },
+            fs,
             NetRules::from_config(config.net.unwrap_or_default())?,
             ProcessRules::from_config(config.process.unwrap_or_default())?,
         ),

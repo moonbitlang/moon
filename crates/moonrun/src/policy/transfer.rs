@@ -50,6 +50,17 @@ struct RuleGroup {
 pub(super) struct Filesystem {
     pub read: Vec<FsRule>,
     pub write: Vec<FsRule>,
+    // Older readers reject this field rather than losing descendant restrictions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dirs: Option<Vec<Directory>>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Directory {
+    pub root: OsString,
+    pub read: bool,
+    pub write: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -317,6 +328,7 @@ mod tests {
                     fs: Filesystem {
                         read: vec![FsRule::Path(root.into())],
                         write: vec![],
+                        dirs: None,
                     },
                     net: Network {
                         dns: vec![],
@@ -386,7 +398,7 @@ mod tests {
             b"/not-required-to-exist/allowed-\xff".to_vec(),
         ));
         let rules = Policy::new(
-            FsRules {
+            FsRules::Paths {
                 read_rules: vec![super::super::fs::FsRule::Path(root.clone())],
                 write_rules: vec![],
             },

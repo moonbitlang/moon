@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub(super) use crate::runtime::EnvConfig;
@@ -26,9 +27,17 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub(super) struct PolicyConfig {
     pub(super) fs: Option<FsConfig>,
+    pub(super) dirs: Option<BTreeMap<PathBuf, Vec<DirPermission>>>,
     pub(super) net: Option<NetConfig>,
     pub(super) env: Option<EnvConfig>,
     pub(super) process: Option<ProcessConfig>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum DirPermission {
+    Read,
+    Write,
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]

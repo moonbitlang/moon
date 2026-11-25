@@ -27,6 +27,8 @@
 #[cfg(test)]
 mod composition_tests;
 mod config;
+#[cfg(test)]
+mod directory_tests;
 mod fs;
 #[cfg(test)]
 mod glob_tests;
@@ -264,6 +266,7 @@ fn main {}
 
         let (policy, _) = realize_config(
             PolicyConfig {
+                dirs: None,
                 fs: Some(config::FsConfig {
                     read: vec![config::FsRuleConfig::Path(PathBuf::from("read"))],
                     write: vec![config::FsRuleConfig::Path(PathBuf::from("write"))],
@@ -348,6 +351,7 @@ fn main {}
         let tmp = tempfile::tempdir().unwrap();
         let (policy, _) = realize_config(
             PolicyConfig {
+                dirs: None,
                 fs: None,
                 net: Some(Default::default()),
                 env: None,
@@ -368,6 +372,7 @@ fn main {}
         let tmp = tempfile::tempdir().unwrap();
         let (policy, _) = realize_config(
             PolicyConfig {
+                dirs: None,
                 fs: Some(Default::default()),
                 net: None,
                 env: None,
@@ -397,6 +402,7 @@ fn main {}
         std::fs::create_dir(&allowed).unwrap();
         let (policy, _) = realize_config(
             PolicyConfig {
+                dirs: None,
                 fs: Some(config::FsConfig {
                     read: vec![config::FsRuleConfig::Path(PathBuf::from("allowed"))],
                     write: vec![config::FsRuleConfig::Path(PathBuf::from("allowed"))],
@@ -420,6 +426,7 @@ fn main {}
         let tmp = tempfile::tempdir().unwrap();
         let (policy, _) = realize_config(
             PolicyConfig {
+                dirs: None,
                 fs: None,
                 net: Some(Default::default()),
                 env: None,
@@ -440,6 +447,7 @@ fn main {}
         let tmp = tempfile::tempdir().unwrap();
         let (_, provisioning) = realize_config(
             PolicyConfig {
+                dirs: None,
                 fs: None,
                 net: None,
                 env: None,

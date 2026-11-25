@@ -93,11 +93,11 @@ impl FsPolicy {
             read: self
                 .rule_groups
                 .iter()
-                .all(|group| FsRules::allows(&group.read_rules, path)),
+                .all(|group| group.granted_access(path).contains(AccessRights::READ)),
             write: self
                 .rule_groups
                 .iter()
-                .all(|group| FsRules::allows(&group.write_rules, path)),
+                .all(|group| group.granted_access(path).contains(AccessRights::WRITE)),
         }
     }
 
@@ -113,10 +113,28 @@ impl FsPolicy {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub(super) struct FsRules {
-    pub(super) read_rules: Vec<FsRule>,
-    pub(super) write_rules: Vec<FsRule>,
+#[derive(Clone, Debug)]
+pub(super) enum FsRules {
+    Paths {
+        read_rules: Vec<FsRule>,
+        write_rules: Vec<FsRule>,
+    },
+    Directories(Vec<DirectoryRule>),
+}
+
+impl Default for FsRules {
+    fn default() -> Self {
+        Self::Paths {
+            read_rules: Vec::new(),
+            write_rules: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct DirectoryRule {
+    pub(super) root: PathBuf,
+    pub(super) access: AccessRights,
 }
 
 #[derive(Clone, Debug)]
@@ -131,6 +149,26 @@ pub(super) enum FsRule {
 }
 
 impl FsRules {
+    fn granted_access(&self, path: &Path) -> AccessRights {
+        match self {
+            Self::Paths {
+                read_rules,
+                write_rules,
+            } => AccessRights {
+                read: Self::allows(read_rules, path),
+                write: Self::allows(write_rules, path),
+            },
+            // Roots and targets are OS-resolved names. The directory topology
+            // must remain stable while these rules are in use; acquired files
+            // retain their own grants, independently of later pathname access.
+            Self::Directories(dirs) => dirs
+                .iter()
+                .filter(|dir| path.starts_with(&dir.root))
+                .max_by_key(|dir| dir.root.components().count())
+                .map_or(AccessRights::NONE, |dir| dir.access),
+        }
+    }
+
     pub(super) fn to_transfer(&self) -> transfer::Filesystem {
         let rules = |rules: &[FsRule]| {
             rules
@@ -157,13 +195,59 @@ impl FsRules {
                 })
                 .collect()
         };
-        transfer::Filesystem {
-            read: rules(&self.read_rules),
-            write: rules(&self.write_rules),
+        match self {
+            Self::Paths {
+                read_rules,
+                write_rules,
+            } => transfer::Filesystem {
+                read: rules(read_rules),
+                write: rules(write_rules),
+                dirs: None,
+            },
+            Self::Directories(dirs) => transfer::Filesystem {
+                read: Vec::new(),
+                write: Vec::new(),
+                dirs: Some(
+                    dirs.iter()
+                        .map(|dir| transfer::Directory {
+                            root: dir.root.as_os_str().to_owned(),
+                            read: dir.access.read,
+                            write: dir.access.write,
+                        })
+                        .collect(),
+                ),
+            },
         }
     }
 
     pub(super) fn from_transfer(value: transfer::Filesystem) -> anyhow::Result<Self> {
+        if let Some(dirs) = value.dirs {
+            anyhow::ensure!(
+                value.read.is_empty() && value.write.is_empty(),
+                "mixed inherited filesystem rules"
+            );
+            let mut roots = std::collections::BTreeSet::new();
+            return Ok(Self::Directories(
+                dirs.into_iter()
+                    .map(|dir| {
+                        let root = PathBuf::from(dir.root);
+                        validate_base(&root)?;
+                        anyhow::ensure!(!dir.write || dir.read, "directory write requires read");
+                        anyhow::ensure!(
+                            roots.insert(root.clone()),
+                            "duplicate inherited permission directory"
+                        );
+                        Ok(DirectoryRule {
+                            root,
+                            access: AccessRights {
+                                read: dir.read,
+                                write: dir.write,
+                            },
+                        })
+                    })
+                    .collect::<anyhow::Result<_>>()?,
+            ));
+        }
         let rules = |rules: Vec<transfer::FsRule>| {
             rules
                 .into_iter()
@@ -183,7 +267,7 @@ impl FsRules {
                 })
                 .collect::<anyhow::Result<Vec<_>>>()
         };
-        Ok(Self {
+        Ok(Self::Paths {
             read_rules: rules(value.read)?,
             write_rules: rules(value.write)?,
         })
@@ -205,10 +289,11 @@ impl FsRules {
                 Some(target),
             );
         };
-        if required.contains(AccessRights::READ) && !Self::allows(&self.read_rules, path) {
+        let granted = self.granted_access(path);
+        if required.contains(AccessRights::READ) && !granted.contains(AccessRights::READ) {
             return sandbox_denied("file read", Some(target));
         }
-        if required.contains(AccessRights::WRITE) && !Self::allows(&self.write_rules, path) {
+        if required.contains(AccessRights::WRITE) && !granted.contains(AccessRights::WRITE) {
             return sandbox_denied("file write", Some(target));
         }
         Ok(())

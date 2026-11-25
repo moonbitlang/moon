@@ -71,7 +71,10 @@ fn directory_entry_metadata_respects_the_resolved_child_name() {
     if !alternate.exists() {
         return; // The volume is case-sensitive, so this spelling names no entry.
     }
-    for config in ["[fs]\nread = ['work', { glob = '!work/private' }]"] {
+    for config in [
+        "[dirs]\nwork = ['write']\n'work/private' = []",
+        "[fs]\nread = ['work', { glob = '!work/private' }]",
+    ] {
         let fs = filesystem(dir.path(), config);
         assert!(matches!(
             fs.authorize(crate::filesystem::FsOperation::InspectEntry(FsPath::Cwd(
