@@ -24,7 +24,7 @@ use super::{
 };
 use crate::async_sys::internal::event_loop::poll::{self, CompletionPort, PollInstance};
 use crate::guest_memory::GuestMemory;
-use crate::network::os::RawSocket;
+use crate::network::AcceptBuffer;
 use crate::resource::{Resource, ResourceClass, ResourceRef};
 use crate::runtime::{Handles, HostKeys};
 use std::cell::RefCell;
@@ -216,8 +216,7 @@ struct HostIoResult {
     // WSARecvFrom may complete asynchronously and write through lpFromlen later.
     // Keep that storage with the overlapped result, not on the submitter stack.
     addr_len: i32,
-    accept_buffer: Vec<u8>,
-    accept_bytes_received: u32,
+    accept_buffer: Option<AcceptBuffer>,
     pending: Option<PendingIo>,
 }
 
@@ -259,8 +258,7 @@ impl HostIoResult {
             socket_flags: 0,
             addr_buffer: Vec::new(),
             addr_len: 0,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
+            accept_buffer: None,
             pending: None,
         }
     }
@@ -286,8 +284,7 @@ impl HostIoResult {
             socket_flags: flags as u32,
             addr_buffer: Vec::new(),
             addr_len: 0,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
+            accept_buffer: None,
             pending: None,
         }
     }
@@ -327,8 +324,7 @@ impl HostIoResult {
             socket_flags: flags as u32,
             addr_buffer,
             addr_len,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
+            accept_buffer: None,
             pending: None,
         })
     }
@@ -345,20 +341,12 @@ impl HostIoResult {
             socket_flags: 0,
             addr_buffer,
             addr_len: 0,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
+            accept_buffer: None,
             pending: None,
         }
     }
 
     fn for_accept(addr_len: u32) -> AsyncHostResult<Self> {
-        let addr_len_usize = usize::try_from(addr_len).map_err(|_| AsyncHostError::Fault)?;
-        let accept_addr_len = addr_len_usize
-            .checked_add(16)
-            .ok_or(AsyncHostError::Fault)?;
-        let accept_buffer_len = accept_addr_len
-            .checked_mul(2)
-            .ok_or(AsyncHostError::Fault)?;
         Ok(Self {
             overlapped: Self::zeroed_overlapped(),
             completion_event: None,
@@ -369,9 +357,8 @@ impl HostIoResult {
             read_dir_changes_buffer: None,
             socket_flags: 0,
             addr_buffer: Vec::new(),
-            addr_len: i32::try_from(addr_len).map_err(|_| AsyncHostError::Fault)?,
-            accept_buffer: vec![0; accept_buffer_len],
-            accept_bytes_received: 0,
+            addr_len: 0,
+            accept_buffer: Some(AcceptBuffer::new(addr_len).map_err(|_| AsyncHostError::Fault)?),
             pending: None,
         })
     }
@@ -388,8 +375,7 @@ impl HostIoResult {
             socket_flags: 0,
             addr_buffer: Vec::new(),
             addr_len: 0,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
+            accept_buffer: None,
             pending: None,
         }
     }
@@ -896,7 +882,6 @@ impl AsyncHost {
         result_handle: u64,
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Foundation::{ERROR_HANDLE_EOF, ERROR_IO_PENDING};
-        use windows_sys::Win32::Networking::WinSock as ws;
 
         // The accepted resource class depends on the IO result kind, so resolve
         // both while their tables are borrowed.
@@ -914,10 +899,11 @@ impl AsyncHost {
         }
         result.kind.validate_resource(file)?;
         result.prepare_submission(port)?;
-        let mut bytes_transferred = 0;
+        let overlapped = result.overlapped_ptr();
+        // The domain borrows storage; this table owns it and the Resource until
+        // completion. In particular, flags and address length are not locals.
         let outcome = match result.kind {
             HostIoKind::File => {
-                let overlapped = result.overlapped_ptr();
                 // The result owns the buffer/OVERLAPPED and retains the resource
                 // until completion before exposing the result to guest code.
                 unsafe {
@@ -925,52 +911,24 @@ impl AsyncHost {
                         .read_overlapped(file, &mut result.buffer, overlapped)
                 }
             }
-            HostIoKind::Socket => {
-                let buffer = socket_buffer(&mut result.buffer)?;
-                let success = unsafe {
-                    ws::WSARecv(
-                        file.as_socket()?.as_raw_socket() as usize,
-                        &buffer,
-                        1,
-                        &mut bytes_transferred,
-                        &mut result.socket_flags,
-                        result.overlapped_ptr(),
-                        None,
-                    ) == 0
-                };
-                if success {
-                    Ok(bytes_transferred as usize)
-                } else {
-                    Err(AsyncHostError::Native(last_wsa_errno()))
-                }
-            }
-            HostIoKind::SocketWithAddr => {
-                let buffer = socket_buffer(&mut result.buffer)?;
-                result.addr_len =
-                    i32::try_from(result.addr_buffer.len()).map_err(|_| AsyncHostError::Fault)?;
-                let addr_len = std::ptr::addr_of_mut!(result.addr_len);
-                let flags = std::ptr::addr_of_mut!(result.socket_flags);
-                let addr = result.addr_buffer.as_mut_ptr().cast::<ws::SOCKADDR>();
-                let overlapped = result.overlapped_ptr();
-                let success = unsafe {
-                    ws::WSARecvFrom(
-                        file.as_socket()?.as_raw_socket() as usize,
-                        &buffer,
-                        1,
-                        &mut bytes_transferred,
-                        flags,
-                        addr,
-                        addr_len,
-                        overlapped,
-                        None,
-                    ) == 0
-                };
-                if success {
-                    Ok(bytes_transferred as usize)
-                } else {
-                    Err(AsyncHostError::Native(last_wsa_errno()))
-                }
-            }
+            HostIoKind::Socket => unsafe {
+                self.network.recv_overlapped(
+                    file,
+                    &mut result.buffer,
+                    std::ptr::addr_of_mut!(result.socket_flags),
+                    overlapped,
+                )
+            },
+            HostIoKind::SocketWithAddr => unsafe {
+                self.network.recv_from_overlapped(
+                    file,
+                    &mut result.buffer,
+                    std::ptr::addr_of_mut!(result.socket_flags),
+                    &mut result.addr_buffer,
+                    std::ptr::addr_of_mut!(result.addr_len),
+                    overlapped,
+                )
+            },
             HostIoKind::Connect | HostIoKind::Accept | HostIoKind::ReadDirChanges => {
                 return Err(AsyncHostError::Inval);
             }
@@ -1031,7 +989,6 @@ impl AsyncHost {
         result_handle: u64,
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
-        use windows_sys::Win32::Networking::WinSock as ws;
 
         // The accepted resource class depends on the IO result kind, so resolve
         // both while their tables are borrowed.
@@ -1049,13 +1006,9 @@ impl AsyncHost {
         }
         result.kind.validate_resource(file)?;
         result.prepare_submission(port)?;
-        if result.kind == HostIoKind::SocketWithAddr {
-            self.network.check_connect(&result.addr_buffer)?;
-        }
-        let mut bytes_transferred = 0;
+        let overlapped = result.overlapped_ptr();
         let outcome = match result.kind {
             HostIoKind::File => {
-                let overlapped = result.overlapped_ptr();
                 // The result owns the buffer/OVERLAPPED and retains the resource
                 // until completion before exposing the result to guest code.
                 unsafe {
@@ -1063,46 +1016,19 @@ impl AsyncHost {
                         .write_overlapped(file, &result.buffer, overlapped)
                 }
             }
-            HostIoKind::Socket => {
-                let buffer = socket_buffer(&mut result.buffer)?;
-                let success = unsafe {
-                    ws::WSASend(
-                        file.as_socket()?.as_raw_socket() as usize,
-                        &buffer,
-                        1,
-                        &mut bytes_transferred,
-                        result.socket_flags,
-                        result.overlapped_ptr(),
-                        None,
-                    ) == 0
-                };
-                if success {
-                    Ok(bytes_transferred as usize)
-                } else {
-                    Err(AsyncHostError::Native(last_wsa_errno()))
-                }
-            }
-            HostIoKind::SocketWithAddr => {
-                let buffer = socket_buffer(&mut result.buffer)?;
-                let success = unsafe {
-                    ws::WSASendTo(
-                        file.as_socket()?.as_raw_socket() as usize,
-                        &buffer,
-                        1,
-                        &mut bytes_transferred,
-                        result.socket_flags,
-                        result.addr_buffer.as_ptr().cast::<ws::SOCKADDR>(),
-                        result.addr_len,
-                        result.overlapped_ptr(),
-                        None,
-                    ) == 0
-                };
-                if success {
-                    Ok(bytes_transferred as usize)
-                } else {
-                    Err(AsyncHostError::Native(last_wsa_errno()))
-                }
-            }
+            HostIoKind::Socket => unsafe {
+                self.network
+                    .send_overlapped(file, &result.buffer, result.socket_flags, overlapped)
+            },
+            HostIoKind::SocketWithAddr => unsafe {
+                self.network.send_to_overlapped(
+                    file,
+                    &result.buffer,
+                    result.socket_flags,
+                    &result.addr_buffer,
+                    overlapped,
+                )
+            },
             HostIoKind::Connect | HostIoKind::Accept | HostIoKind::ReadDirChanges => {
                 return Err(AsyncHostError::Inval);
             }
@@ -1124,11 +1050,8 @@ impl AsyncHost {
         fd_handle: HostHandle,
         result_handle: u64,
     ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Networking::WinSock as ws;
-
         let handles = self.resources.borrow();
         let file = handles.acquire_resource_of_class(fd_handle, ResourceClass::TcpSocket)?;
-        let raw_socket = file.as_socket()?.as_raw_socket();
         let result_key = key_from_handle(result_handle);
         let mut io_results = self.io_results.borrow_mut();
         let port = io_results.completion_port(&file);
@@ -1140,52 +1063,26 @@ impl AsyncHost {
             return Err(AsyncHostError::Inval);
         }
         result.prepare_submission(port)?;
-        self.network.check_connect(&result.addr_buffer)?;
-
-        bind_any_for_connect(raw_socket, &result.addr_buffer)?;
-        let connect_ex = get_wsa_extension::<ws::LPFN_CONNECTEX>(raw_socket, &ws::WSAID_CONNECTEX)?
-            .ok_or(AsyncHostError::Inval)?;
-        let addr_len = socket_addr_len(&result.addr_buffer)?;
-        let success = unsafe {
-            connect_ex(
-                raw_socket as usize,
-                result.addr_buffer.as_ptr().cast::<ws::SOCKADDR>(),
-                addr_len,
-                std::ptr::null(),
-                0,
-                std::ptr::null_mut(),
-                result.overlapped_ptr(),
-            )
-        };
-        if success != 0 {
-            Ok(1)
-        } else {
-            let errno = last_wsa_errno();
-            if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32 {
-                result.mark_pending(file)?;
+        let overlapped = result.overlapped_ptr();
+        match unsafe {
+            self.network
+                .connect_overlapped(&file, &result.addr_buffer, overlapped)
+        } {
+            Ok(()) => Ok(1),
+            Err(error) => {
+                if matches!(error, AsyncHostError::Native(errno)
+                    if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32)
+                {
+                    result.mark_pending(file)?;
+                }
+                Err(error)
             }
-            Err(AsyncHostError::Native(errno))
         }
     }
 
     pub(crate) fn setup_connected_socket(&self, fd_handle: HostHandle) -> AsyncHostResult<()> {
-        use windows_sys::Win32::Networking::WinSock as ws;
-
         self.with_resource_of_class(fd_handle, ResourceClass::TcpSocket, |file| {
-            if unsafe {
-                ws::setsockopt(
-                    file.as_socket()?.as_raw_socket() as usize,
-                    ws::SOL_SOCKET,
-                    ws::SO_UPDATE_CONNECT_CONTEXT,
-                    std::ptr::null(),
-                    0,
-                )
-            } == ws::SOCKET_ERROR
-            {
-                Err(AsyncHostError::Native(last_wsa_errno()))
-            } else {
-                Ok(())
-            }
+            self.network.setup_connected_socket(file)
         })
     }
 
@@ -1195,15 +1092,11 @@ impl AsyncHost {
         conn_fd_handle: HostHandle,
         result_handle: u64,
     ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Networking::WinSock as ws;
-
         let handles = self.resources.borrow();
         let server_file =
             handles.acquire_resource_of_class(server_fd_handle, ResourceClass::TcpSocket)?;
         let conn_file =
             handles.acquire_resource_of_class(conn_fd_handle, ResourceClass::TcpSocket)?;
-        let server_socket = server_file.as_socket()?.as_raw_socket();
-        let conn_socket = conn_file.as_socket()?.as_raw_socket();
         let result_key = key_from_handle(result_handle);
         let mut io_results = self.io_results.borrow_mut();
         let port = io_results.completion_port(&server_file);
@@ -1216,30 +1109,21 @@ impl AsyncHost {
         }
 
         result.prepare_submission(port)?;
-        let accept_ex = get_wsa_extension::<ws::LPFN_ACCEPTEX>(server_socket, &ws::WSAID_ACCEPTEX)?
-            .ok_or(AsyncHostError::Inval)?;
-        let addr_len = u32::try_from(result.addr_len).map_err(|_| AsyncHostError::Fault)?;
-        let accept_addr_len = addr_len.checked_add(16).ok_or(AsyncHostError::Fault)?;
-        let success = unsafe {
-            accept_ex(
-                server_socket as usize,
-                conn_socket as usize,
-                result.accept_buffer.as_mut_ptr().cast(),
-                0,
-                accept_addr_len,
-                accept_addr_len,
-                &mut result.accept_bytes_received,
-                result.overlapped_ptr(),
-            )
-        };
-        if success != 0 {
-            Ok(1)
-        } else {
-            let errno = last_wsa_errno();
-            if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32 {
-                result.mark_pending_with_close_guard(server_file, conn_file)?;
+        let overlapped = result.overlapped_ptr();
+        let buffer = result.accept_buffer.as_mut().ok_or(AsyncHostError::Inval)?;
+        match unsafe {
+            self.network
+                .accept_overlapped(&server_file, &conn_file, buffer, overlapped)
+        } {
+            Ok(()) => Ok(1),
+            Err(error) => {
+                if matches!(error, AsyncHostError::Native(errno)
+                    if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32)
+                {
+                    result.mark_pending_with_close_guard(server_file, conn_file)?;
+                }
+                Err(error)
             }
-            Err(AsyncHostError::Native(errno))
         }
     }
 
@@ -1256,13 +1140,11 @@ impl AsyncHost {
         if result.kind != HostIoKind::Accept || result.is_pending() {
             return Err(AsyncHostError::Inval);
         }
-        let addr_len = usize::try_from(result.addr_len).map_err(|_| AsyncHostError::Fault)?;
-        let offset = addr_len.checked_add(16).ok_or(AsyncHostError::Fault)?;
-        let end = offset.checked_add(addr_len).ok_or(AsyncHostError::Fault)?;
         let addr = result
             .accept_buffer
-            .get(offset..end)
-            .ok_or(AsyncHostError::Fault)?;
+            .as_ref()
+            .ok_or(AsyncHostError::Inval)?
+            .peer_addr();
         memory.write_with_capacity(dst, dst_len, addr)?;
         Ok(())
     }
@@ -1272,26 +1154,10 @@ impl AsyncHost {
         listen_fd_handle: HostHandle,
         accept_fd_handle: HostHandle,
     ) -> AsyncHostResult<()> {
-        use windows_sys::Win32::Networking::WinSock as ws;
-
         let handles = self.resources.borrow();
         let listen_file = handles.resource_of_class(listen_fd_handle, ResourceClass::TcpSocket)?;
         let accept_file = handles.resource_of_class(accept_fd_handle, ResourceClass::TcpSocket)?;
-        let listen_socket = listen_file.as_socket()?.as_raw_socket() as usize;
-        if unsafe {
-            ws::setsockopt(
-                accept_file.as_socket()?.as_raw_socket() as usize,
-                ws::SOL_SOCKET,
-                ws::SO_UPDATE_ACCEPT_CONTEXT,
-                (&listen_socket as *const usize).cast(),
-                std::mem::size_of_val(&listen_socket) as i32,
-            )
-        } == ws::SOCKET_ERROR
-        {
-            Err(AsyncHostError::Native(last_wsa_errno()))
-        } else {
-            Ok(())
-        }
+        self.network.setup_accepted_socket(listen_file, accept_file)
     }
 }
 
@@ -1301,122 +1167,6 @@ fn last_errno() -> i32 {
 
 fn last_native_error() -> AsyncHostError {
     AsyncHostError::Native(last_errno())
-}
-
-fn last_wsa_errno() -> i32 {
-    use windows_sys::Win32::Foundation::{SetLastError, WIN32_ERROR};
-    use windows_sys::Win32::Networking::WinSock;
-
-    let errno = unsafe { WinSock::WSAGetLastError() };
-    unsafe {
-        SetLastError(errno as WIN32_ERROR);
-    }
-    errno
-}
-
-fn socket_buffer(
-    buffer: &mut [u8],
-) -> AsyncHostResult<windows_sys::Win32::Networking::WinSock::WSABUF> {
-    Ok(windows_sys::Win32::Networking::WinSock::WSABUF {
-        len: u32::try_from(buffer.len()).map_err(|_| AsyncHostError::Fault)?,
-        buf: buffer.as_mut_ptr().cast(),
-    })
-}
-
-fn socket_addr_family(addr: &[u8]) -> AsyncHostResult<u16> {
-    use windows_sys::Win32::Networking::WinSock;
-
-    if addr.len() < std::mem::size_of::<WinSock::SOCKADDR>() {
-        return Err(AsyncHostError::Fault);
-    }
-    Ok(unsafe { addr.as_ptr().cast::<WinSock::SOCKADDR>().read_unaligned() }.sa_family)
-}
-
-fn socket_addr_len(addr: &[u8]) -> AsyncHostResult<i32> {
-    use windows_sys::Win32::Networking::WinSock;
-
-    let len = match socket_addr_family(addr)? {
-        WinSock::AF_INET => std::mem::size_of::<WinSock::SOCKADDR_IN>(),
-        WinSock::AF_INET6 => std::mem::size_of::<WinSock::SOCKADDR_IN6>(),
-        _ => return Err(AsyncHostError::Inval),
-    };
-    if addr.len() < len {
-        return Err(AsyncHostError::Fault);
-    }
-    i32::try_from(len).map_err(|_| AsyncHostError::Fault)
-}
-
-fn bind_any_for_connect(raw_socket: RawSocket, remote_addr: &[u8]) -> AsyncHostResult<()> {
-    use windows_sys::Win32::Networking::WinSock;
-
-    let result = match socket_addr_family(remote_addr)? {
-        WinSock::AF_INET => {
-            let mut addr = unsafe { std::mem::zeroed::<WinSock::SOCKADDR_IN>() };
-            addr.sin_family = WinSock::AF_INET;
-            unsafe {
-                WinSock::bind(
-                    raw_socket as usize,
-                    (&addr as *const WinSock::SOCKADDR_IN).cast::<WinSock::SOCKADDR>(),
-                    std::mem::size_of_val(&addr) as i32,
-                )
-            }
-        }
-        WinSock::AF_INET6 => {
-            let mut addr = unsafe { std::mem::zeroed::<WinSock::SOCKADDR_IN6>() };
-            addr.sin6_family = WinSock::AF_INET6;
-            unsafe {
-                WinSock::bind(
-                    raw_socket as usize,
-                    (&addr as *const WinSock::SOCKADDR_IN6).cast::<WinSock::SOCKADDR>(),
-                    std::mem::size_of_val(&addr) as i32,
-                )
-            }
-        }
-        _ => return Err(AsyncHostError::Inval),
-    };
-    if result == WinSock::SOCKET_ERROR {
-        let errno = last_wsa_errno();
-        if errno == WinSock::WSAEINVAL {
-            unreachable!(
-                "moonbitlang/async Tcp::connect creates a fresh unbound socket before ConnectEx"
-            );
-        }
-        Err(AsyncHostError::Native(errno))
-    } else {
-        Ok(())
-    }
-}
-
-fn get_wsa_extension<T: Copy>(
-    raw_socket: RawSocket,
-    guid: &windows_sys::core::GUID,
-) -> AsyncHostResult<T> {
-    use windows_sys::Win32::Networking::WinSock;
-
-    debug_assert_eq!(
-        std::mem::size_of::<T>(),
-        std::mem::size_of::<*mut std::ffi::c_void>()
-    );
-    let mut extension = std::ptr::null_mut::<std::ffi::c_void>();
-    let mut bytes_returned = 0;
-    let ret = unsafe {
-        WinSock::WSAIoctl(
-            raw_socket as usize,
-            WinSock::SIO_GET_EXTENSION_FUNCTION_POINTER,
-            (guid as *const windows_sys::core::GUID).cast(),
-            std::mem::size_of_val(guid) as u32,
-            (&mut extension as *mut *mut std::ffi::c_void).cast(),
-            std::mem::size_of_val(&extension) as u32,
-            &mut bytes_returned,
-            std::ptr::null_mut(),
-            None,
-        )
-    };
-    if ret == WinSock::SOCKET_ERROR {
-        Err(AsyncHostError::Native(last_wsa_errno()))
-    } else {
-        Ok(unsafe { std::mem::transmute_copy(&extension) })
-    }
 }
 
 fn raw_overlapped_handle(file: &Resource) -> AsyncHostResult<RawHandle> {

@@ -19,6 +19,11 @@
 //! Wasm-backend-neutral network operations owned by one moonrun Runtime.
 
 mod job;
+#[cfg(windows)]
+mod overlapped;
+
+#[cfg(windows)]
+pub(crate) use os::overlapped::AcceptBuffer;
 pub(crate) mod os;
 
 use std::cell::RefCell;
@@ -36,7 +41,7 @@ use crate::resource::{Resource, ResourceClass, ResourceRef};
 
 pub(crate) use job::Job;
 
-/// Permission-backed host networking shared by synchronous imports and Jobs.
+/// Permission-backed host networking shared by imports and Jobs.
 ///
 /// `AsyncHost` owns this module together with Resource Handles and asynchronous
 /// lifecycle. This module concentrates network authorization and the
@@ -182,7 +187,7 @@ impl HostNetwork {
         })
     }
 
-    pub(crate) fn check_connect(&self, addr: &[u8]) -> AsyncHostResult<()> {
+    fn check_connect(&self, addr: &[u8]) -> AsyncHostResult<()> {
         self.policy.as_ref().map_or(Ok(()), |policy| {
             policy.check_socket(
                 NetOperation::Connect,
