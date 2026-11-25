@@ -18,8 +18,8 @@
 
 //! Wasm-backend-neutral network operations owned by one moonrun Runtime.
 
-pub(crate) mod address;
 mod job;
+pub(crate) mod os;
 
 use std::cell::RefCell;
 use std::ffi::{OsStr, OsString};
@@ -28,8 +28,9 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawSocket;
 
+use self::os::IpFamily;
+use self::os::{address, socket as sys};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::socket as sys;
 use crate::policy::{NetOperation, NetPolicy, ResolvedConnectRule};
 use crate::resource::{Resource, ResourceClass, ResourceRef};
 
@@ -57,7 +58,7 @@ impl HostNetwork {
     }
 
     pub(crate) fn make_tcp_socket(&self, family: i32) -> AsyncHostResult<Resource> {
-        let socket = sys::make_tcp_socket(family)?;
+        let socket = sys::make_tcp_socket(decode_ip_family(family)?)?;
         Ok(Resource::tcp_socket(socket, family))
     }
 
@@ -66,38 +67,43 @@ impl HostNetwork {
         family: i32,
         multicast: bool,
     ) -> AsyncHostResult<Resource> {
-        let socket = sys::make_udp_socket(family, multicast)?;
+        let socket = sys::make_udp_socket(decode_ip_family(family)?, multicast)?;
         Ok(Resource::udp_socket(socket, family))
     }
 
     pub(crate) fn bind(&self, socket: &Resource, addr: &[u8]) -> AsyncHostResult<()> {
         self.check_bind(addr)?;
-        sys::bind(raw_socket(socket)?, addr)
+        sys::bind(raw_socket(socket)?, addr).map_err(Into::into)
     }
 
     pub(crate) fn listen(&self, socket: &Resource) -> AsyncHostResult<()> {
-        let mut local_addr = vec![0; socket_addr_buffer_len()];
+        let mut local_addr = vec![0; address::buffer_len()];
         let raw_socket = raw_socket_of_class(socket, ResourceClass::TcpSocket)?;
         let implicit_addr = match sys::getsockname(raw_socket, &mut local_addr) {
             Ok(()) if address::socket_addr(&local_addr)?.port() == 0 => Some(local_addr),
             Ok(()) => None,
-            Err(error) => Some(listen_bind_addr_after_getsockname_error(socket, error)?),
+            Err(error) => Some(listen_bind_addr_after_getsockname_error(
+                socket,
+                error.into(),
+            )?),
         };
         if let Some(addr) = implicit_addr {
             self.check_bind(&addr)?;
         }
-        sys::listen(raw_socket)
+        sys::listen(raw_socket).map_err(Into::into)
     }
 
     pub(crate) fn connect_udp(&self, socket: &Resource, addr: &[u8]) -> AsyncHostResult<()> {
         self.check_connect(addr)?;
         sys::udp_client_connect(raw_socket_of_class(socket, ResourceClass::UdpSocket)?, addr)
+            .map_err(Into::into)
     }
 
     #[cfg(unix)]
     pub(crate) fn connect_tcp(&self, socket: &Resource, addr: &[u8]) -> AsyncHostResult<()> {
         self.check_connect(addr)?;
         sys::connect(raw_socket_of_class(socket, ResourceClass::TcpSocket)?, addr)
+            .map_err(Into::into)
     }
 
     #[cfg(unix)]
@@ -112,6 +118,7 @@ impl HostNetwork {
             data,
             addr,
         )
+        .map_err(Into::into)
     }
 
     #[cfg(unix)]
@@ -127,6 +134,7 @@ impl HostNetwork {
             data,
             addr,
         )
+        .map_err(Into::into)
     }
 
     #[cfg(unix)]
@@ -150,14 +158,16 @@ impl HostNetwork {
     pub(crate) fn getaddrinfo_result(&self, job: &Job) -> AsyncHostResult<Vec<Box<[u8]>>> {
         let (host, addrs) = job.getaddrinfo_result()?;
         if let Some(policy) = &self.policy {
-            self.resolved_connect.borrow_mut().extend(
-                policy.resolved_connect_rules(
+            self.resolved_connect
+                .borrow_mut()
+                .extend(policy.resolved_connect_rules(
                     host,
-                    addrs
-                        .iter()
-                        .map(|addr| address::socket_addr(addr).map(|addr| addr.ip())),
-                )?,
-            );
+                    addrs.iter().map(|addr| {
+                        address::socket_addr(addr)
+                            .map(|addr| addr.ip())
+                            .map_err(Into::into)
+                    }),
+                )?);
         }
         Ok(addrs.to_vec())
     }
@@ -189,8 +199,17 @@ impl HostNetwork {
     }
 }
 
+/// Decode the async IP family selector before invoking native socket operations.
+pub(crate) fn decode_ip_family(family: i32) -> AsyncHostResult<IpFamily> {
+    match family {
+        4 => Ok(IpFamily::V4),
+        6 => Ok(IpFamily::V6),
+        _ => Err(AsyncHostError::Inval),
+    }
+}
+
 #[cfg(unix)]
-fn raw_socket(resource: &Resource) -> AsyncHostResult<sys::RawSocket> {
+fn raw_socket(resource: &Resource) -> AsyncHostResult<os::RawSocket> {
     if !resource.resource_class().is_socket() {
         return Err(AsyncHostError::Inval);
     }
@@ -198,7 +217,7 @@ fn raw_socket(resource: &Resource) -> AsyncHostResult<sys::RawSocket> {
 }
 
 #[cfg(windows)]
-fn raw_socket(resource: &Resource) -> AsyncHostResult<sys::RawSocket> {
+fn raw_socket(resource: &Resource) -> AsyncHostResult<os::RawSocket> {
     if !resource.resource_class().is_socket() {
         return Err(AsyncHostError::Inval);
     }
@@ -208,7 +227,7 @@ fn raw_socket(resource: &Resource) -> AsyncHostResult<sys::RawSocket> {
 fn raw_socket_of_class(
     resource: &Resource,
     class: ResourceClass,
-) -> AsyncHostResult<sys::RawSocket> {
+) -> AsyncHostResult<os::RawSocket> {
     if resource.resource_class() != class {
         return Err(AsyncHostError::Inval);
     }
@@ -231,37 +250,17 @@ fn listen_bind_addr_after_getsockname_error(
     let family = socket.socket_family().ok_or(AsyncHostError::Inval)?;
     match family {
         4 => {
-            let mut addr = vec![
-                0;
-                usize::try_from(address::ipv4_addr_size())
-                    .map_err(|_| AsyncHostError::Fault)?
-            ];
+            let mut addr = vec![0; address::ipv4_addr_size()];
             address::init_ip_addr(&mut addr, 0, 0)?;
             Ok(addr)
         }
         6 => {
-            let mut addr = vec![
-                0;
-                usize::try_from(address::ipv6_addr_size())
-                    .map_err(|_| AsyncHostError::Fault)?
-            ];
+            let mut addr = vec![0; address::ipv6_addr_size()];
             address::init_ipv6_addr(&mut addr, &[0; 16], 0, 0)?;
             Ok(addr)
         }
         _ => Err(AsyncHostError::Inval),
     }
-}
-
-#[cfg(unix)]
-fn socket_addr_buffer_len() -> usize {
-    std::mem::size_of::<libc::sockaddr_storage>()
-}
-
-#[cfg(windows)]
-fn socket_addr_buffer_len() -> usize {
-    use windows_sys::Win32::Networking::WinSock as ws;
-
-    std::mem::size_of::<ws::SOCKADDR_IN6>()
 }
 
 #[cfg(test)]
@@ -286,10 +285,16 @@ mod tests {
         std::fs::write(&policy_file, "").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
         let restricted = network(Some(policy));
-        assert_eq!(restricted.check_bind(&[]), Err(AsyncHostError::Fault));
-        assert_eq!(restricted.check_connect(&[]), Err(AsyncHostError::Fault));
+        assert_eq!(
+            restricted.check_bind(&[]).unwrap_err().errno(),
+            AsyncHostError::Fault.errno()
+        );
+        assert_eq!(
+            restricted.check_connect(&[]).unwrap_err().errno(),
+            AsyncHostError::Fault.errno()
+        );
 
-        let mut addr = vec![0; address::ipv6_addr_size() as usize];
+        let mut addr = vec![0; address::ipv6_addr_size()];
         address::init_ipv6_addr(&mut addr, &std::net::Ipv6Addr::LOCALHOST.octets(), 443, 0)
             .unwrap();
         // Address interpretation and authorization still precede Resource validation.
@@ -307,7 +312,7 @@ mod tests {
         let network = network(None);
         let tcp = network.make_tcp_socket(4).unwrap();
         let udp = network.make_udp_socket(4, false).unwrap();
-        let mut addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        let mut addr = vec![0; address::ipv4_addr_size()];
         address::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
 
         assert_eq!(network.listen(&udp), Err(AsyncHostError::Inval));
@@ -326,7 +331,7 @@ mod tests {
         let network = network(None);
         let first = network.make_tcp_socket(4).unwrap();
         let second = network.make_tcp_socket(4).unwrap();
-        let mut addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        let mut addr = vec![0; address::ipv4_addr_size()];
         address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
         network.bind(&first, &addr).unwrap();
         sys::getsockname(raw_socket(&first).unwrap(), &mut addr).unwrap();
@@ -367,7 +372,7 @@ mod tests {
         std::fs::write(&policy_file, "").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
         let network = network(Some(policy));
-        let mut addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        let mut addr = vec![0; address::ipv4_addr_size()];
         address::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
 
         assert_eq!(
@@ -393,9 +398,9 @@ mod tests {
         let policy = policy.network();
         let first = HostNetwork::new(Some(policy.clone()));
         let second = HostNetwork::new(Some(policy));
-        let mut resolved_addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        let mut resolved_addr = vec![0; address::ipv4_addr_size()];
         address::init_ip_addr(&mut resolved_addr, 0x7f000001, 0).unwrap();
-        let mut connect_addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        let mut connect_addr = vec![0; address::ipv4_addr_size()];
         address::init_ip_addr(&mut connect_addr, 0x7f000001, 443).unwrap();
 
         let rules = first
@@ -404,7 +409,9 @@ mod tests {
             .unwrap()
             .resolved_connect_rules(
                 OsStr::new("api.example.com"),
-                [address::socket_addr(&resolved_addr).map(|addr| addr.ip())],
+                [address::socket_addr(&resolved_addr)
+                    .map(|addr| addr.ip())
+                    .map_err(Into::into)],
             )
             .unwrap();
         first.resolved_connect.borrow_mut().extend(rules);

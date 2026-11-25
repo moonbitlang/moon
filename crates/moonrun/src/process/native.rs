@@ -600,7 +600,8 @@ mod windows_tests {
     #[test]
     fn spawn_stdio_accepts_socket_resource() {
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
-        let raw_socket = crate::async_sys::socket::make_tcp_socket(4).unwrap();
+        let raw_socket =
+            crate::network::os::socket::make_tcp_socket(crate::network::os::IpFamily::V4).unwrap();
         let resource = Resource::tcp_socket(raw_socket, 4);
 
         assert_eq!(

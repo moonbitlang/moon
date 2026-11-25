@@ -32,7 +32,7 @@ pub(super) fn bind(socket: &Resource, addr: &[u8]) -> AsyncHostResult<i64> {
     let socket = socket.as_fd()?.as_raw_fd();
     #[cfg(windows)]
     let socket = socket.as_socket()?.as_raw_socket();
-    crate::async_sys::socket::bind(socket, addr)?;
+    crate::network::os::socket::bind(socket, addr)?;
     Ok(0)
 }
 
@@ -40,7 +40,7 @@ pub(super) fn getaddrinfo(
     host: OsString,
     result: &mut Option<Vec<Box<[u8]>>>,
 ) -> AsyncHostResult<i64> {
-    let (ret, addrs) = crate::async_sys::socket::copy_sockaddrs_from_getaddrinfo(host)?;
+    let (ret, addrs) = crate::network::os::dns::copy_sockaddrs_from_getaddrinfo(host)?;
     *result = Some(addrs);
     Ok(i64::from(ret))
 }

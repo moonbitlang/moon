@@ -51,12 +51,12 @@ use crate::async_sys::internal::event_loop::{
         WorkerJob,
     },
 };
-use crate::async_sys::socket::RawSocket;
 use crate::filesystem::HostFs;
 use crate::filesystem::RawFile as RawFd;
 use crate::filesystem::{FsOperation, FsPath};
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
+use crate::network::os::RawSocket;
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 use crate::run_signal::SignalReceiver;

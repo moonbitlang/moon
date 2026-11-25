@@ -274,9 +274,9 @@ The Unstable API owns its legacy error/getter contract, not separate filesystem
 policy or mechanisms. Its retirement should remove that adaptation without
 removing shared host behavior.
 
-`std::fs` and private filesystem OS modules supply native mechanisms using
-explicit host inputs. Filesystem code owns operation interpretation and
-authorization; the async runtime owns scheduling, pending requests, cancellation,
+`std::fs` and filesystem/network OS modules supply native mechanisms using
+explicit host inputs and native errors. Domain code owns operation interpretation
+and authorization; the async runtime owns scheduling, pending requests, cancellation,
 and completion. Domain operations may borrow request-owned storage without
 taking over its lifetime. ABI adapters retain guest-memory access and encoding.
 
