@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::poll::CompletionPort;
+use crate::poll::CompletionPort;
 use crate::run_signal::SignalReceiver;
 
 pub(super) fn set_global_cancellation_signals(

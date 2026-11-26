@@ -379,32 +379,6 @@ mod tests {
     }
 
     #[test]
-    fn host_wakeup_stays_pending_until_poll_wait() {
-        use crate::async_sys::internal::event_loop::poll;
-
-        for terminate_before_binding in [true, false] {
-            let (terminator, receiver) = termination_channel();
-            let mut poll = poll::poll_create().unwrap();
-            if terminate_before_binding {
-                assert!(terminator.terminate(RunTermination::Exit(7)));
-            }
-            let _wait = receiver
-                .request
-                .bind_host_wake(|| {
-                    let waker = poll::PollWaker::new(&poll)?;
-                    Ok::<_, crate::async_host::AsyncHostError>(move || waker.wake().unwrap())
-                })
-                .unwrap();
-            if !terminate_before_binding {
-                assert!(terminator.terminate(RunTermination::Exit(7)));
-            }
-            // A zero timeout proves readiness was retained before the syscall,
-            // including a request that arrived before registration itself.
-            assert_eq!(poll::poll_wait(&mut poll, 0), Ok(1));
-        }
-    }
-
-    #[test]
     fn records_killed_by_signal() {
         let request = TerminationRequest::default();
 

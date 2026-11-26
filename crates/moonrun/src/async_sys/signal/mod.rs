@@ -24,9 +24,9 @@
 use crate::async_host::AsyncHostResult;
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
-#[cfg(windows)]
-use crate::async_sys::internal::event_loop::poll::CompletionPort;
 use crate::async_sys::ported_fns;
+#[cfg(windows)]
+use crate::poll::CompletionPort;
 use crate::run_signal::SignalReceiver;
 #[cfg(unix)]
 use crate::run_signal::SignalTargetGuard;

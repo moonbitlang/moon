@@ -19,8 +19,8 @@
 //! Ports of `moonbitlang/async/src/internal/event_loop/{epoll,kqueue,iocp}.c`.
 //! The native C surface calls this abstraction the event bus.
 
-use crate::async_host::AsyncHostError;
 use crate::filesystem::RawFile as RawFd;
+use std::io;
 
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -37,22 +37,24 @@ mod iocp;
 mod kqueue;
 mod wake;
 
-pub(crate) use wake::PollWaker;
+pub(super) use wake::PollWaker;
 
 #[cfg(target_os = "linux")]
-pub(crate) use epoll::*;
+pub(in crate::poll) use epoll::*;
 #[cfg(windows)]
-pub(crate) use iocp::*;
+pub(crate) use iocp::CompletionPort;
+#[cfg(windows)]
+pub(in crate::poll) use iocp::*;
 #[cfg(target_os = "macos")]
-pub(crate) use kqueue::*;
+pub(in crate::poll) use kqueue::*;
 
 pub(super) const EVENT_BUFFER_SIZE: usize = 1024;
 #[cfg(unix)]
-pub(crate) const READ_EVENT: i32 = 1;
+pub(in crate::poll) const READ_EVENT: i32 = 1;
 #[cfg(unix)]
-pub(crate) const WRITE_EVENT: i32 = 2;
+pub(in crate::poll) const WRITE_EVENT: i32 = 2;
 #[cfg(target_os = "macos")]
-pub(crate) const PROCESS_EVENT: i32 = 4;
+pub(in crate::poll) const PROCESS_EVENT: i32 = 4;
 
 #[cfg(target_os = "macos")]
 #[derive(Debug)]
@@ -60,19 +62,19 @@ struct KeventBuffer(Box<[libc::kevent]>);
 
 #[cfg(target_os = "macos")]
 // SAFETY: libc::kevent is plain kernel event storage. Its udata field prevents
-// automatic Send, but moonrun stores only Resource Handle integer bits in
+// automatic Send, but moonrun stores only opaque integer bits in
 // udata and never dereferences values returned in that field. The buffer owns
 // every event value.
 unsafe impl Send for KeventBuffer {}
 
 #[cfg(target_os = "linux")]
-pub(crate) type PollEvent = libc::epoll_event;
+pub(in crate::poll) type PollEvent = libc::epoll_event;
 #[cfg(target_os = "macos")]
-pub(crate) type PollEvent = libc::kevent;
+pub(in crate::poll) type PollEvent = libc::kevent;
 #[cfg(windows)]
-pub(crate) type PollEvent = windows_sys::Win32::System::IO::OVERLAPPED_ENTRY;
+pub(in crate::poll) type PollEvent = windows_sys::Win32::System::IO::OVERLAPPED_ENTRY;
 
-pub(crate) struct PollInstance {
+pub(in crate::poll) struct PollInstance {
     #[cfg(target_os = "linux")]
     fd: OwnedFd,
     #[cfg(target_os = "macos")]
@@ -101,7 +103,7 @@ impl std::fmt::Debug for PollInstance {
 }
 
 impl PollInstance {
-    pub(crate) fn raw_fd(&self) -> RawFd {
+    pub(in crate::poll) fn raw_fd(&self) -> RawFd {
         #[cfg(unix)]
         {
             self.fd.as_raw_fd()
@@ -114,17 +116,17 @@ impl PollInstance {
 }
 
 pub(super) fn last_errno() -> i32 {
-    std::io::Error::last_os_error()
+    io::Error::last_os_error()
         .raw_os_error()
-        .unwrap_or_else(|| AsyncHostError::Inval.errno())
+        .expect("OS error has a native code")
 }
 
-pub(super) fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(last_errno())
+pub(super) fn last_native_error() -> io::Error {
+    io::Error::last_os_error()
 }
 
 #[cfg(test)]
-pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+pub(in crate::poll) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     let mut symbols = Vec::new();
     #[cfg(target_os = "linux")]
     symbols.extend_from_slice(epoll::PORTED_SYMBOLS);
@@ -132,21 +134,6 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     symbols.extend_from_slice(kqueue::PORTED_SYMBOLS);
     #[cfg(windows)]
     symbols.extend_from_slice(iocp::PORTED_SYMBOLS);
-    symbols.retain(|symbol| {
-        matches!(
-            symbol.native_symbol,
-            "moonbitlang_async_event_bus_create"
-                | "moonbitlang_async_event_bus_destroy"
-                | "moonbitlang_async_event_bus_register"
-                | "moonbitlang_async_event_bus_register_pid"
-                | "moonbitlang_async_event_bus_wait"
-                | "moonbitlang_async_event_list_get"
-                | "moonbitlang_async_event_get_fd"
-                | "moonbitlang_async_event_get_events"
-                | "moonbitlang_async_event_get_io_result"
-                | "moonbitlang_async_event_get_bytes_transferred"
-        )
-    });
     symbols
 }
 
@@ -159,10 +146,7 @@ mod tests {
     fn event_list_get_rejects_missing_event() {
         let poll = poll_create().unwrap();
 
-        assert!(matches!(
-            event_list_get(&poll, 0),
-            Err(AsyncHostError::Fault)
-        ));
+        assert!(event_list_get(&poll, 0).is_none());
     }
 
     #[test]
@@ -173,8 +157,8 @@ mod tests {
         let write_fd = fds[1];
 
         let mut poll = poll_create().unwrap();
-        let fd_handle = 0x1234;
-        poll_register(&poll, read_fd, true, fd_handle).unwrap();
+        let user_data = 0x1234;
+        poll_register(&poll, read_fd, true, user_data).unwrap();
         let byte = b"x";
         assert_eq!(
             unsafe { libc::write(write_fd, byte.as_ptr().cast(), byte.len()) },
@@ -184,7 +168,7 @@ mod tests {
         let count = poll_wait(&mut poll, 100).unwrap();
         assert_eq!(count, 1);
         let event = *event_list_get(&poll, 0).unwrap();
-        assert_eq!(event_get_fd(&event), fd_handle);
+        assert_eq!(event_get_fd(&event), user_data as u64);
         assert_eq!(event_get_events(&event) & READ_EVENT, READ_EVENT);
 
         unsafe {

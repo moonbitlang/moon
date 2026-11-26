@@ -16,9 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[cfg(unix)]
-use crate::async_host::AsyncHostError;
-use crate::async_host::AsyncHostResult;
+use std::io;
 
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -31,7 +29,7 @@ use super::PollInstance;
 /// It is used only after a Run requests termination; the import adapter consumes
 /// that outcome before guest code can observe the internal event.
 #[derive(Debug)]
-pub(crate) struct PollWaker {
+pub(in crate::poll) struct PollWaker {
     #[cfg(unix)]
     _recv: OwnedFd,
     #[cfg(unix)]
@@ -41,7 +39,7 @@ pub(crate) struct PollWaker {
 }
 
 impl PollWaker {
-    pub(crate) fn new(poll: &PollInstance) -> AsyncHostResult<Self> {
+    pub(in crate::poll) fn new(poll: &PollInstance) -> io::Result<Self> {
         #[cfg(unix)]
         {
             let [recv, send] = crate::filesystem::pipe(true, true)?.map(OwnedFd::from);
@@ -56,7 +54,7 @@ impl PollWaker {
         }
     }
 
-    pub(crate) fn wake(&self) -> AsyncHostResult<()> {
+    pub(in crate::poll) fn wake(&self) -> io::Result<()> {
         #[cfg(unix)]
         loop {
             // Keep the byte readable until teardown. Readiness must survive a
@@ -72,7 +70,7 @@ impl PollWaker {
             if written < 0 && (errno == libc::EAGAIN || errno == libc::EWOULDBLOCK) {
                 return Ok(());
             }
-            return Err(AsyncHostError::Native(if written == 0 {
+            return Err(io::Error::from_raw_os_error(if written == 0 {
                 libc::EIO
             } else {
                 errno
@@ -80,7 +78,7 @@ impl PollWaker {
         }
         #[cfg(windows)]
         {
-            super::post_thread_pool_completion(&self.port, 0)
+            self.port.post(0, usize::MAX)
         }
     }
 }

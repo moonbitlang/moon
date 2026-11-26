@@ -22,10 +22,10 @@ use thiserror::Error;
 
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
-#[cfg(windows)]
-use crate::async_sys::internal::event_loop::poll::{self, CompletionPort};
 #[cfg(unix)]
 use crate::async_sys::signal::SigwaitTarget;
+#[cfg(windows)]
+use crate::poll::{self, CompletionPort};
 
 /// The sending half of one Run's signal channel.
 ///
@@ -296,32 +296,46 @@ mod tests {
         first_receiver.configure(&[signal], &[signal]);
         second_receiver.configure(&[signal], &[signal]);
 
-        let mut first_poll = poll::poll_create().unwrap();
-        let mut second_poll = poll::poll_create().unwrap();
-        first_receiver.attach_target(CompletionPort::from_poll(&first_poll));
-        second_receiver.attach_target(CompletionPort::from_poll(&second_poll));
+        let mut first_poll = poll::PollTable::new(Default::default());
+        let first = first_poll.create().unwrap();
+        let mut second_poll = poll::PollTable::new(Default::default());
+        let second = second_poll.create().unwrap();
+        first_receiver.attach_target(first_poll.get_mut(first).unwrap().completion_port());
+        second_receiver.attach_target(second_poll.get_mut(second).unwrap().completion_port());
 
         assert_eq!(first_sender.send(signal), Ok(true));
-        assert_eq!(poll::poll_wait(&mut first_poll, 0).unwrap(), 1);
-        assert_eq!(poll::poll_wait(&mut second_poll, 0).unwrap(), 0);
-        let event = poll::event_list_get(&first_poll, 0).unwrap();
         assert_eq!(
-            poll::event_get_bytes_transferred(event),
+            first_poll.wait(first, 0, &Default::default(), |_| None),
+            Ok(Some(1))
+        );
+        assert_eq!(
+            second_poll.wait(second, 0, &Default::default(), |_| None),
+            Ok(Some(0))
+        );
+        let event = first_poll.get_event(first, 0).unwrap();
+        assert_eq!(
+            first_poll.event_bytes_transferred(event).unwrap(),
             encode_signal_event(signal) as u32
         );
 
         assert_eq!(second_sender.send(signal), Ok(true));
-        assert_eq!(poll::poll_wait(&mut second_poll, 0).unwrap(), 1);
-        assert_eq!(poll::poll_wait(&mut first_poll, 0).unwrap(), 0);
-        let event = poll::event_list_get(&second_poll, 0).unwrap();
         assert_eq!(
-            poll::event_get_bytes_transferred(event),
+            second_poll.wait(second, 0, &Default::default(), |_| None),
+            Ok(Some(1))
+        );
+        assert_eq!(
+            first_poll.wait(first, 0, &Default::default(), |_| None),
+            Ok(Some(0))
+        );
+        let event = second_poll.get_event(second, 0).unwrap();
+        assert_eq!(
+            second_poll.event_bytes_transferred(event).unwrap(),
             encode_signal_event(signal) as u32
         );
 
         drop(first_receiver);
         drop(second_receiver);
-        poll::poll_destroy(first_poll);
-        poll::poll_destroy(second_poll);
+        first_poll.remove(first).unwrap().destroy();
+        second_poll.remove(second).unwrap().destroy();
     }
 }

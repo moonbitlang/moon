@@ -415,10 +415,9 @@ crossing its interface.
 _Avoid_: SQLite API, Async Host, V8 SQLite
 
 **Async Sys**:
-The V8-free native-stub port layer. Ports carry provenance for the native source
-path and symbol they track. Reusable operating-system operations remain here;
-Job implementations live with their owning domain. Poller files are direct
-ports behind the wasm `poll/*` imports. Signal support here is limited to
+The remaining V8-free native-stub support. Ports carry provenance for the native
+source path and symbol they track, including implementations in domain modules.
+Job implementations and reusable OS mechanisms live with their owning domain. Signal support here is limited to
 platform signal values and Unix signal-mask operations; process capture
 belongs to the CLI and guest delivery belongs to Run Signals.
 _Avoid_: V8 adapter, placeholder unsupported imports
@@ -430,7 +429,13 @@ does not interpret Filesystem, Network, Process, Run Signal, or SQLite semantics
 _Avoid_: Filesystem executor, Network executor, Process executor, SQLite executor
 
 **Host Poller**:
-The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque poll-instance Handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`. Resource registrations store their Resource Handle directly in the poller's opaque user-data field. The event accessor returns the native field unchanged, including platform-specific non-Resource values; later Resource operations—not the accessor—validate any returned Handle.
+The `poll` module owns Poll Handles, registrations, and the active event batch.
+Its private `os` module implements epoll, kqueue, and IOCP without interpreting
+Runtime state or guest Handles. Async Host coordinates Resources, worker
+completions, and Windows I/OResult ownership with the poller. Resource
+registrations store their Handle in native opaque user data; event accessors
+preserve that value, including platform-specific non-Resource values. Later
+Resource operations validate any returned Handle.
 _Avoid_: Completion queue, worker wakeup
 
 **Thread-Pool Completion Source**:

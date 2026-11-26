@@ -66,6 +66,11 @@ lease restores the bytes only if the original entry still exists and is leased.
 Generation checks prevent a late return from restoring a freed entry or
 overwriting a replacement Handle.
 
+The `poll` module owns Poll registrations and the current readable event batch.
+Resource close and thread-pool teardown unregister through that owner. Removing
+a Poll retires its Handle and event access before native destruction; outstanding
+Windows requests and completion senders retain their own port references.
+
 Windows I/OResults own their Handle registrations, stable `OVERLAPPED` storage,
 buffers, and acquired Resources in `async_host::windows_io`. Pending requests
 also retain their completion port after its Poll Handle is destroyed. Polling

@@ -54,6 +54,7 @@ mod network;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod policy;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
+mod poll;
 mod process;
 mod process_tree;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
