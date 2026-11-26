@@ -30,10 +30,11 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_With_Args with fn run_
       }
     }
     handle_start()
+    let context = @moonbitlang/core/test.Test::start(name, filename, index)
     moonbit_test_driver_internal_catch_error(
-      () => f(@moonbitlang/core/test.Test(name)),
-      on_ok=() => handle_result(name, "", false),
-      on_err=err => handle_result(name, error_to_string(err), false),
+      () => f(context),
+      on_ok=() => handle_result(name, context.finish(""), false),
+      on_err=err => handle_result(name, context.finish(error_to_string(err)), false),
     )
     true
   } else {
