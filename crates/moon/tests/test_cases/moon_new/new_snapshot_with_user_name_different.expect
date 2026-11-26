@@ -5,7 +5,7 @@
 ./.githooks/pre-commit
 ./.github/
 ./.github/workflows/
-./.github/workflows/copilot-setup-steps.yml
+./.github/workflows/stable_check.yml
 ./.gitignore
 ./AGENTS.md
 ./LICENSE
@@ -50,48 +50,53 @@ To use this pre-commit hook:
 
 moon check
 
-=== ./.github/workflows/copilot-setup-steps.yml ===
-# Reference: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment
-name: "Copilot Setup Steps"
+=== ./.github/workflows/stable_check.yml ===
+name: check
 
-# Automatically run the setup steps when they are changed to allow for easy validation, and
-# allow manual testing through the repository's "Actions" tab
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - .github/workflows/copilot-setup-steps.yml
+    branches:
+      - main
   pull_request:
-    paths:
-      - .github/workflows/copilot-setup-steps.yml
 
 jobs:
-  # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
-  copilot-setup-steps:
-    runs-on: ubuntu-latest
-
-    # Set the permissions to the lowest permissions possible needed for your steps.
-    # Copilot will be given its own token for its operations.
-    permissions:
-      # If you want to clone the repository as part of your setup steps, for example to install dependencies, you'll need the `contents: read` permission. If you don't clone the repository in your setup steps, Copilot will do this for you automatically after the steps complete.
-      contents: read
-
-    # You can define any steps you want, and they will run before the agent starts.
-    # If you do not check out your code, Copilot will do this for you.
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: false
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - name: Set up MoonBit
-        run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
-          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+      - name: Install MoonBit toolchain
+        uses: moonbit-community/setup-moonbit@04293a8a813bfd4b6c2fce22701b52ae1050d100
 
-      - name: Update MoonBit dependencies
+      - name: moon version
         run: |
-            moon version --all
-            moon update
-            
+          moon version --all
+
+      - name: moon update
+        run: |
+          moon update
+
+      - name: moon check
+        run: moon check --deny-warn
+
+      - name: format diff
+        run: |
+          moon fmt
+          git diff --exit-code
+
+      - name: moon test
+        run: |
+          moon test --target all
+
+      - name: moon test --release
+        run: |
+          moon test --target all --release
 
 === ./.gitignore ===
 .DS_Store
@@ -151,7 +156,7 @@ repository = ""
 
 license = "Apache-2.0"
 
-keywords = []
+keywords = [ ]
 
 preferred_target = "wasm"
 
