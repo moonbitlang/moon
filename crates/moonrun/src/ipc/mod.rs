@@ -49,7 +49,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::policy::{InheritedPolicyInput, Policy};
+use crate::policy::Policy;
 use crate::{Engine, RunOptions, RunOutcome, RunTermination, termination_channel};
 
 /// Explicit caller state for one execution. No field defaults to daemon state.
@@ -296,15 +296,9 @@ pub fn serve(engine: &Engine, stream: Connection, mut options: RunOptions) -> an
         options.no_stack_trace = invocation.no_stack_trace;
         options.test_args = invocation.test_args;
         stream.set_read_timeout(None)?;
-        if let Some(additional) = invocation.inherited_policy {
-            let additional = Policy::from_transfer(&additional)?;
-            let inherited = match options.runtime.inherited_policy.take() {
-                None => additional,
-                Some(InheritedPolicyInput::Resolved(host)) => host.intersect(additional),
-                Some(InheritedPolicyInput::Transfer(bytes)) => {
-                    Policy::from_transfer(&bytes)?.intersect(additional)
-                }
-            };
+        if let Some(transfer) = invocation.inherited_policy {
+            let inherited =
+                Policy::from_delegation(options.runtime.inherited_policy.as_ref(), &transfer)?;
             options = options.with_parent_policy(inherited);
         }
         options.runtime.stdio = crate::runtime::Stdio::bound(stdio);

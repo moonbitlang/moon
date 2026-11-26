@@ -268,13 +268,17 @@ fn client_and_host_restrictions_intersect_and_bad_transfers_fail() {
     for (host, client) in [
         (deny.clone(), allowed.clone()),
         (allowed, deny),
-        (b"invalid".to_vec(), b"invalid".to_vec()),
+        // Both inputs are invalid. The client transfer's error takes precedence.
+        (
+            br#"{"version":0,"rule_groups":[]}"#.to_vec(),
+            b"invalid".to_vec(),
+        ),
     ] {
         let (a, b) = UnixStream::pair().unwrap();
         a.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let mut request = invocation(&program, directory.path());
+        let invalid = client == b"invalid";
         request.inherited_policy = Some(client);
-        let invalid = host == b"invalid";
         let engine = engine.clone();
         let server = std::thread::spawn(move || {
             serve(

@@ -133,25 +133,16 @@ pub(crate) struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    /// Compose resolved restrictions and provision Env; composition only
-    /// joins compiled rules and never observes host state.
+    /// Resolve the effective policy before provisioning the Run's environment.
     pub(crate) fn realize_policy(&self, source: Env) -> anyhow::Result<(Option<Policy>, Env)> {
-        let mut policy = match &self.inherited_policy {
-            Some(policy::InheritedPolicyInput::Resolved(inherited)) => Some(inherited.clone()),
-            Some(policy::InheritedPolicyInput::Transfer(contents)) => {
-                Some(policy::Policy::from_transfer(contents)?)
-            }
-            None => None,
-        };
+        let policy = Policy::for_run(
+            self.inherited_policy.as_ref(),
+            self.selected_policy
+                .as_ref()
+                .map(|selected| &selected.policy),
+        )?;
         let environment = match &self.selected_policy {
-            Some(selected) => {
-                let child = selected.policy.clone();
-                policy = Some(match policy {
-                    Some(parent) => parent.intersect(child),
-                    None => child,
-                });
-                selected.environment.clone().provision(&source)?
-            }
+            Some(selected) => selected.environment.clone().provision(&source)?,
             None => source,
         };
         Ok((policy, environment))
