@@ -1,5 +1,5 @@
 ///|
-#cfg(any(target="native", target="llvm"))
+#cfg(target="native")
 #test_entry
 fn main {
   let async_tests = []

@@ -1,5 +1,28 @@
 use super::*;
 
+#[test]
+fn test_generated_drivers_compile_with_deny_warn() {
+    // Given all three test kinds, exercise the shared generated template with
+    // real compiler diagnostics on every backend it supports.
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/strict-driver\"\n").unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    for file in ["lib.mbt", "lib_wbtest.mbt", "lib_test.mbt"] {
+        std::fs::write(dir.join(file), "test { assert_eq(1, 1) }\n").unwrap();
+    }
+
+    for backend in ["native", "js", "wasm", "wasm-gc"] {
+        // When warnings are errors, generated code must still compile and all
+        // selected tests must run; filtering warning output cannot make this pass.
+        moon_cmd(&dir)
+            .args(["test", "--target", backend, "--deny-warn"])
+            .assert()
+            .success()
+            .stdout_eq("Total tests: 3, passed: 3, failed: 0.\n")
+            .stderr_eq("");
+    }
+}
+
 fn assert_deny_warn_appended_to_custom_warn_list(stdout: &str, command_prefix: &str) {
     let mut checked_commands = 0;
 
