@@ -184,6 +184,13 @@ impl Policy {
     pub(crate) fn open_transfer(
         &self,
     ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
+        // An embedded runtime's policy may deny access to the host temp directory.
+        #[cfg(target_os = "linux")]
+        let mut file = std::fs::File::from(rustix::fs::memfd_create(
+            c"moonrun-policy",
+            rustix::fs::MemfdFlags::CLOEXEC,
+        )?);
+        #[cfg(not(target_os = "linux"))]
         let mut file = tempfile::tempfile()?;
         file.write_all(&self.to_transfer()?)?;
         file.flush()?;
