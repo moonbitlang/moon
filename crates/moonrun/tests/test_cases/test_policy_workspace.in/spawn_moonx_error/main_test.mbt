@@ -28,7 +28,7 @@ enum HostPlatform {
 fn host_platform() -> HostPlatform = "moonbitlang/async" "runtime/get_platform"
 
 ///|
-async test "policy transfer failure is reported by the spawn job" {
+async test "policy transfer when the host temporary directory is unavailable" {
   let temp_dir = if host_platform() is Windows {
     @env.get_env_var("TEMP")
   } else {
@@ -39,11 +39,17 @@ async test "policy transfer failure is reported by the spawn job" {
     None => abort("temporary directory is missing")
   }
 
-  try {
-    let _ = @process.collect_stdout("moonx", ["moonbitlang/parser/cmd/moonfmt@0.3.3"])
-    abort("moonx was spawned after policy transfer failed")
-  } catch {
-    @os_error.OSError(_) => ()
-    err => abort("unexpected process error: \{err}")
+  let args = ["moonbitlang/parser/cmd/moonfmt@0.3.3"]
+  if host_platform() is Linux {
+    let (code, _) = @process.collect_stdout("moonx", args)
+    assert_eq(code, 0)
+  } else {
+    try {
+      let _ = @process.collect_stdout("moonx", args)
+      abort("moonx was spawned after policy transfer failed")
+    } catch {
+      @os_error.OSError(_) => ()
+      err => abort("unexpected process error: \{err}")
+    }
   }
 }

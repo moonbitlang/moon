@@ -192,9 +192,8 @@ spawn = true
     )
     .unwrap();
 
-    // The blackbox test removes this directory through the guest filesystem,
-    // then verifies that the following direct moonx spawn reports the policy-
-    // transfer failure instead of creating a child.
+    // The guest removes this directory before spawning moonx. On Linux the
+    // inherited policy must still reach the cached env_marker fixture.
     let policy_transfer_temp = tempfile::TempDir::new().expect("create policy transfer temp");
     moon_cmd()
         .current_dir(dir.path())
