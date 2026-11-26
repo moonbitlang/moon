@@ -103,6 +103,12 @@ an execution error. Runtime teardown releases guest mutex entries before joining
 Workers, then SQLite retires and destroys Statements before Databases. Owning
 tables do not replace Job leases or choose native destruction order.
 
+The Thread Pool owns Worker Handles. Waking a Worker validates its Handle
+before transferring a Job. Freeing or destroying Workers retires their
+Handles before cancellation and joining; queued Jobs return to Async Host for
+restoration, alongside completed results. Callers do not manipulate the Worker
+table or join native threads directly.
+
 Workers can create OS Resources, but publishing guest-visible Handles belongs
 to the guest-thread event loop. An open Worker returns a completed Job with an
 unpublished Resource; the Async Host publishes its Handle when the result is

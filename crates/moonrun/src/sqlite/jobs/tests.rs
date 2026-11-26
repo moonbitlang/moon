@@ -216,7 +216,7 @@ fn detached_preparing_jobs_destroy_unclaimed_results_before_releasing_the_databa
     );
     assert_eq!(host.close(database), Err(SqliteHostError::InvalidInput));
     let replacement = pool
-        .insert_job(crate::async_sys::internal::event_loop::thread_pool::make_sleep_job(0))
+        .insert_job(crate::thread_pool::make_sleep_job(0))
         .unwrap();
     drop(guard);
     assert_eq!(pool.poll_wait(poll, 10_000, &Default::default()), Ok(1));
@@ -273,7 +273,7 @@ fn idle_async_workers_can_run_sqlite_and_existing_jobs() {
     let poll = pool.poll_create().unwrap();
     pool.init_thread_pool(poll).unwrap();
     let sleep = pool
-        .insert_job(crate::async_sys::internal::event_loop::thread_pool::make_sleep_job(0))
+        .insert_job(crate::thread_pool::make_sleep_job(0))
         .unwrap();
     let worker = pool.spawn_worker(1, sleep).unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);

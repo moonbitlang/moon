@@ -231,7 +231,7 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     symbols.extend_from_slice(crate::filesystem::IO_PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::filesystem::LOCK_PORTED_SYMBOLS);
     symbols.extend(crate::poll::ported_symbols());
-    symbols.extend(internal::event_loop::thread_pool::ported_symbols());
+    symbols.extend(crate::thread_pool::ported_symbols());
     symbols.extend_from_slice(crate::filesystem::directory_entries::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::filesystem::TEMP_DIR_PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::filesystem::watch::PORTED_SYMBOLS);

@@ -39,10 +39,8 @@ impl super::os::BlockingIo for CancellableIo {
     fn run<T>(&self, operation: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
         // Keep the worker's region scoped to each syscall, including a named-pipe
         // retry, rather than exposing its thread-local cancellation guard.
-        crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region(|| {
-            Ok(operation())
-        })
-        .map_err(|error| std::io::Error::from_raw_os_error(error.errno()))?
+        crate::thread_pool::with_cancellable_region(|| Ok(operation()))
+            .map_err(|error| std::io::Error::from_raw_os_error(error.errno()))?
     }
 }
 
