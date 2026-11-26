@@ -127,7 +127,7 @@ pub(super) fn free(context: &mut ImportContext<'_>, tls: u64) -> AsyncHostResult
 pub(super) fn take_error(context: &mut ImportContext<'_>, tls: u64) -> AsyncHostResult<u64> {
     let message = context.host.tls().take_error(tls)?
         .unwrap_or_else(|| "unknown TLS error".to_string());
-    Ok(context.host.insert_c_buffer(error_message_buffer(message)))
+    Ok(context.host.buffers().publish(error_message_buffer(message)))
 }
 
 #[compat(
@@ -138,7 +138,7 @@ pub(super) fn take_error(context: &mut ImportContext<'_>, tls: u64) -> AsyncHost
     api_only = true
 )]
 pub(super) fn take_global_error(context: &mut ImportContext<'_>) -> u64 {
-    context.host.insert_c_buffer(error_message_buffer("unknown TLS error".to_string()))
+    context.host.buffers().publish(error_message_buffer("unknown TLS error".to_string()))
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/read_plain")]
@@ -284,10 +284,10 @@ pub(super) fn peer_certificate(
     tls: u64,
 ) -> AsyncHostResult<u64> {
     match context.host.tls().peer_certificate(tls)? {
-        Ok(Some(buffer)) => Ok(context.host.insert_c_buffer(buffer.into_boxed_slice())),
+        Ok(Some(buffer)) => Ok(context.host.buffers().publish(buffer.into_boxed_slice())),
         // The guest distinguishes an absent certificate (an empty buffer) from
         // a TLS error (null). The connection retains the error diagnostic.
-        Ok(None) => Ok(context.host.insert_c_buffer(Box::default())),
+        Ok(None) => Ok(context.host.buffers().publish(Box::default())),
         Err(()) => Ok(null_handle()),
     }
 }
@@ -298,7 +298,7 @@ pub(super) fn unique_channel_binding(
     tls: u64,
 ) -> AsyncHostResult<u64> {
     match context.host.tls().unique_channel_binding(tls)? {
-        Ok(Some(buffer)) => Ok(context.host.insert_c_buffer(buffer.into_boxed_slice())),
+        Ok(Some(buffer)) => Ok(context.host.buffers().publish(buffer.into_boxed_slice())),
         Ok(None) | Err(()) => Ok(null_handle()),
     }
 }
@@ -309,7 +309,7 @@ pub(super) fn server_endpoint_channel_binding(
     tls: u64,
 ) -> AsyncHostResult<u64> {
     match context.host.tls().server_endpoint_channel_binding(tls)? {
-        Ok(Some(buffer)) => Ok(context.host.insert_c_buffer(buffer.into_boxed_slice())),
+        Ok(Some(buffer)) => Ok(context.host.buffers().publish(buffer.into_boxed_slice())),
         Ok(None) | Err(()) => Ok(null_handle()),
     }
 }
@@ -461,15 +461,16 @@ mod tests {
             Ok(null_handle())
         );
         let error = take_error(&mut context, tls).unwrap();
-        host.with_c_buffer(error, |buffer| {
-            assert_eq!(
-                buffer,
-                &*error_message_buffer("TLS handle is not configured".to_string())
-            );
-            Ok(())
-        })
-        .unwrap();
-        host.free_c_buffer(error).unwrap();
+        host.buffers()
+            .with_buffer(error, |buffer| {
+                assert_eq!(
+                    buffer,
+                    &*error_message_buffer("TLS handle is not configured".to_string())
+                );
+                Ok(())
+            })
+            .unwrap();
+        host.buffers().free(error).unwrap();
 
         // Taking an empty diagnostic and the legacy global-error import both
         // retain the ABI's fallback, with separately owned buffers.
@@ -477,15 +478,16 @@ mod tests {
             take_error(&mut context, tls).unwrap(),
             take_global_error(&mut context),
         ] {
-            host.with_c_buffer(error, |buffer| {
-                assert_eq!(
-                    buffer,
-                    &*error_message_buffer("unknown TLS error".to_string())
-                );
-                Ok(())
-            })
-            .unwrap();
-            host.free_c_buffer(error).unwrap();
+            host.buffers()
+                .with_buffer(error, |buffer| {
+                    assert_eq!(
+                        buffer,
+                        &*error_message_buffer("unknown TLS error".to_string())
+                    );
+                    Ok(())
+                })
+                .unwrap();
+            host.buffers().free(error).unwrap();
         }
 
         // A configured connection without a peer certificate succeeds with
@@ -497,12 +499,13 @@ mod tests {
         );
         let certificate = peer_certificate(&mut context, tls).unwrap();
         assert_ne!(certificate, null_handle());
-        host.with_c_buffer(certificate, |buffer| {
-            assert!(buffer.is_empty());
-            Ok(())
-        })
-        .unwrap();
-        host.free_c_buffer(certificate).unwrap();
+        host.buffers()
+            .with_buffer(certificate, |buffer| {
+                assert!(buffer.is_empty());
+                Ok(())
+            })
+            .unwrap();
+        host.buffers().free(certificate).unwrap();
         assert_eq!(unique_channel_binding(&mut context, tls), Ok(null_handle()));
         assert_eq!(
             server_endpoint_channel_binding(&mut context, tls),

@@ -53,7 +53,7 @@ pub(crate) fn current_exe_dir(runtime: &Runtime) -> u64 {
 
 fn buffer_to_handle(runtime: &Runtime, buffer: AsyncHostResult<Box<[u8]>>) -> u64 {
     match buffer {
-        Ok(buffer) => runtime.async_host().insert_c_buffer(buffer),
+        Ok(buffer) => runtime.async_host().buffers().publish(buffer),
         Err(error) => {
             runtime.async_host().record_error(error);
             runtime.null_handle()

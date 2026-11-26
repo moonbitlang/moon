@@ -224,7 +224,7 @@ pub(crate) use ported_fns;
 #[cfg(test)]
 pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     let mut symbols = Vec::new();
-    symbols.extend_from_slice(internal::c_buffer::stub::PORTED_SYMBOLS);
+    symbols.extend_from_slice(crate::async_host::buffers::Buffers::PORTED_SYMBOLS);
     symbols.extend_from_slice(internal::env_util::stub::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::filesystem::PIPE_PORTED_SYMBOLS);
     symbols.extend(internal::event_loop::io::ported_symbols());

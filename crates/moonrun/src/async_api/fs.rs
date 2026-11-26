@@ -76,7 +76,7 @@ pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_>) -> AsyncHostR
         use std::os::windows::ffi::OsStrExt;
         path.encode_wide().chain([0]).flat_map(u16::to_ne_bytes).collect::<Vec<_>>()
     };
-    Ok(context.host.insert_c_buffer(bytes.into_boxed_slice()))
+    Ok(context.host.buffers().publish(bytes.into_boxed_slice()))
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
@@ -96,7 +96,8 @@ pub(super) fn dir_entry_length(
     offset: u32,
 ) -> AsyncHostResult<u32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_length(buf, offset))
+        .buffers()
+        .with_buffer(buf, |buf| dir::entry_length(buf, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
@@ -106,7 +107,8 @@ pub(super) fn dir_entry_name_len(
     offset: u32,
 ) -> AsyncHostResult<u32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_name_len(buf, offset))
+        .buffers()
+        .with_buffer(buf, |buf| dir::entry_name_len(buf, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
@@ -116,7 +118,8 @@ pub(super) fn dir_entry_name_offset(
     offset: u32,
 ) -> AsyncHostResult<u32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_name_offset(buf, offset))
+        .buffers()
+        .with_buffer(buf, |buf| dir::entry_name_offset(buf, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
@@ -126,7 +129,8 @@ pub(super) fn dir_entry_is_dir(
     offset: u32,
 ) -> AsyncHostResult<i32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_is_dir(buf, offset))
+        .buffers()
+        .with_buffer(buf, |buf| dir::entry_is_dir(buf, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
@@ -136,7 +140,8 @@ pub(super) fn dir_entry_is_hidden(
     offset: u32,
 ) -> AsyncHostResult<i32> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_is_hidden(buf, offset))
+        .buffers()
+        .with_buffer(buf, |buf| dir::entry_is_hidden(buf, offset))
         .map(|value| if value { 1 } else { 0 })
 }
 
@@ -147,7 +152,8 @@ pub(super) fn dir_entry_file_id(
     offset: u32,
 ) -> AsyncHostResult<u64> {
     context.host
-        .with_c_buffer(buf, |buf| dir::entry_file_id(buf, offset))
+        .buffers()
+        .with_buffer(buf, |buf| dir::entry_file_id(buf, offset))
 }
 
 #[ported(
@@ -210,7 +216,7 @@ pub(super) fn inotify_fetch_event(
 
     let result = (|| {
         let watcher = context.host.acquire_resource(watcher)?;
-        context.host.with_c_buffer_mut(buffer, |buffer| {
+        context.host.buffers().with_buffer_mut(buffer, |buffer| {
             watch_inotify::fetch_event(watcher.as_fd()?.as_raw_fd(), buffer, len)
         })
     })();
@@ -235,7 +241,8 @@ pub(super) fn inotify_event_get_size(
 ) -> AsyncHostResult<u32> {
     context
         .host
-        .with_c_buffer(buffer, |buffer| watch_inotify::event_get_size(buffer, offset))
+        .buffers()
+        .with_buffer(buffer, |buffer| watch_inotify::event_get_size(buffer, offset))
 }
 
 #[ported(
@@ -248,7 +255,7 @@ pub(super) fn inotify_event_get_wd(
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<u64> {
-    context.host.with_c_buffer(buffer, |buffer| {
+    context.host.buffers().with_buffer(buffer, |buffer| {
         let wd = watch_inotify::event_get_wd(buffer, offset)?;
         Ok(i64::from(wd) as u64)
     })
@@ -264,7 +271,7 @@ pub(super) fn inotify_event_has_relevant_event(
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
-    context.host.with_c_buffer(buffer, |buffer| {
+    context.host.buffers().with_buffer(buffer, |buffer| {
         watch_inotify::event_has_relevant_event(buffer, offset).map(i32::from)
     })
 }
@@ -279,7 +286,7 @@ pub(super) fn inotify_event_has_overflow(
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
-    context.host.with_c_buffer(buffer, |buffer| {
+    context.host.buffers().with_buffer(buffer, |buffer| {
         watch_inotify::event_has_overflow(buffer, offset).map(i32::from)
     })
 }
@@ -294,7 +301,7 @@ pub(super) fn inotify_event_has_ignore(
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
-    context.host.with_c_buffer(buffer, |buffer| {
+    context.host.buffers().with_buffer(buffer, |buffer| {
         watch_inotify::event_has_ignore(buffer, offset).map(i32::from)
     })
 }
@@ -356,7 +363,7 @@ pub(super) fn kqueue_watcher_fetch_event(
 
     let result = (|| {
         let kqueue = context.host.acquire_resource(kqueue)?;
-        context.host.with_c_buffer_mut(buffer, |buffer| {
+        context.host.buffers().with_buffer_mut(buffer, |buffer| {
             watch_kqueue::fetch_event(kqueue.as_fd()?.as_raw_fd(), buffer, len)
         })
     })();
@@ -381,7 +388,8 @@ pub(super) fn kqueue_watcher_event_get_fd(
 ) -> AsyncHostResult<u64> {
     context
         .host
-        .with_c_buffer(buffer, |buffer| watch_kqueue::event_get_fd(buffer, index))
+        .buffers()
+        .with_buffer(buffer, |buffer| watch_kqueue::event_get_fd(buffer, index))
 }
 
 #[ported(
@@ -394,14 +402,14 @@ pub(super) fn kqueue_watcher_event_has_modify(
     buffer: u64,
     index: u32,
 ) -> AsyncHostResult<i32> {
-    context.host.with_c_buffer(buffer, |buffer| {
+    context.host.buffers().with_buffer(buffer, |buffer| {
         watch_kqueue::event_has_modify(buffer, index).map(i32::from)
     })
 }
 
 #[cfg(windows)]
 pub(super) fn windows_watcher_buffer_new(context: &mut ImportContext<'_>) -> u64 {
-    context.host.insert_windows_watcher_buffer()
+    context.host.buffers().allocate_windows_watcher()
 }
 
 #[cfg(windows)]
@@ -409,7 +417,7 @@ pub(super) fn windows_watcher_buffer_free(
     context: &mut ImportContext<'_>,
     buffer: u64,
 ) -> AsyncHostResult<()> {
-    context.host.free_windows_watcher_buffer(buffer)
+    context.host.buffers().free_windows_watcher(buffer)
 }
 
 #[ported(
@@ -424,7 +432,7 @@ pub(super) fn watcher_event_get_size(
 ) -> AsyncHostResult<u32> {
     context
         .host
-        .with_windows_watcher_buffer(buffer, |buffer| {
+        .buffers().with_windows_watcher(buffer, |buffer| {
             watch_windows::event_get_size(buffer, offset)
         })
 }
@@ -439,7 +447,7 @@ pub(super) fn watcher_event_is_modify(
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<i32> {
-    context.host.with_windows_watcher_buffer(buffer, |buffer| {
+    context.host.buffers().with_windows_watcher(buffer, |buffer| {
         watch_windows::event_is_modify(buffer, offset).map(i32::from)
     })
 }
@@ -452,7 +460,7 @@ pub(super) fn watcher_event_path_len(
 ) -> AsyncHostResult<u32> {
     context
         .host
-        .with_windows_watcher_buffer(buffer, |buffer| {
+        .buffers().with_windows_watcher(buffer, |buffer| {
             watch_windows::event_path_len(buffer, offset)
         })
 }
@@ -467,7 +475,7 @@ pub(super) fn watcher_event_path_copy(
 ) -> AsyncHostResult<()> {
     let path = context
         .host
-        .with_windows_watcher_buffer(buffer, |buffer| {
+        .buffers().with_windows_watcher(buffer, |buffer| {
             watch_windows::event_path_units(buffer, offset)
         })?;
     if usize::try_from(out_len).map_err(|_| AsyncHostError::Fault)? != path.len() {
@@ -481,7 +489,7 @@ pub(super) fn watcher_event_has_file_ids(
     context: &mut ImportContext<'_>,
     buffer: u64,
 ) -> AsyncHostResult<i32> {
-    context.host.with_windows_watcher_buffer(buffer, |buffer| {
+    context.host.buffers().with_windows_watcher(buffer, |buffer| {
         watch_windows::event_has_file_ids(buffer).map(i32::from)
     })
 }
@@ -492,7 +500,7 @@ pub(super) fn watcher_event_dirty_file_id(
     buffer: u64,
     offset: u32,
 ) -> AsyncHostResult<u64> {
-    context.host.with_windows_watcher_buffer(buffer, |buffer| {
+    context.host.buffers().with_windows_watcher(buffer, |buffer| {
         watch_windows::event_dirty_file_id(buffer, offset)
     })
 }

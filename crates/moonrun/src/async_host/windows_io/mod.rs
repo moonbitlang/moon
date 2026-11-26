@@ -18,9 +18,10 @@
 
 //! Windows I/OResult ownership, submission, and completion retirement.
 
+use super::buffers::WindowsWatcherBufferLease;
 use super::{
-    AsyncHost, AsyncHostError, AsyncHostResult, HandleKey, HandleKind, HostHandle,
-    WindowsWatcherBufferLease, handle_from_key, key_from_handle,
+    AsyncHost, AsyncHostError, AsyncHostResult, HandleKey, HandleKind, HostHandle, handle_from_key,
+    key_from_handle,
 };
 use crate::guest_memory::GuestMemory;
 use crate::network::AcceptBuffer;
@@ -695,7 +696,7 @@ impl AsyncHost {
         &self,
         buffer_handle: u64,
     ) -> AsyncHostResult<u64> {
-        let buffer = self.lease_windows_watcher_buffer(buffer_handle)?;
+        let buffer = self.buffers().lease_windows_watcher(buffer_handle)?;
         self.insert_io_result(HostIoResult::for_read_dir_changes(buffer))
     }
 
@@ -728,7 +729,7 @@ impl AsyncHost {
         let buffer = result.read_dir_changes_buffer.take();
         drop(io_results);
         if let Some(buffer) = buffer {
-            self.restore_windows_watcher_buffer(buffer);
+            self.buffers().restore_windows_watcher(buffer);
         }
         Ok(())
     }
@@ -761,7 +762,7 @@ impl AsyncHost {
         drop(io_results);
         drop(handles);
         if let Some(buffer) = buffer {
-            self.restore_windows_watcher_buffer(buffer);
+            self.buffers().restore_windows_watcher(buffer);
         }
         status
     }
@@ -833,7 +834,7 @@ impl AsyncHost {
         drop(io_results);
         drop(handles);
         if let Some(buffer) = buffer {
-            self.restore_windows_watcher_buffer(buffer);
+            self.buffers().restore_windows_watcher(buffer);
         }
         status
     }

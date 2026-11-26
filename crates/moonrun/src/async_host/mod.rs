@@ -67,6 +67,9 @@ compile_error!("moonrun async wasm host currently supports only Linux, macOS, an
 #[cfg(not(target_endian = "little"))]
 compile_error!("moonrun async wasm host requires little-endian host memory");
 
+pub(crate) mod buffers;
+use buffers::Buffers;
+
 #[cfg(windows)]
 mod windows_io;
 #[cfg(windows)]
@@ -83,60 +86,6 @@ pub(crate) enum AsyncHostError {
 }
 
 pub(crate) type AsyncHostResult<T> = Result<T, AsyncHostError>;
-enum HostCBuffer {
-    Available(Box<[u8]>),
-    // A readdir Job temporarily owns the buffer. Keeping the slot reserved
-    // prevents guest calls from racing the worker without sharing the bytes.
-    Leased,
-}
-
-#[derive(Debug)]
-pub(crate) struct CBufferLease {
-    key: HandleKey,
-    buffer: Box<[u8]>,
-}
-
-impl CBufferLease {
-    fn new(key: HandleKey, buffer: Box<[u8]>) -> Self {
-        Self { key, buffer }
-    }
-
-    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
-        &mut self.buffer
-    }
-
-    fn into_parts(self) -> (HandleKey, Box<[u8]>) {
-        (self.key, self.buffer)
-    }
-}
-
-#[cfg(windows)]
-enum HostWindowsWatcherBuffer {
-    Available(crate::filesystem::watch::EventBuffer),
-    Leased,
-}
-
-#[cfg(windows)]
-#[derive(Debug)]
-pub(crate) struct WindowsWatcherBufferLease {
-    key: HandleKey,
-    buffer: crate::filesystem::watch::EventBuffer,
-}
-
-#[cfg(windows)]
-impl WindowsWatcherBufferLease {
-    fn new(key: HandleKey, buffer: crate::filesystem::watch::EventBuffer) -> Self {
-        Self { key, buffer }
-    }
-
-    fn buffer_mut(&mut self) -> &mut crate::filesystem::watch::EventBuffer {
-        &mut self.buffer
-    }
-
-    fn into_parts(self) -> (HandleKey, crate::filesystem::watch::EventBuffer) {
-        (self.key, self.buffer)
-    }
-}
 #[cfg(unix)]
 mod native_errno {
     pub(crate) const BADF: i32 = libc::EBADF;
@@ -510,9 +459,7 @@ pub(crate) struct AsyncHost {
     network: HostNetwork,
     errno: Cell<i32>,
     addr_infos: RefCell<Handles<HostAddrInfo>>,
-    c_buffers: RefCell<Handles<HostCBuffer>>,
-    #[cfg(windows)]
-    windows_watcher_buffers: RefCell<Handles<HostWindowsWatcherBuffer>>,
+    buffers: Buffers,
     process_inputs: ProcessInputs,
     process: HostProcess,
     #[cfg(unix)]
@@ -548,12 +495,7 @@ impl AsyncHost {
             network,
             errno: Cell::new(0),
             addr_infos: RefCell::new(Handles::new(keys.clone(), HandleKind::AddrInfo)),
-            c_buffers: RefCell::new(Handles::new(keys.clone(), HandleKind::CBuffer)),
-            #[cfg(windows)]
-            windows_watcher_buffers: RefCell::new(Handles::new(
-                keys.clone(),
-                HandleKind::WindowsWatcherBuffer,
-            )),
+            buffers: Buffers::new(keys.clone()),
             process_inputs: ProcessInputs::new(environment, keys.clone()),
             process,
             #[cfg(unix)]
@@ -645,26 +587,7 @@ impl AsyncHost {
         let Some(buffer) = job.take_c_buffer_lease() else {
             return;
         };
-        self.restore_c_buffer(buffer);
-    }
-
-    fn restore_c_buffer(&self, buffer: CBufferLease) {
-        let (key, buffer) = buffer.into_parts();
-        if let Some(entry) = self.c_buffers.borrow_mut().get_mut(key)
-            && matches!(entry, HostCBuffer::Leased)
-        {
-            *entry = HostCBuffer::Available(buffer);
-        }
-    }
-
-    #[cfg(windows)]
-    fn restore_windows_watcher_buffer(&self, buffer: WindowsWatcherBufferLease) {
-        let (key, buffer) = buffer.into_parts();
-        if let Some(entry) = self.windows_watcher_buffers.borrow_mut().get_mut(key)
-            && matches!(entry, HostWindowsWatcherBuffer::Leased)
-        {
-            *entry = HostWindowsWatcherBuffer::Available(buffer);
-        }
+        self.buffers().restore(buffer);
     }
 
     fn revoke_unclaimed_spawn(process: &HostProcess, job: &Job) {
@@ -693,19 +616,7 @@ impl AsyncHost {
         {
             let mut leaks = Vec::new();
 
-            {
-                let c_buffers = self.c_buffers.borrow();
-                if !c_buffers.is_empty() {
-                    leaks.push(format!("c_buffers={}", c_buffers.len()));
-                }
-            }
-            #[cfg(windows)]
-            {
-                let buffers = self.windows_watcher_buffers.borrow();
-                if !buffers.is_empty() {
-                    leaks.push(format!("windows_watcher_buffers={}", buffers.len()));
-                }
-            }
+            self.buffers.append_leaks(&mut leaks);
             {
                 let addr_infos = self.addr_infos.borrow();
                 if !addr_infos.is_empty() {
@@ -1026,121 +937,8 @@ impl AsyncHost {
         drop(registration);
     }
 
-    pub(crate) fn insert_c_buffer(&self, buffer: Box<[u8]>) -> u64 {
-        let key = self
-            .c_buffers
-            .borrow_mut()
-            .insert(HostCBuffer::Available(buffer));
-        handle_from_key(key)
-    }
-
-    pub(crate) fn free_c_buffer(&self, handle: u64) -> AsyncHostResult<()> {
-        if handle == null_handle() {
-            return Ok(());
-        }
-        self.c_buffers
-            .borrow_mut()
-            .remove(key_from_handle(handle))
-            .map(|_| ())
-            .ok_or(AsyncHostError::Badf)
-    }
-
-    pub(crate) fn with_c_buffer<T>(
-        &self,
-        handle: u64,
-        f: impl FnOnce(&[u8]) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        // A c_buffer handle always names a whole host-owned buffer entry.
-        // Callers that need a subrange must pass explicit offset/length
-        // arguments; never reinterpret raw or interior pointers as handles.
-        let key = key_from_handle(handle);
-        let buffers = self.c_buffers.borrow();
-        match buffers.get(key).ok_or(AsyncHostError::Badf)? {
-            HostCBuffer::Available(buffer) => f(buffer),
-            HostCBuffer::Leased => Err(AsyncHostError::Badf),
-        }
-    }
-
-    pub(crate) fn with_c_buffer_mut<T>(
-        &self,
-        handle: u64,
-        f: impl FnOnce(&mut [u8]) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        let key = key_from_handle(handle);
-        let mut buffers = self.c_buffers.borrow_mut();
-        match buffers.get_mut(key).ok_or(AsyncHostError::Badf)? {
-            HostCBuffer::Available(buffer) => f(buffer),
-            HostCBuffer::Leased => Err(AsyncHostError::Badf),
-        }
-    }
-
-    pub(crate) fn lease_c_buffer(&self, handle: u64) -> AsyncHostResult<CBufferLease> {
-        let key = key_from_handle(handle);
-        let mut buffers = self.c_buffers.borrow_mut();
-        let entry = buffers.get_mut(key).ok_or(AsyncHostError::Badf)?;
-        match std::mem::replace(entry, HostCBuffer::Leased) {
-            HostCBuffer::Available(buffer) => Ok(CBufferLease::new(key, buffer)),
-            HostCBuffer::Leased => {
-                *entry = HostCBuffer::Leased;
-                Err(AsyncHostError::Badf)
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn insert_windows_watcher_buffer(&self) -> u64 {
-        let key =
-            self.windows_watcher_buffers
-                .borrow_mut()
-                .insert(HostWindowsWatcherBuffer::Available(
-                    crate::filesystem::watch::EventBuffer::new(),
-                ));
-        handle_from_key(key)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn free_windows_watcher_buffer(&self, handle: u64) -> AsyncHostResult<()> {
-        if handle == null_handle() {
-            return Ok(());
-        }
-        self.windows_watcher_buffers
-            .borrow_mut()
-            .remove(key_from_handle(handle))
-            .map(|_| ())
-            .ok_or(AsyncHostError::Badf)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn with_windows_watcher_buffer<T>(
-        &self,
-        handle: u64,
-        f: impl FnOnce(&crate::filesystem::watch::EventBuffer) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        let key = key_from_handle(handle);
-        let buffers = self.windows_watcher_buffers.borrow();
-        match buffers.get(key).ok_or(AsyncHostError::Badf)? {
-            HostWindowsWatcherBuffer::Available(buffer) => f(buffer),
-            HostWindowsWatcherBuffer::Leased => Err(AsyncHostError::Badf),
-        }
-    }
-
-    #[cfg(windows)]
-    fn lease_windows_watcher_buffer(
-        &self,
-        handle: u64,
-    ) -> AsyncHostResult<WindowsWatcherBufferLease> {
-        let key = key_from_handle(handle);
-        let mut buffers = self.windows_watcher_buffers.borrow_mut();
-        let entry = buffers.get_mut(key).ok_or(AsyncHostError::Badf)?;
-        match std::mem::replace(entry, HostWindowsWatcherBuffer::Leased) {
-            HostWindowsWatcherBuffer::Available(buffer) => {
-                Ok(WindowsWatcherBufferLease::new(key, buffer))
-            }
-            HostWindowsWatcherBuffer::Leased => {
-                *entry = HostWindowsWatcherBuffer::Leased;
-                Err(AsyncHostError::Badf)
-            }
-        }
+    pub(crate) fn buffers(&self) -> &Buffers {
+        &self.buffers
     }
 
     pub(crate) fn insert_job(&self, job: impl Into<Job>) -> AsyncHostResult<u64> {
@@ -1187,7 +985,7 @@ impl AsyncHost {
         if let Ok(job) = job.filesystem()
             && let Some(buffer_handle) = job.published_realpath_handle()
         {
-            let _ = self.free_c_buffer(buffer_handle);
+            let _ = self.buffers().free(buffer_handle);
         }
         Ok(())
     }
@@ -1867,7 +1665,7 @@ impl AsyncHost {
         // Keep the mutable job borrow through publication so its ownership of
         // the resulting c_buffer changes atomically on the V8 thread.
         let job = job.filesystem_mut()?;
-        job.publish_realpath_result(|buffer| self.insert_c_buffer(buffer))
+        job.publish_realpath_result(|buffer| self.buffers().publish(buffer))
     }
 
     #[cfg(unix)]
@@ -2093,14 +1891,14 @@ mod tests {
             .unwrap();
         host.free_job(job).unwrap();
 
-        let buffer = host.insert_c_buffer(Box::default());
+        let buffer = host.buffers().publish(Box::default());
         for handle in [0, null_handle(), buffer, job] {
             assert_eq!(
                 host.make_wait_for_process_job(handle, 1),
                 Err(AsyncHostError::Badf)
             );
         }
-        host.free_c_buffer(buffer).unwrap();
+        host.buffers().free(buffer).unwrap();
         assert!(host.leak_summary().is_none());
     }
 
@@ -3322,7 +3120,9 @@ mod tests {
         host.poll_destroy(old).unwrap();
         let replacement = host.poll_create().unwrap();
         assert_ne!(old, replacement);
-        let buffer = host.insert_c_buffer(b"retained".to_vec().into_boxed_slice());
+        let buffer = host
+            .buffers()
+            .publish(b"retained".to_vec().into_boxed_slice());
         host.init_thread_pool(replacement).unwrap();
         assert_eq!(host.poll_wait(replacement, 0, &Default::default()), Ok(0));
 
@@ -3341,14 +3141,15 @@ mod tests {
             host.init_thread_pool(replacement),
             Err(AsyncHostError::Inval)
         );
-        host.with_c_buffer(buffer, |bytes| {
-            assert_eq!(bytes, b"retained");
-            Ok(())
-        })
-        .unwrap();
+        host.buffers()
+            .with_buffer(buffer, |bytes| {
+                assert_eq!(bytes, b"retained");
+                Ok(())
+            })
+            .unwrap();
 
         host.poll_destroy(replacement).unwrap();
-        host.free_c_buffer(buffer).unwrap();
+        host.buffers().free(buffer).unwrap();
         assert!(host.leak_summary().is_none());
     }
 
@@ -3493,24 +3294,26 @@ mod tests {
             .unwrap();
         assert!(!expected.is_empty());
         let head = host.get_getaddrinfo_result(job).unwrap();
-        let buffer = host.insert_c_buffer(b"buffer".to_vec().into_boxed_slice());
+        let buffer = host
+            .buffers()
+            .publish(b"buffer".to_vec().into_boxed_slice());
 
         assert_eq!(host.addrinfo_addr(buffer), Err(AsyncHostError::Badf));
         assert_eq!(host.addrinfo_next(buffer), Err(AsyncHostError::Badf));
         assert_eq!(host.free_addrinfo(buffer), Err(AsyncHostError::Badf));
         assert_eq!(
-            host.with_c_buffer(head, |_| Ok(())),
+            host.buffers().with_buffer(head, |_| Ok(())),
             Err(AsyncHostError::Badf)
         );
         assert_eq!(
-            host.with_c_buffer_mut(head, |_| Ok(())),
+            host.buffers().with_buffer_mut(head, |_| Ok(())),
             Err(AsyncHostError::Badf)
         );
         assert!(matches!(
-            host.lease_c_buffer(head),
+            host.buffers().lease(head),
             Err(AsyncHostError::Badf)
         ));
-        assert_eq!(host.free_c_buffer(head), Err(AsyncHostError::Badf));
+        assert_eq!(host.buffers().free(head), Err(AsyncHostError::Badf));
 
         let mut handles = Vec::new();
         let mut current = head;
@@ -3521,18 +3324,21 @@ mod tests {
         }
         assert_eq!(current, null_handle());
         host.free_addrinfo(head).unwrap();
-        let replacement = host.insert_c_buffer(b"replacement".to_vec().into_boxed_slice());
+        let replacement = host
+            .buffers()
+            .publish(b"replacement".to_vec().into_boxed_slice());
         for handle in handles {
             assert_eq!(host.addrinfo_addr(handle), Err(AsyncHostError::Badf));
             assert_eq!(host.free_addrinfo(handle), Err(AsyncHostError::Badf));
         }
-        host.with_c_buffer(replacement, |bytes| {
-            assert_eq!(bytes, b"replacement");
-            Ok(())
-        })
-        .unwrap();
-        host.free_c_buffer(buffer).unwrap();
-        host.free_c_buffer(replacement).unwrap();
+        host.buffers()
+            .with_buffer(replacement, |bytes| {
+                assert_eq!(bytes, b"replacement");
+                Ok(())
+            })
+            .unwrap();
+        host.buffers().free(buffer).unwrap();
+        host.buffers().free(replacement).unwrap();
         host.free_job(job).unwrap();
         assert!(host.leak_summary().is_none());
 
@@ -3541,79 +3347,47 @@ mod tests {
     }
 
     #[test]
-    fn c_buffer_access_rejects_interior_raw_pointer() {
-        let host = default_host();
-        let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
-        let interior_ptr = host
-            .with_c_buffer(handle, |buffer| {
-                // `c_buffer` values are slot-map handles, not addresses into
-                // host-owned buffers.
-                Ok((buffer.as_ptr() as u64) + 1)
-            })
-            .unwrap();
-
-        assert_eq!(
-            host.with_c_buffer(interior_ptr, |_| Ok(())).unwrap_err(),
-            AsyncHostError::Badf
-        );
-        assert_eq!(
-            host.with_c_buffer_mut(interior_ptr, |_| Ok(()))
-                .unwrap_err(),
-            AsyncHostError::Badf
-        );
-    }
-
-    #[test]
     fn nullable_objects_use_runtime_null_handle() {
         let host = default_host();
         let null = null_handle();
-        host.free_c_buffer(null).unwrap();
+        host.buffers().free(null).unwrap();
         host.free_addrinfo(null).unwrap();
         assert_eq!(host.addrinfo_next(null), Ok(null));
         assert!(matches!(
-            host.lease_c_buffer(null),
+            host.buffers().lease(null),
             Err(AsyncHostError::Badf)
         ));
 
         host.tls().free(null).unwrap();
 
         for handle in [0, host.invalid_fd()] {
-            assert_eq!(host.free_c_buffer(handle), Err(AsyncHostError::Badf));
+            assert_eq!(host.buffers().free(handle), Err(AsyncHostError::Badf));
             assert_eq!(host.free_addrinfo(handle), Err(AsyncHostError::Badf));
             assert_eq!(host.addrinfo_next(handle), Err(AsyncHostError::Badf));
             assert_eq!(host.tls().free(handle), Err(AsyncHostError::Badf));
             #[cfg(windows)]
             assert_eq!(
-                host.free_windows_watcher_buffer(handle),
+                host.buffers().free_windows_watcher(handle),
                 Err(AsyncHostError::Badf)
             );
         }
         #[cfg(windows)]
-        host.free_windows_watcher_buffer(null).unwrap();
+        host.buffers().free_windows_watcher(null).unwrap();
         assert!(host.leak_summary().is_none());
     }
 
     #[test]
     fn readdir_job_exclusively_leases_and_restores_c_buffer() {
         let host = default_host();
-        let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
-        let key = key_from_handle(handle);
-        assert!(matches!(
-            host.c_buffers.borrow().get(key),
-            Some(HostCBuffer::Available(_))
-        ));
+        let handle = host.buffers().publish(b"abcd".to_vec().into_boxed_slice());
 
-        let lease = host.lease_c_buffer(handle).unwrap();
-        assert!(matches!(
-            host.c_buffers.borrow().get(key),
-            Some(HostCBuffer::Leased)
-        ));
+        let lease = host.buffers().lease(handle).unwrap();
         assert_eq!(
-            host.with_c_buffer(handle, |_| Ok(())).unwrap_err(),
+            host.buffers().with_buffer(handle, |_| Ok(())).unwrap_err(),
             AsyncHostError::Badf
         );
         assert_eq!(
-            host.lease_c_buffer(handle).unwrap_err(),
+            host.buffers().lease(handle).unwrap_err(),
             AsyncHostError::Badf
         );
 
@@ -3621,39 +3395,37 @@ mod tests {
         let job = host.insert_job(job).unwrap();
         host.run_job(job).unwrap();
 
-        assert!(matches!(
-            host.c_buffers.borrow().get(key),
-            Some(HostCBuffer::Available(_))
-        ));
-        host.with_c_buffer(handle, |buffer| {
-            assert_eq!(buffer, b"abcd");
-            Ok(())
-        })
-        .unwrap();
+        host.buffers()
+            .with_buffer(handle, |buffer| {
+                assert_eq!(buffer, b"abcd");
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]
     fn freeing_unrun_readdir_job_restores_c_buffer() {
         let host = default_host();
-        let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
-        let lease = host.lease_c_buffer(handle).unwrap();
+        let handle = host.buffers().publish(b"abcd".to_vec().into_boxed_slice());
+        let lease = host.buffers().lease(handle).unwrap();
         let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 4, false);
         let job = host.insert_job(job).unwrap();
 
         host.free_job(job).unwrap();
 
-        host.with_c_buffer(handle, |buffer| {
-            assert_eq!(buffer, b"abcd");
-            Ok(())
-        })
-        .unwrap();
+        host.buffers()
+            .with_buffer(handle, |buffer| {
+                assert_eq!(buffer, b"abcd");
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]
     fn discarded_queued_readdir_job_restores_c_buffer() {
         let host = default_host();
-        let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
-        let lease = host.lease_c_buffer(handle).unwrap();
+        let handle = host.buffers().publish(b"abcd".to_vec().into_boxed_slice());
+        let lease = host.buffers().lease(handle).unwrap();
         let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 4, false);
         let job = host.insert_job(job).unwrap();
         let worker_job = host
@@ -3662,39 +3434,41 @@ mod tests {
 
         host.free_job(job).unwrap();
         assert_eq!(
-            host.with_c_buffer(handle, |_| Ok(())).unwrap_err(),
+            host.buffers().with_buffer(handle, |_| Ok(())).unwrap_err(),
             AsyncHostError::Badf
         );
         host.restore_unrun_worker_job(worker_job);
 
-        host.with_c_buffer(handle, |buffer| {
-            assert_eq!(buffer, b"abcd");
-            Ok(())
-        })
-        .unwrap();
+        host.buffers()
+            .with_buffer(handle, |buffer| {
+                assert_eq!(buffer, b"abcd");
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]
     fn freed_c_buffer_is_not_restored_by_its_readdir_job() {
         let host = default_host();
-        let handle = host.insert_c_buffer(b"old".to_vec().into_boxed_slice());
-        let lease = host.lease_c_buffer(handle).unwrap();
+        let handle = host.buffers().publish(b"old".to_vec().into_boxed_slice());
+        let lease = host.buffers().lease(handle).unwrap();
         let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 3, false);
         let job = host.insert_job(job).unwrap();
 
-        host.free_c_buffer(handle).unwrap();
-        let replacement = host.insert_c_buffer(b"new".to_vec().into_boxed_slice());
+        host.buffers().free(handle).unwrap();
+        let replacement = host.buffers().publish(b"new".to_vec().into_boxed_slice());
         host.free_job(job).unwrap();
 
         assert_eq!(
-            host.with_c_buffer(handle, |_| Ok(())).unwrap_err(),
+            host.buffers().with_buffer(handle, |_| Ok(())).unwrap_err(),
             AsyncHostError::Badf
         );
-        host.with_c_buffer(replacement, |buffer| {
-            assert_eq!(buffer, b"new");
-            Ok(())
-        })
-        .unwrap();
+        host.buffers()
+            .with_buffer(replacement, |buffer| {
+                assert_eq!(buffer, b"new");
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[cfg(unix)]
@@ -3716,16 +3490,19 @@ mod tests {
 
         let buffer_handle = host.get_realpath_result(job_handle).unwrap();
         assert_eq!(host.get_realpath_result(job_handle).unwrap(), buffer_handle);
-        host.with_c_buffer(buffer_handle, |buffer| {
-            assert_eq!(buffer, b"/tmp/example\0");
-            Ok(())
-        })
-        .unwrap();
+        host.buffers()
+            .with_buffer(buffer_handle, |buffer| {
+                assert_eq!(buffer, b"/tmp/example\0");
+                Ok(())
+            })
+            .unwrap();
 
         host.free_job(job_handle).unwrap();
 
         assert_eq!(
-            host.with_c_buffer(buffer_handle, |_| Ok(())).unwrap_err(),
+            host.buffers()
+                .with_buffer(buffer_handle, |_| Ok(()))
+                .unwrap_err(),
             AsyncHostError::Badf
         );
     }
@@ -3795,7 +3572,9 @@ mod tests {
     fn job_handles_reject_stale_and_other_family_handles() {
         let host = default_host();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
-        let buffer = host.insert_c_buffer(b"retained".to_vec().into_boxed_slice());
+        let buffer = host
+            .buffers()
+            .publish(b"retained".to_vec().into_boxed_slice());
 
         // Jobs require a live Handle, including for cleanup.
         for handle in [0, null_handle(), host.invalid_fd(), buffer] {
@@ -3806,11 +3585,12 @@ mod tests {
             assert_eq!(host.run_job(handle), Err(AsyncHostError::Badf));
             assert_eq!(host.free_job(handle), Err(AsyncHostError::Badf));
         }
-        host.with_c_buffer(buffer, |bytes| {
-            assert_eq!(bytes, b"retained");
-            Ok(())
-        })
-        .unwrap();
+        host.buffers()
+            .with_buffer(buffer, |bytes| {
+                assert_eq!(bytes, b"retained");
+                Ok(())
+            })
+            .unwrap();
 
         host.free_job(job).unwrap();
         let replacement = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
@@ -3826,7 +3606,7 @@ mod tests {
         host.run_job(replacement).unwrap();
         assert_eq!(host.with_job(replacement, |job| job.ret()), Ok(0));
         host.free_job(replacement).unwrap();
-        host.free_c_buffer(buffer).unwrap();
+        host.buffers().free(buffer).unwrap();
         assert!(host.leak_summary().is_none());
     }
 
@@ -5448,7 +5228,7 @@ mod tests {
 
         host.close_fd(read).unwrap();
 
-        let buffer = host.insert_c_buffer(vec![1].into_boxed_slice());
+        let buffer = host.buffers().publish(vec![1].into_boxed_slice());
         for handle in [read, buffer, null_handle(), 0] {
             assert!(matches!(
                 host.acquire_resource(handle),
@@ -5456,7 +5236,7 @@ mod tests {
             ));
             assert_eq!(host.close_fd(handle), Err(AsyncHostError::Badf));
         }
-        host.free_c_buffer(buffer).unwrap();
+        host.buffers().free(buffer).unwrap();
         host.close_fd(write).unwrap();
     }
 }

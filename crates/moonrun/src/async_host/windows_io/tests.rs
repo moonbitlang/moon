@@ -269,7 +269,7 @@ fn io_result_creation_keeps_only_host_buffer_capacity() {
 #[test]
 fn read_dir_changes_io_result_leases_buffer_until_free() {
     let host = default_host();
-    let buffer = host.insert_windows_watcher_buffer();
+    let buffer = host.buffers().allocate_windows_watcher();
     let result = host.make_read_dir_changes_io_result(buffer).unwrap();
 
     assert_eq!(
@@ -277,26 +277,27 @@ fn read_dir_changes_io_result_leases_buffer_until_free() {
         Err(AsyncHostError::Badf)
     );
     assert_eq!(
-        host.with_windows_watcher_buffer(buffer, |_| Ok(())),
+        host.buffers().with_windows_watcher(buffer, |_| Ok(())),
         Err(AsyncHostError::Badf)
     );
 
     host.free_io_result(result).unwrap();
     assert_eq!(
-        host.with_windows_watcher_buffer(buffer, |buffer| Ok(buffer.capacity())),
+        host.buffers()
+            .with_windows_watcher(buffer, |buffer| Ok(buffer.capacity())),
         Ok(usize::try_from(crate::filesystem::watch::event_buffer_size()).unwrap())
     );
-    host.free_windows_watcher_buffer(buffer).unwrap();
+    host.buffers().free_windows_watcher(buffer).unwrap();
 }
 
 #[test]
 fn freed_watcher_buffer_is_not_restored_by_its_io_result() {
     let host = default_host();
-    let buffer = host.insert_windows_watcher_buffer();
+    let buffer = host.buffers().allocate_windows_watcher();
     let result = host.make_read_dir_changes_io_result(buffer).unwrap();
-    host.free_windows_watcher_buffer(buffer).unwrap();
+    host.buffers().free_windows_watcher(buffer).unwrap();
 
-    let replacement = host.insert_windows_watcher_buffer();
+    let replacement = host.buffers().allocate_windows_watcher();
     assert_ne!(buffer, replacement);
     let replacement_result = host.make_read_dir_changes_io_result(replacement).unwrap();
 
@@ -304,21 +305,22 @@ fn freed_watcher_buffer_is_not_restored_by_its_io_result() {
     host.free_io_result(result).unwrap();
     for handle in [buffer, replacement] {
         assert_eq!(
-            host.with_windows_watcher_buffer(handle, |_| Ok(())),
+            host.buffers().with_windows_watcher(handle, |_| Ok(())),
             Err(AsyncHostError::Badf)
         );
     }
     assert_eq!(
-        host.free_windows_watcher_buffer(buffer),
+        host.buffers().free_windows_watcher(buffer),
         Err(AsyncHostError::Badf)
     );
 
     host.free_io_result(replacement_result).unwrap();
     assert_eq!(
-        host.with_windows_watcher_buffer(replacement, |buffer| Ok(buffer.capacity())),
+        host.buffers()
+            .with_windows_watcher(replacement, |buffer| Ok(buffer.capacity())),
         Ok(usize::try_from(crate::filesystem::watch::event_buffer_size()).unwrap())
     );
-    host.free_windows_watcher_buffer(replacement).unwrap();
+    host.buffers().free_windows_watcher(replacement).unwrap();
     assert!(host.leak_summary().is_none());
 }
 
@@ -326,8 +328,8 @@ fn freed_watcher_buffer_is_not_restored_by_its_io_result() {
 fn dropping_host_retires_available_and_leased_watcher_buffers() {
     let keys = Rc::new(RefCell::new(HostKeys::default()));
     let host = default_host_with_keys(keys.clone());
-    let available = host.insert_windows_watcher_buffer();
-    let leased = host.insert_windows_watcher_buffer();
+    let available = host.buffers().allocate_windows_watcher();
+    let leased = host.buffers().allocate_windows_watcher();
     host.make_read_dir_changes_io_result(leased).unwrap();
     for handle in [available, leased] {
         assert_eq!(
@@ -346,10 +348,10 @@ fn dropping_host_retires_available_and_leased_watcher_buffers() {
 #[test]
 fn read_dir_changes_rejects_a_generic_c_buffer() {
     let host = default_host();
-    let buffer = host.insert_c_buffer(vec![1, 2, 3].into_boxed_slice());
+    let buffer = host.buffers().publish(vec![1, 2, 3].into_boxed_slice());
 
     assert_eq!(
-        host.free_windows_watcher_buffer(buffer),
+        host.buffers().free_windows_watcher(buffer),
         Err(AsyncHostError::Badf)
     );
     assert_eq!(
@@ -357,10 +359,11 @@ fn read_dir_changes_rejects_a_generic_c_buffer() {
         Err(AsyncHostError::Badf)
     );
     assert_eq!(
-        host.with_c_buffer(buffer, |bytes| Ok(bytes.to_vec())),
+        host.buffers()
+            .with_buffer(buffer, |bytes| Ok(bytes.to_vec())),
         Ok(vec![1, 2, 3])
     );
-    host.free_c_buffer(buffer).unwrap();
+    host.buffers().free(buffer).unwrap();
 }
 
 #[test]
@@ -913,7 +916,7 @@ fn watcher_iocp_completion_returns_the_buffer_and_handles_buffered_changes() {
     let directory_handle = host.resources.borrow_mut().insert_resource(resource);
     let poll = host.poll_create().unwrap();
     host.poll_register(poll, directory_handle, true).unwrap();
-    let buffer = host.insert_windows_watcher_buffer();
+    let buffer = host.buffers().allocate_windows_watcher();
     let result = host.make_read_dir_changes_io_result(buffer).unwrap();
     assert_eq!(
         host.read_dir_changes_io_result(directory_handle, result),
@@ -923,14 +926,15 @@ fn watcher_iocp_completion_returns_the_buffer_and_handles_buffered_changes() {
     assert_eq!(host.poll_wait(poll, 5000, &Default::default()), Ok(1));
     assert!(host.io_result_get_status(result, directory_handle).unwrap() > 0);
     host.free_io_result(result).unwrap();
-    host.with_windows_watcher_buffer(buffer, |buffer| {
-        assert_eq!(
-            crate::filesystem::watch::event_path_units(buffer, 0)?,
-            "first".encode_utf16().collect::<Vec<_>>()
-        );
-        Ok(())
-    })
-    .unwrap();
+    host.buffers()
+        .with_windows_watcher(buffer, |buffer| {
+            assert_eq!(
+                crate::filesystem::watch::event_path_units(buffer, 0)?,
+                "first".encode_utf16().collect::<Vec<_>>()
+            );
+            Ok(())
+        })
+        .unwrap();
 
     // The directory handle keeps recording notifications between requests.
     // A successful resubmission must still deliver its IOCP identity.
@@ -961,7 +965,7 @@ fn watcher_iocp_completion_returns_the_buffer_and_handles_buffered_changes() {
         request.clear_pending();
     }
     host.free_io_result(result).unwrap();
-    host.free_windows_watcher_buffer(buffer).unwrap();
+    host.buffers().free_windows_watcher(buffer).unwrap();
     host.close_fd(directory_handle).unwrap();
     host.poll_destroy(poll).unwrap();
     assert_eq!(completed, Ok(1));
@@ -990,7 +994,7 @@ fn denied_watch_releases_its_request_and_returns_the_leased_buffer() {
         .unwrap();
     host.run_job(open).unwrap();
     let file = host.open_job_get_fd(open).unwrap();
-    let buffer = host.insert_windows_watcher_buffer();
+    let buffer = host.buffers().allocate_windows_watcher();
     let request = host.make_read_dir_changes_io_result(buffer).unwrap();
 
     // Watch requires read authority even though this Resource was acquired
@@ -1001,9 +1005,10 @@ fn denied_watch_releases_its_request_and_returns_the_leased_buffer() {
     );
     host.close_fd(file).unwrap();
     host.free_io_result(request).unwrap();
-    host.with_windows_watcher_buffer(buffer, |_| Ok(()))
+    host.buffers()
+        .with_windows_watcher(buffer, |_| Ok(()))
         .unwrap();
-    host.free_windows_watcher_buffer(buffer).unwrap();
+    host.buffers().free_windows_watcher(buffer).unwrap();
     host.free_job(open).unwrap();
     assert_eq!(host.leak_summary(), None);
 }

@@ -108,7 +108,7 @@ pub(super) fn is_error_notify_enum_dir(_context: &mut ImportContext<'_>, errno: 
 
 #[ported(source = "src/os_error/stub.c")]
 pub(super) fn errno_to_string(context: &mut ImportContext<'_>, errno: i32) -> u64 {
-    context.host.insert_c_buffer(stub::errno_to_string(errno))
+    context.host.buffers().publish(stub::errno_to_string(errno))
 }
 
 pub(super) fn free_errno_str(context: &mut ImportContext<'_>, ptr: u64) -> AsyncHostResult<()> {
