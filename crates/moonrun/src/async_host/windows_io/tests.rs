@@ -646,20 +646,11 @@ fn free_io_result_rejects_pending_result() {
 }
 
 #[test]
-fn poll_event_io_result_marks_pending_result_delivered() {
-    use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
-
+fn completion_retires_the_pending_result() {
     let host = default_host();
-    let poll = host.poll_create().unwrap();
-    let completion_port = {
-        let polls = host.polls.borrow();
-        let poll = polls.polls.get(key_from_handle(poll)).unwrap();
-        poll.instance.raw_fd()
-    };
     let result = host.make_file_read_io_result(0, 0).unwrap();
     let [read, write] = host.pipe(true, true).unwrap();
     let read_file = host.acquire_resource(read).unwrap();
-    let raw_fd = read_file.raw_identity();
     let overlapped = {
         let mut io_results = host.io_results.borrow_mut();
         let result = io_results
@@ -669,14 +660,8 @@ fn poll_event_io_result_marks_pending_result_delivered() {
         result.mark_pending(read_file).unwrap();
         result.overlapped_ptr()
     };
-    let posted =
-        unsafe { PostQueuedCompletionStatus(completion_port, 0, raw_fd as usize, overlapped) };
-    assert_ne!(posted, 0);
-
-    assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
-    let event = host.poll_get_event(poll, 0).unwrap();
-
-    assert_eq!(host.poll_event_io_result(event).unwrap(), result);
+    let key = host.io_results.borrow_mut().complete(overlapped).unwrap();
+    assert_eq!(host.io_results.borrow().event_result(key).unwrap(), result);
     assert_eq!(
         host.io_results
             .borrow()

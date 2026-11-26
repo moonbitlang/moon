@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 use crate::filesystem::RawFile as RawFd;
+use std::io;
 use std::os::fd::{FromRawFd, OwnedFd};
 
 use super::{
@@ -30,7 +30,7 @@ ported_fns! {
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_bus_create"
     )]
-    pub(crate) fn poll_create() -> AsyncHostResult<PollInstance> {
+    pub(in crate::poll) fn poll_create() -> io::Result<PollInstance> {
         let fd = unsafe { libc::epoll_create1(libc::EPOLL_CLOEXEC) };
         if fd < 0 {
             Err(last_native_error())
@@ -51,7 +51,7 @@ ported_fns! {
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_bus_destroy"
     )]
-    pub(crate) fn poll_destroy(instance: PollInstance) {
+    pub(in crate::poll) fn poll_destroy(instance: PollInstance) {
         drop(instance);
     }
 
@@ -59,12 +59,12 @@ ported_fns! {
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_bus_register"
     )]
-    pub(crate) fn poll_register(
+    pub(in crate::poll) fn poll_register(
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
-        fd_handle: u64,
-    ) -> AsyncHostResult<i32> {
+        user_data: usize,
+    ) -> io::Result<bool> {
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
             unsafe {
@@ -78,26 +78,26 @@ ported_fns! {
         };
         let mut event = libc::epoll_event {
             events: epoll_event_mask(events)?,
-            u64: fd_handle,
+            u64: user_data as u64,
         };
         if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
             let errno = super::last_errno();
             if errno == libc::EPERM {
-                Ok(0)
+                Ok(false)
             } else {
-                Err(AsyncHostError::Native(errno))
+                Err(io::Error::from_raw_os_error(errno))
             }
         } else {
-            Ok(1)
+            Ok(true)
         }
     }
 
-    pub(crate) fn poll_register_legacy(
+    pub(in crate::poll) fn poll_register_legacy(
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
-        fd_handle: u64,
-    ) -> AsyncHostResult<()> {
+        user_data: usize,
+    ) -> io::Result<()> {
         // Keep the pre-#536 syscall shape for event_bus/register compatibility.
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
@@ -112,7 +112,7 @@ ported_fns! {
         }
         let mut event = libc::epoll_event {
             events,
-            u64: fd_handle,
+            u64: user_data as u64,
         };
         if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
             Err(last_native_error())
@@ -125,7 +125,7 @@ ported_fns! {
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_bus_wait"
     )]
-    pub(crate) fn poll_wait(instance: &mut PollInstance, timeout: i32) -> AsyncHostResult<i32> {
+    pub(in crate::poll) fn poll_wait(instance: &mut PollInstance, timeout: i32) -> io::Result<i32> {
         let count = unsafe {
             libc::epoll_wait(
                 instance.raw_fd(),
@@ -145,22 +145,15 @@ ported_fns! {
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_list_get"
     )]
-    pub(crate) fn event_list_get(instance: &PollInstance, index: u32) -> AsyncHostResult<&PollEvent> {
-        let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-        if index >= instance.event_count {
-            return Err(AsyncHostError::Fault);
-        }
-        instance
-            .raw_events
-            .get(index)
-            .ok_or(AsyncHostError::Fault)
+    pub(in crate::poll) fn event_list_get(instance: &PollInstance, index: usize) -> Option<&PollEvent> {
+        instance.raw_events.get(..instance.event_count)?.get(index)
     }
 
     #[ported(
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_get_fd"
     )]
-    pub(crate) fn event_get_fd(event: &PollEvent) -> u64 {
+    pub(in crate::poll) fn event_get_fd(event: &PollEvent) -> u64 {
         event.u64
     }
 
@@ -168,21 +161,21 @@ ported_fns! {
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_get_events"
     )]
-    pub(crate) fn event_get_events(event: &PollEvent) -> i32 {
+    pub(in crate::poll) fn event_get_events(event: &PollEvent) -> i32 {
         epoll_result_events(event.events)
     }
 }
 
 // Host completion sources coalesce wakeups. Level triggering preserves
 // readiness when the guest fetches only part of the pending notifications.
-pub(crate) fn poll_register_completion_source(
+pub(in crate::poll) fn poll_register_completion_source(
     instance: &PollInstance,
     fd: RawFd,
-    fd_handle: u64,
-) -> AsyncHostResult<()> {
+    user_data: usize,
+) -> io::Result<()> {
     let mut event = libc::epoll_event {
         events: libc::EPOLLIN as u32,
-        u64: fd_handle,
+        u64: user_data as u64,
     };
     if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
         Err(last_native_error())
@@ -191,7 +184,7 @@ pub(crate) fn poll_register_completion_source(
     }
 }
 
-pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostResult<()> {
+pub(in crate::poll) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> io::Result<()> {
     if unsafe {
         libc::epoll_ctl(
             instance.raw_fd(),
@@ -205,19 +198,19 @@ pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostRe
         if errno == libc::ENOENT {
             Ok(())
         } else {
-            Err(AsyncHostError::Native(errno))
+            Err(io::Error::from_raw_os_error(errno))
         }
     } else {
         Ok(())
     }
 }
 
-fn epoll_event_mask(events: i32) -> AsyncHostResult<u32> {
+fn epoll_event_mask(events: i32) -> io::Result<u32> {
     let mut mask = match events {
         READ_EVENT => libc::EPOLLIN,
         WRITE_EVENT => libc::EPOLLOUT,
         events if events == (READ_EVENT | WRITE_EVENT) => libc::EPOLLIN | libc::EPOLLOUT,
-        _ => return Err(AsyncHostError::Inval),
+        _ => return Err(io::Error::from_raw_os_error(libc::EINVAL)),
     };
     mask |= libc::EPOLLET;
     mask |= libc::EPOLLRDHUP;
@@ -254,7 +247,7 @@ mod tests {
             .open("/dev/null")
             .unwrap();
 
-        assert_eq!(poll_register(&poll, null.as_raw_fd(), false, 1).unwrap(), 0);
+        assert!(!poll_register(&poll, null.as_raw_fd(), false, 1).unwrap());
     }
 
     #[test]
@@ -267,8 +260,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            poll_register_legacy(&poll, null.as_raw_fd(), false, 1),
-            Err(AsyncHostError::Native(libc::EPERM))
+            poll_register_legacy(&poll, null.as_raw_fd(), false, 1)
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EPERM)
         );
     }
 }

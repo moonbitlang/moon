@@ -274,7 +274,7 @@ The Unstable API owns its legacy error/getter contract, not separate filesystem
 policy or mechanisms. Its retirement should remove that adaptation without
 removing shared host behavior.
 
-`std::fs` and filesystem/network OS modules supply native mechanisms using
+`std::fs` and domain OS modules supply native mechanisms using
 explicit host inputs and native errors. Domain code owns operation interpretation
 and authorization; the async runtime owns scheduling, pending requests, cancellation,
 and completion. Domain operations may borrow request-owned storage without
@@ -315,6 +315,11 @@ adaptation select these operations and preserve guest status, error encoding,
 and graceful-signal compatibility. Unix spawn and fork/exec share one native
 request and own their duplicated stdio descriptors. Native PID identity, child
 authority, and Engine admission remain separate responsibilities.
+
+The [poll](../../../src/poll/mod.rs) module owns registrations and event-batch
+access; its private OS module supplies epoll, kqueue, and IOCP mechanisms.
+Async Host coordinates Resources and worker completion with it, while Windows
+I/OResult retains pending-request ownership.
 
 For an operation that touches host state, the required flow is:
 

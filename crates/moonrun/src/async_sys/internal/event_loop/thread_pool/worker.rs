@@ -106,7 +106,7 @@ pub(crate) enum WorkerCompletionDestination {
     #[cfg(unix)]
     Pool(Arc<ThreadPoolCompletionNotifier>),
     #[cfg(windows)]
-    Pool(super::super::poll::CompletionPort),
+    Pool(crate::poll::CompletionPort),
     // A supplied pipe carries only finished Job IDs.
     Pipe(PipeCompletionNotifier),
     // Lifecycle tests observe or pause delivery after result publication.
@@ -252,10 +252,8 @@ impl Worker {
                     }
                     #[cfg(windows)]
                     WorkerCompletionDestination::Pool(port) => {
-                        let _ = super::super::poll::post_thread_pool_completion(
-                            port,
-                            completion_id.as_i32(),
-                        );
+                        let _ =
+                            crate::poll::post_thread_pool_completion(port, completion_id.as_i32());
                     }
                     WorkerCompletionDestination::Pipe(pipe) => {
                         // Delivery is outside the Job's cancellation scope;

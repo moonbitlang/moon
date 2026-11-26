@@ -22,9 +22,9 @@ use super::{
     AsyncHost, AsyncHostError, AsyncHostResult, HandleKey, HandleKind, HostHandle,
     WindowsWatcherBufferLease, handle_from_key, key_from_handle,
 };
-use crate::async_sys::internal::event_loop::poll::{self, CompletionPort, PollInstance};
 use crate::guest_memory::GuestMemory;
 use crate::network::AcceptBuffer;
+use crate::poll::CompletionPort;
 use crate::resource::{Resource, ResourceClass, ResourceRef};
 use crate::runtime::{Handles, HostKeys};
 use std::cell::RefCell;
@@ -48,12 +48,12 @@ impl IoResultTable {
         }
     }
 
-    pub(super) fn register(&mut self, resource: &ResourceRef, poll: &PollInstance) {
+    pub(super) fn register(&mut self, resource: &ResourceRef, port: CompletionPort) {
         self.registrations
             .retain(|_, (resource, _)| resource.strong_count() != 0);
         self.registrations.insert(
             Arc::as_ptr(resource) as usize,
-            (Arc::downgrade(resource), CompletionPort::from_poll(poll)),
+            (Arc::downgrade(resource), port),
         );
     }
 
@@ -66,21 +66,15 @@ impl IoResultTable {
 
     // Resolve native pointers exactly once, before the guest can free or reuse
     // a result. Event accessors subsequently read only these generational keys.
-    pub(super) fn complete_batch(
+    pub(super) fn complete(
         &mut self,
-        poll: &PollInstance,
-        count: i32,
-    ) -> Vec<Option<HandleKey>> {
-        (0..count as u32)
-            .map(|index| {
-                let event = poll::event_list_get(poll, index).expect("dequeued event");
-                let address = OverlappedAddr::from_ptr(poll::event_get_io_result(event));
-                let handle = *self.io_results_by_overlapped.get(&address)?;
-                let key = key_from_handle(handle);
-                self.io_results.get_mut(key)?.clear_pending();
-                Some(key)
-            })
-            .collect()
+        overlapped: *mut windows_sys::Win32::System::IO::OVERLAPPED,
+    ) -> Option<HandleKey> {
+        let address = OverlappedAddr::from_ptr(overlapped);
+        let handle = *self.io_results_by_overlapped.get(&address)?;
+        let key = key_from_handle(handle);
+        self.io_results.get_mut(key)?.clear_pending();
+        Some(key)
     }
 
     pub(super) fn event_result(&self, key: HandleKey) -> AsyncHostResult<HostHandle> {

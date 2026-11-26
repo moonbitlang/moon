@@ -19,7 +19,6 @@
 mod completion;
 pub(crate) use completion::PipeCompletionNotifier;
 pub(crate) mod io;
-pub(crate) mod poll;
 pub(crate) mod thread_pool;
 
 #[cfg(unix)]

@@ -21,9 +21,9 @@ use std::os::windows::io::{
 };
 use std::sync::Arc;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 use crate::filesystem::RawFile as RawFd;
+use std::io;
 
 use super::{EVENT_BUFFER_SIZE, PollEvent, PollInstance, last_errno, last_native_error};
 
@@ -35,15 +35,30 @@ pub(crate) struct CompletionPort(Arc<OwnedHandle>);
 // stale handle if the guest destroys the poll instance before the worker exits.
 
 impl CompletionPort {
-    pub(crate) fn from_poll(poll: &PollInstance) -> Self {
+    pub(in crate::poll) fn from_poll(poll: &PollInstance) -> Self {
         Self(Arc::clone(&poll.fd))
+    }
+
+    pub(crate) fn post(&self, bytes: u32, user_data: usize) -> io::Result<()> {
+        if unsafe {
+            windows_sys::Win32::System::IO::PostQueuedCompletionStatus(
+                self.0.as_raw_handle(),
+                bytes,
+                user_data,
+                std::ptr::null_mut(),
+            )
+        } == 0
+        {
+            return Err(last_native_error());
+        }
+        Ok(())
     }
 
     /// Dequeue one completion during shutdown, including failed I/O results.
     /// Callers retain all request allocations until their packets are drained.
     pub(crate) fn wait_for_io(
         &self,
-    ) -> AsyncHostResult<*mut windows_sys::Win32::System::IO::OVERLAPPED> {
+    ) -> io::Result<*mut windows_sys::Win32::System::IO::OVERLAPPED> {
         let mut entry = empty_overlapped_entry();
         let mut count = 0;
         if unsafe {
@@ -68,7 +83,7 @@ ported_fns! {
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_bus_create"
     )]
-    pub(crate) fn poll_create() -> AsyncHostResult<PollInstance> {
+    pub(in crate::poll) fn poll_create() -> io::Result<PollInstance> {
         use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
         use windows_sys::Win32::System::IO::CreateIoCompletionPort;
 
@@ -88,7 +103,7 @@ ported_fns! {
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_bus_destroy"
     )]
-    pub(crate) fn poll_destroy(instance: PollInstance) {
+    pub(in crate::poll) fn poll_destroy(instance: PollInstance) {
         drop(instance);
     }
 
@@ -100,8 +115,8 @@ ported_fns! {
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
-        fd_handle: u64,
-    ) -> AsyncHostResult<i32> {
+        user_data: usize,
+    ) -> io::Result<bool> {
         use windows_sys::Win32::Storage::FileSystem::SetFileCompletionNotificationModes;
         use windows_sys::Win32::System::IO::CreateIoCompletionPort;
         use windows_sys::Win32::System::WindowsProgramming::FILE_SKIP_COMPLETION_PORT_ON_SUCCESS;
@@ -110,13 +125,13 @@ ported_fns! {
         if unsafe { SetFileCompletionNotificationModes(fd, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS as u8) } == 0 {
             return Err(last_native_error());
         }
-        let completion_key = usize::try_from(fd_handle).map_err(|_| AsyncHostError::Fault)?;
+        let completion_key = user_data;
         let registered =
             unsafe { CreateIoCompletionPort(fd, instance.raw_fd(), completion_key, 0) };
         if registered.is_null() {
             Err(last_native_error())
         } else {
-            Ok(1)
+            Ok(true)
         }
     }
 
@@ -124,7 +139,7 @@ ported_fns! {
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_bus_wait"
     )]
-    pub(crate) fn poll_wait(instance: &mut PollInstance, timeout: i32) -> AsyncHostResult<i32> {
+    pub(in crate::poll) fn poll_wait(instance: &mut PollInstance, timeout: i32) -> io::Result<i32> {
         use windows_sys::Win32::Foundation::WAIT_TIMEOUT;
         use windows_sys::Win32::System::IO::GetQueuedCompletionStatusEx;
         use windows_sys::Win32::System::Threading::INFINITE;
@@ -148,29 +163,22 @@ ported_fns! {
             return Err(last_native_error());
         }
         instance.event_count = count as usize;
-        i32::try_from(count).map_err(|_| AsyncHostError::Fault)
+        Ok(count as i32)
     }
 
     #[ported(
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_list_get"
     )]
-    pub(crate) fn event_list_get(instance: &PollInstance, index: u32) -> AsyncHostResult<&PollEvent> {
-        let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-        if index >= instance.event_count {
-            return Err(AsyncHostError::Fault);
-        }
-        instance
-            .raw_events
-            .get(index)
-            .ok_or(AsyncHostError::Fault)
+    pub(in crate::poll) fn event_list_get(instance: &PollInstance, index: usize) -> Option<&PollEvent> {
+        instance.raw_events.get(..instance.event_count)?.get(index)
     }
 
     #[ported(
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_get_fd"
     )]
-    pub(crate) fn event_get_fd(event: &PollEvent) -> u64 {
+    pub(in crate::poll) fn event_get_fd(event: &PollEvent) -> u64 {
         event.lpCompletionKey as u64
     }
 
@@ -178,7 +186,7 @@ ported_fns! {
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_get_io_result"
     )]
-    pub(crate) fn event_get_io_result(
+    pub(in crate::poll) fn event_get_io_result(
         event: &PollEvent,
     ) -> *mut windows_sys::Win32::System::IO::OVERLAPPED {
         event.lpOverlapped
@@ -188,58 +196,34 @@ ported_fns! {
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_get_bytes_transferred"
     )]
-    pub(crate) fn event_get_bytes_transferred(event: &PollEvent) -> u32 {
+    pub(in crate::poll) fn event_get_bytes_transferred(event: &PollEvent) -> u32 {
         event.dwNumberOfBytesTransferred
     }
 }
 
-pub(crate) fn poll_register_file(
+pub(in crate::poll) fn poll_register_file(
     instance: &PollInstance,
     handle: RawHandle,
     read_only: bool,
-    fd_handle: u64,
-) -> AsyncHostResult<i32> {
-    poll_register(instance, handle, read_only, fd_handle)
+    user_data: usize,
+) -> io::Result<bool> {
+    poll_register(instance, handle, read_only, user_data)
 }
 
-pub(crate) fn poll_register_socket(
+pub(in crate::poll) fn poll_register_socket(
     instance: &PollInstance,
     socket: BorrowedSocket<'_>,
     read_only: bool,
-    fd_handle: u64,
-) -> AsyncHostResult<i32> {
+    user_data: usize,
+) -> io::Result<bool> {
     // IOCP accepts a socket value in the HANDLE parameter. Keep that Windows
     // ABI conversion inside the IOCP adapter rather than the resource model.
     poll_register(
         instance,
         socket.as_raw_socket() as RawFd,
         read_only,
-        fd_handle,
+        user_data,
     )
-}
-
-pub(crate) fn post_thread_pool_completion(
-    completion_port: &CompletionPort,
-    completion_id: i32,
-) -> AsyncHostResult<()> {
-    use windows_sys::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
-
-    // Native thread_pool.c posts worker completions to the event bus IOCP with
-    // INVALID_HANDLE_VALUE as the completion key and the native job id as
-    // transferred bytes.
-    if unsafe {
-        PostQueuedCompletionStatus(
-            completion_port.0.as_raw_handle(),
-            completion_id as u32,
-            INVALID_HANDLE_VALUE as usize,
-            std::ptr::null_mut(),
-        )
-    } == 0
-    {
-        return Err(AsyncHostError::Native(unsafe { GetLastError() } as i32));
-    }
-    Ok(())
 }
 
 fn empty_overlapped_entry() -> windows_sys::Win32::System::IO::OVERLAPPED_ENTRY {
