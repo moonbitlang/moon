@@ -24,6 +24,7 @@
 //! guest process identities and waits within their virtual process tree.
 //! [`prepare_moon`] runs host-selected helpers and owns their artifact handoff.
 
+mod control;
 mod environment;
 mod inputs;
 mod job;
@@ -40,10 +41,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-#[cfg(windows)]
-use crate::filesystem::RawFile as RawFd;
 use crate::policy::{Policy, ProcessPolicy};
-use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
 pub(crate) use inputs::ProcessInputs;
@@ -107,6 +105,7 @@ impl HostProcess {
         self
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn context(&self) -> Option<&crate::process_tree::ProcessContext> {
         self.context.as_ref()
     }
@@ -116,26 +115,6 @@ impl HostProcess {
             || crate::async_sys::internal::env_util::stub::get_pid() as i32,
             |context| context.pid(),
         )
-    }
-
-    pub(crate) fn kill(&self, pid: i32) -> AsyncHostResult<()> {
-        if let Some(context) = &self.context {
-            return context.kill(pid);
-        }
-        self.with_owned_child_pid(pid, || {
-            let _ = crate::async_sys::process::kill_process(pid);
-            Ok(())
-        })
-    }
-
-    pub(crate) fn terminate(&self, pid: i32, signal: i32) -> AsyncHostResult<()> {
-        if let Some(context) = &self.context {
-            return context.terminate(pid, signal);
-        }
-        self.with_owned_child_pid(pid, || {
-            let _ = crate::async_sys::process::terminate_process(pid, signal);
-            Ok(())
-        })
     }
 
     // Native-handle paths must never reinterpret a virtual PID as an
@@ -152,40 +131,6 @@ impl HostProcess {
         ));
     }
 
-    pub(crate) fn wait_job(
-        &self,
-        handle: Option<ResourceRef>,
-        tracked_pid: Option<i32>,
-        pid: i32,
-    ) -> AsyncHostResult<Job> {
-        if let Some(context) = &self.context {
-            #[cfg(unix)]
-            if handle.is_some() {
-                return Err(AsyncHostError::Badf);
-            }
-            #[cfg(windows)]
-            if let Some(handle) = &handle {
-                let handle = handle.as_process()?;
-                if !handle.matches(context, pid) {
-                    return Err(AsyncHostError::PermissionDenied);
-                }
-                return Ok(Job::wait_for_virtual_process(handle.wait()));
-            }
-            return Ok(Job::wait_for_virtual_process(context.wait(pid)?));
-        }
-        // On Unix, enforced authorization must inspect this provenance before
-        // reaping, so the worker defers the final reap to HostProcess.
-        #[cfg(unix)]
-        let defer_reap_for_authorization = self.child_authority.is_some();
-        Job::wait_for_process(
-            handle,
-            tracked_pid,
-            pid,
-            #[cfg(unix)]
-            defer_reap_for_authorization,
-        )
-    }
-
     /// Interpret and authorize a job once, before handing owned execution
     /// inputs to an OS primitive or the Engine's virtual child admission.
     pub(crate) fn prepare_job(&self, job: &mut Job) -> AsyncHostResult<()> {
@@ -198,68 +143,6 @@ impl HostProcess {
 
     pub(crate) fn revoke_unclaimed_spawn(&self, job: &Job, ret: i64, err: i32) {
         job.revoke_unclaimed_spawn(self, ret, err)
-    }
-
-    pub(crate) fn with_owned_child_pid<T>(
-        &self,
-        pid: i32,
-        f: impl FnOnce() -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        self.require_ambient()?;
-        let Some(state) = self.child_authority.as_deref() else {
-            return f();
-        };
-        let state = state.inner.lock().unwrap();
-        if !state.owned_child_pids.contains(&pid) {
-            return Err(AsyncHostError::PermissionDenied);
-        }
-        f()
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn finish_owned_child<T>(
-        &self,
-        pid: i32,
-        handle: Option<u64>,
-        f: impl FnOnce() -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        self.require_ambient()?;
-        let Some(state) = self.child_authority.as_deref() else {
-            return f();
-        };
-        let mut state = state.inner.lock().unwrap();
-        if !state.owned_child_pids.contains(&pid)
-            || handle.is_some_and(|handle| state.process_handle_pids.get(&handle) != Some(&pid))
-        {
-            return Err(AsyncHostError::PermissionDenied);
-        }
-        let result = f()?;
-        state.owned_child_pids.remove(&pid);
-        Ok(result)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn finish_process_handle<T>(
-        &self,
-        pid: i32,
-        handle: u64,
-        raw_handle: RawFd,
-        f: impl FnOnce() -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        self.require_ambient()?;
-        let Some(state) = self.child_authority.as_deref() else {
-            return f();
-        };
-        let mut state = state.inner.lock().unwrap();
-        if state.process_handle_pids.get(&handle) != Some(&pid) {
-            return Err(AsyncHostError::PermissionDenied);
-        }
-        if os::process_id(raw_handle)? != pid as u32 {
-            return Err(AsyncHostError::PermissionDenied);
-        }
-        let result = f()?;
-        state.owned_child_pids.remove(&pid);
-        Ok(result)
     }
 
     pub(crate) fn process_handle_pid(&self, handle: u64) -> AsyncHostResult<Option<i32>> {

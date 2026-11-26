@@ -262,6 +262,17 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
+    #[test]
+    fn unix_wait_status_distinguishes_exit_from_signal() {
+        use std::os::unix::process::ExitStatusExt;
+
+        assert_eq!(exit_code(std::process::ExitStatus::from_raw(7 << 8)), 7);
+        assert_eq!(
+            exit_code(std::process::ExitStatus::from_raw(libc::SIGTERM)),
+            -i64::from(libc::SIGTERM)
+        );
+    }
+
     fn prepared(program: &OsStr, path: Option<&OsStr>, cwd: &Path) -> Executable {
         Executable::Prepared(super::super::lookup::unix(program, path, Some(cwd)).unwrap())
     }

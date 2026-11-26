@@ -777,6 +777,116 @@ mod tests {
     }
 
     #[test]
+    fn virtual_process_result_is_consumed_only_after_successful_copy() {
+        use crate::runtime::{Executable, Runtime, RuntimeConfig};
+
+        let parent = VirtualPid(1);
+        let child = VirtualPid(2);
+        let completion = Arc::new(ProcessCompletion::default());
+        let context = ProcessContext {
+            pid: parent,
+            engine: test_engine(test_table(BTreeMap::from([(
+                child,
+                Entry {
+                    info: ProcessInfo {
+                        pid: child,
+                        parent: Some(parent),
+                        state: ProcessState::Running,
+                    },
+                    terminator: crate::termination_channel().0,
+                    signals: crate::signal_channel().0,
+                    completion: completion.clone(),
+                    waiting: false,
+                },
+            )]))),
+        };
+        let runtime = Runtime::new(
+            RuntimeConfig {
+                process_context: Some(context.clone()),
+                ..Default::default()
+            },
+            Executable::unavailable(),
+            crate::signal_channel().1,
+        )
+        .unwrap();
+        let host = runtime.async_host();
+        assert_eq!(
+            host.open_process_handle(parent.get()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        host.set_errno(123);
+        let handle = host.open_process_handle(child.get()).unwrap();
+        #[cfg(unix)]
+        {
+            assert_eq!(handle, host.invalid_fd());
+            assert_eq!(host.get_errno(), 0);
+        }
+        #[cfg(windows)]
+        assert_eq!(host.get_errno(), 123);
+        #[cfg(unix)]
+        let pending = libc::EAGAIN;
+        #[cfg(windows)]
+        let pending = windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32;
+        assert_eq!(
+            host.read_process_exit(handle, child.get(), |_| panic!("still running")),
+            Err(AsyncHostError::Native(pending))
+        );
+        completion.publish(Ok(RunOutcome::Exited(23)));
+        assert_eq!(
+            host.read_process_exit(handle, parent.get(), |_| panic!("wrong PID")),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        assert_eq!(
+            host.read_process_exit(0, child.get(), |_| panic!("invalid handle")),
+            Err(AsyncHostError::Badf)
+        );
+        assert_eq!(
+            host.read_process_exit(handle, child.get(), |_| Err(AsyncHostError::Fault)),
+            Err(AsyncHostError::Fault)
+        );
+        assert!(
+            context
+                .engine
+                .processes
+                .0
+                .lock()
+                .unwrap()
+                .entries
+                .contains_key(&child)
+        );
+        host.read_process_exit(handle, child.get(), |code| {
+            assert_eq!(code, 23);
+            Ok(())
+        })
+        .unwrap();
+        assert!(
+            context
+                .engine
+                .processes
+                .0
+                .lock()
+                .unwrap()
+                .entries
+                .is_empty()
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            host.read_process_exit(handle, child.get(), |_| panic!("already consumed")),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        #[cfg(windows)]
+        {
+            // Windows process handles retain the exit code after table reaping.
+            host.read_process_exit(handle, child.get(), |code| {
+                assert_eq!(code, 23);
+                Ok(())
+            })
+            .unwrap();
+            host.close_fd(handle).unwrap();
+        }
+    }
+
+    #[test]
     fn invalid_virtual_spawn_inputs_do_not_admit_a_process() {
         let cwd = tempfile::tempdir().unwrap();
         let tree = test_engine(Default::default());

@@ -294,6 +294,9 @@ Consolidating every primitive into one general OS facade is not a goal.
 
 Within Host Process, [spawn.rs](../../../src/process/spawn.rs) owns request
 interpretation, authorization, and resource binding.
+[control.rs](../../../src/process/control.rs) owns process-handle access and
+exit-result consumption, dispatching native and virtual process control. Async
+Host retains Resource registration; ABI adapters retain guest-memory writes.
 [lookup.rs](../../../src/process/lookup.rs) computes executable candidates from
 explicit inputs; it has no Runtime, Policy, environment reads, filesystem
 probes, or OS calls. [os/lookup.rs](../../../src/process/os/lookup.rs)
