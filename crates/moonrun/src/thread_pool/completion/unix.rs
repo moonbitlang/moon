@@ -40,13 +40,13 @@ struct PendingCompletions {
 }
 
 #[derive(Debug)]
-pub(crate) struct CancellationRetryNotifier {
+pub(in crate::thread_pool) struct CancellationRetryNotifier {
     pending: Arc<AtomicI64>,
     source: Arc<ThreadPoolCompletionNotifier>,
 }
 
 impl CancellationRetryNotifier {
-    pub(crate) fn notify_from_signal(&self, completion_id: i32) {
+    pub(in crate::thread_pool) fn notify_from_signal(&self, completion_id: i32) {
         // Publish before waking. Repeated retries for the same current Job
         // occupy one slot, even when the guest stops consuming notifications.
         // The handler uses the existing Arc without changing reference counts.
@@ -56,7 +56,7 @@ impl CancellationRetryNotifier {
         let _ = self.source.wake();
     }
 
-    pub(crate) fn reset(&self) {
+    pub(in crate::thread_pool) fn reset(&self) {
         // The guest has accepted completion and is reusing the Worker.
         self.pending.store(NO_RETRY, Ordering::SeqCst);
     }
@@ -130,7 +130,9 @@ impl ThreadPoolCompletionNotifier {
         self.wake()
     }
 
-    pub(crate) fn cancellation_retry(self: &Arc<Self>) -> CancellationRetryNotifier {
+    pub(in crate::thread_pool) fn cancellation_retry(
+        self: &Arc<Self>,
+    ) -> CancellationRetryNotifier {
         let slot = Arc::new(AtomicI64::new(NO_RETRY));
         let mut pending = self.pending.lock().unwrap();
         pending.retries.retain(|slot| slot.strong_count() != 0);

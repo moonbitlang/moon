@@ -20,20 +20,20 @@
 //!
 //! MoonBit schedules Jobs and observes completion notifications. This module
 //! owns the corresponding host Worker registry, completed Jobs, and teardown;
-//! `async_sys` retains only the native-shaped single-Worker primitives.
+//! Worker validation and removal stay here, before Job transfer or native teardown.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
 
-use super::{AsyncHostError, AsyncHostResult, HandleKey};
-use crate::async_sys::internal::event_loop::thread_pool::{
-    self, CancellationOutcome, CompletedJob, Worker, WorkerCompletionDestination, WorkerJob,
-};
+use super::worker::{Worker, shutdown_workers};
+use super::{CancellationOutcome, CompletedJob, WorkerCompletionDestination, WorkerJob};
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::runtime::HostKey as HandleKey;
 use crate::runtime::{Handles, HostKeys, HostResourceKind};
 
-pub(super) struct InstanceWorkers {
-    pub(super) workers: RefCell<Handles<Worker>>,
+pub(crate) struct InstanceWorkers {
+    workers: RefCell<Handles<Worker>>,
     completed_sender: mpsc::Sender<CompletedJob>,
     completed: mpsc::Receiver<CompletedJob>,
 }
@@ -47,7 +47,7 @@ impl std::fmt::Debug for InstanceWorkers {
 }
 
 impl InstanceWorkers {
-    pub(super) fn new(keys: Rc<RefCell<HostKeys>>) -> Self {
+    pub(crate) fn new(keys: Rc<RefCell<HostKeys>>) -> Self {
         let (completed_sender, completed) = mpsc::channel();
         Self {
             workers: RefCell::new(Handles::new(keys, HostResourceKind::Worker)),
@@ -56,13 +56,13 @@ impl InstanceWorkers {
         }
     }
 
-    pub(super) fn spawn(
+    pub(crate) fn spawn(
         &self,
         first_job: WorkerJob,
         run_job: impl FnMut(&mut WorkerJob) + Send + 'static,
         completion: WorkerCompletionDestination,
     ) -> HandleKey {
-        let handle = thread_pool::spawn_worker(
+        let handle = Worker::spawn(
             first_job,
             run_job,
             self.completed_sender.clone(),
@@ -71,45 +71,65 @@ impl InstanceWorkers {
         self.workers.borrow_mut().insert(handle)
     }
 
-    pub(super) fn take_pending(&self, worker: HandleKey) -> AsyncHostResult<Option<WorkerJob>> {
-        let workers = self.workers.borrow();
-        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
-        Ok(thread_pool::worker_enter_idle(worker))
-    }
-
-    pub(super) fn cancel(&self, worker: HandleKey) -> AsyncHostResult<CancellationOutcome> {
-        let workers = self.workers.borrow();
-        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
-        thread_pool::cancel_worker(worker)
-    }
-
-    pub(super) fn cancel_with_retry(
+    pub(crate) fn wake(
         &self,
         worker: HandleKey,
-        #[cfg(unix)] notifier: std::sync::Arc<
-            crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier,
-        >,
+        prepare_job: impl FnOnce() -> AsyncHostResult<WorkerJob>,
+    ) -> AsyncHostResult<Option<WorkerJob>> {
+        let workers = self.workers.borrow();
+        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
+        // Validate the Worker before the caller transfers its one-shot Job.
+        let job = prepare_job()?;
+        Ok(worker.submit(job))
+    }
+
+    pub(crate) fn free(&self, worker: HandleKey) -> AsyncHostResult<Vec<WorkerJob>> {
+        let worker = self
+            .workers
+            .borrow_mut()
+            .remove(worker)
+            .ok_or(AsyncHostError::Badf)?;
+        // Retire the Handle and release the table borrow before cancellation
+        // and join. The caller receives any queued Job that did not run.
+        Ok(shutdown_workers([worker]))
+    }
+
+    pub(crate) fn take_pending(&self, worker: HandleKey) -> AsyncHostResult<Option<WorkerJob>> {
+        let workers = self.workers.borrow();
+        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
+        Ok(worker.take_pending())
+    }
+
+    pub(crate) fn cancel(&self, worker: HandleKey) -> AsyncHostResult<CancellationOutcome> {
+        let workers = self.workers.borrow();
+        let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
+        worker.cancel()
+    }
+
+    pub(crate) fn cancel_with_retry(
+        &self,
+        worker: HandleKey,
+        #[cfg(unix)] notifier: std::sync::Arc<crate::thread_pool::ThreadPoolCompletionNotifier>,
     ) -> AsyncHostResult<CancellationOutcome> {
         let workers = self.workers.borrow();
         let worker = workers.get(worker).ok_or(AsyncHostError::Badf)?;
-        thread_pool::cancel_worker_with_retry(
-            worker,
+        worker.cancel_with_retry(
             #[cfg(unix)]
             notifier,
         )
     }
 
-    pub(super) fn try_recv_completed(&self) -> Result<CompletedJob, mpsc::TryRecvError> {
+    pub(crate) fn try_recv_completed(&self) -> Result<CompletedJob, mpsc::TryRecvError> {
         self.completed.try_recv()
     }
 
-    pub(super) fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.workers.borrow().len()
     }
 
-    pub(super) fn destroy(&self) -> Vec<WorkerJob> {
+    pub(crate) fn destroy(&self) -> Vec<WorkerJob> {
         let workers = self.workers.borrow_mut().take_all();
-        thread_pool::shutdown_workers(workers)
+        shutdown_workers(workers)
     }
 }
 
@@ -122,7 +142,7 @@ impl Drop for InstanceWorkers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::{WorkerCompletionId, make_sleep_job};
+    use crate::thread_pool::{self, WorkerCompletionId, make_sleep_job};
     use std::time::Duration;
 
     fn job(completion_id: i32, job_key: HandleKey) -> WorkerJob {
@@ -167,7 +187,7 @@ mod tests {
         let job_key = jobs.insert(());
         let (_sender, receiver) = crate::signal_channel();
         let (notifier, notifier_fd): (_, RawFd) =
-            crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier::new().unwrap();
+            crate::thread_pool::ThreadPoolCompletionNotifier::new().unwrap();
         let wait_job = crate::async_sys::signal::make_sigwait_job(
             &receiver,
             &[libc::SIGINT],
@@ -302,8 +322,7 @@ mod tests {
         assert_eq!(first.cancel(second_worker), Err(AsyncHostError::Badf));
         assert_eq!(second.cancel(first_worker), Err(AsyncHostError::Badf));
         for (instance, worker) in [(&first, first_worker), (&second, second_worker)] {
-            let worker = instance.workers.borrow_mut().remove(worker).unwrap();
-            assert!(thread_pool::free_worker(worker).is_none());
+            assert!(instance.free(worker).unwrap().is_empty());
         }
     }
 

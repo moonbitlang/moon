@@ -26,12 +26,12 @@ use crate::resource::ResourceRef;
 #[cfg(unix)]
 use std::os::unix::thread::JoinHandleExt;
 
-use super::super::PipeCompletionNotifier;
 use super::JobCancellation;
+use super::PipeCompletionNotifier;
 use super::cancellation::WorkerCancellation;
 use super::{CancellationOutcome, Job};
 #[cfg(unix)]
-use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
+use crate::thread_pool::ThreadPoolCompletionNotifier;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorkerCompletionId(i32);
@@ -41,7 +41,7 @@ impl WorkerCompletionId {
         Self(value)
     }
 
-    pub(crate) fn as_i32(self) -> i32 {
+    pub(super) fn as_i32(self) -> i32 {
         self.0
     }
 }
@@ -81,7 +81,7 @@ enum RunningCancellation {
 }
 
 #[cfg(windows)]
-pub(crate) enum WorkerCancellationTarget {
+enum WorkerCancellationTarget {
     Thread,
     Resource(ResourceRef),
 }
@@ -125,7 +125,7 @@ struct WorkerShared {
 // OS thread and follows thread_pool.c's worker state machine: run current job,
 // publish completion, wait until MoonBit either assigns another job or parks it.
 // Joining consumes the Worker.
-pub(crate) struct Worker {
+pub(super) struct Worker {
     shared: Arc<WorkerShared>,
     thread: JoinHandle<()>,
 }
@@ -154,8 +154,10 @@ fn init_worker_signal_handler() {
     });
 }
 
+ported_fns! {
 impl Worker {
-    pub(crate) fn spawn(
+    #[ported(runtime = "thread_pool.c", original = "moonbit_rt_spawn_worker")]
+    pub(super) fn spawn(
         first_job: WorkerJob,
         mut run_job: impl FnMut(&mut WorkerJob) + Send + 'static,
         completed: mpsc::Sender<CompletedJob>,
@@ -285,8 +287,9 @@ impl Worker {
         Self { shared, thread }
     }
 
+    #[ported(runtime = "thread_pool.c", original = "moonbit_rt_wake_worker")]
     /// Return any displaced queued Job, or the submitted Job if stopping.
-    pub(crate) fn submit(&self, job: WorkerJob) -> Option<WorkerJob> {
+    pub(super) fn submit(&self, job: WorkerJob) -> Option<WorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
         if state.terminating {
             return Some(job);
@@ -312,13 +315,14 @@ impl Worker {
         pending
     }
 
+    #[ported(runtime = "thread_pool.c", original = "moonbit_rt_worker_enter_idle")]
     /// Remove the queued Job; an active Job keeps running.
-    fn take_pending(&self) -> Option<WorkerJob> {
+    pub(super) fn take_pending(&self) -> Option<WorkerJob> {
         self.shared.state.lock().unwrap().job.take()
     }
 
     #[cfg(windows)]
-    pub(crate) fn cancellation_target(&self) -> WorkerCancellationTarget {
+    fn cancellation_target(&self) -> WorkerCancellationTarget {
         let state = self.shared.state.lock().unwrap();
         match &state.running_cancel {
             RunningCancellation::Active(Some(cancel)) => {
@@ -333,16 +337,17 @@ impl Worker {
         }
     }
 
-    pub(crate) fn cancel(&self) -> AsyncHostResult<CancellationOutcome> {
+    pub(super) fn cancel(&self) -> AsyncHostResult<CancellationOutcome> {
         #[cfg(unix)]
         self.shared.cancellation.disable_retry();
         self.cancel_inner()
     }
 
+    #[ported(runtime = "thread_pool.c", original = "moonbit_rt_cancel_worker")]
     /// Inspect or cancel the current Job, not an earlier completion ID.
     /// The guest must accept completion before assigning the next Job; an
     /// early wake can advance this state before the old notification is read.
-    pub(crate) fn cancel_with_retry(
+    pub(super) fn cancel_with_retry(
         &self,
         #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
     ) -> AsyncHostResult<CancellationOutcome> {
@@ -424,72 +429,17 @@ impl Worker {
         }
     }
 
-    pub(crate) fn join(self) -> Option<WorkerJob> {
+    #[ported(runtime = "thread_pool.c", original = "moonbit_rt_free_worker")]
+    fn join(self) -> Option<WorkerJob> {
         let pending = self.request_stop();
         let _ = self.thread.join();
         pending
     }
 }
-
-ported_fns! {
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "moonbit_rt_spawn_worker"
-    )]
-    pub(crate) fn spawn_worker(
-        first_job: WorkerJob,
-        run_job: impl FnMut(&mut WorkerJob) + Send + 'static,
-        completed: mpsc::Sender<CompletedJob>,
-        completion: WorkerCompletionDestination,
-    ) -> Worker {
-        Worker::spawn(first_job, run_job, completed, completion)
-    }
-
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "moonbit_rt_wake_worker"
-    )]
-    pub(crate) fn wake_worker(
-        worker: &Worker,
-        job: WorkerJob,
-    ) -> Option<WorkerJob> {
-        worker.submit(job)
-    }
-
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "moonbit_rt_worker_enter_idle"
-    )]
-    pub(crate) fn worker_enter_idle(worker: &Worker) -> Option<WorkerJob> {
-        worker.take_pending()
-    }
-
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "moonbit_rt_cancel_worker"
-    )]
-    pub(crate) fn cancel_worker_with_retry(
-        worker: &Worker,
-        #[cfg(unix)] notifier: Arc<ThreadPoolCompletionNotifier>,
-    ) -> AsyncHostResult<CancellationOutcome> {
-        worker.cancel_with_retry(#[cfg(unix)] notifier)
-    }
-
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "moonbit_rt_free_worker"
-    )]
-    pub(crate) fn free_worker(worker: Worker) -> Option<WorkerJob> {
-        worker.join()
-    }
-}
-
-pub(crate) fn cancel_worker(worker: &Worker) -> AsyncHostResult<CancellationOutcome> {
-    worker.cancel()
 }
 
 /// Stop and reclaim Workers after their guest scheduler can no longer drive cancellation.
-pub(crate) fn shutdown_workers(workers: impl IntoIterator<Item = Worker>) -> Vec<WorkerJob> {
+pub(super) fn shutdown_workers(workers: impl IntoIterator<Item = Worker>) -> Vec<WorkerJob> {
     let workers: Vec<_> = workers.into_iter().collect();
     // Close admission before cancelling: a queued Job must not start later and
     // reset the cancellation state. Keep its ownership for the caller to restore.
@@ -511,16 +461,16 @@ pub(crate) fn shutdown_workers(workers: impl IntoIterator<Item = Worker>) -> Vec
     }
     // Acknowledgement (or a cancellation error) never permits early disposal.
     // Non-cancellable operations must still finish before their state is freed.
-    pending.extend(workers.into_iter().filter_map(free_worker));
+    pending.extend(workers.into_iter().filter_map(Worker::join));
     pending
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::make_sleep_job;
     #[cfg(windows)]
     use crate::process::Job as ProcessJob;
+    use crate::thread_pool::make_sleep_job;
     use slotmap::KeyData;
     use std::sync::mpsc;
 
@@ -533,7 +483,7 @@ mod tests {
         // receive verifies that publication already happened before delivery.
         let (completed, results) = mpsc::channel();
         let results = Mutex::new(results);
-        super::spawn_worker(
+        Worker::spawn(
             job,
             run,
             completed,
@@ -576,15 +526,15 @@ mod tests {
             (WorkerCompletionId::from_abi(7), make_job_key(11))
         );
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(11));
-        assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::NeedWait));
+        assert_eq!(worker.cancel(), Ok(CancellationOutcome::NeedWait));
 
-        assert!(wake_worker(&worker, make_worker_job(13, 17)).is_none());
+        assert!(worker.submit(make_worker_job(13, 17)).is_none());
         assert_eq!(
             receiver.recv().unwrap(),
             (WorkerCompletionId::from_abi(13), make_job_key(17))
         );
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(17));
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
     }
 
     #[cfg(unix)]
@@ -601,7 +551,7 @@ mod tests {
         let (started_tx, started_rx) = mpsc::channel();
         let (resume_tx, resume_rx) = mpsc::channel();
         let (completed_tx, completed_rx) = mpsc::channel();
-        let worker = super::spawn_worker(
+        let worker = Worker::spawn(
             make_worker_job(7, 11),
             move |_| {
                 started_tx.send(()).unwrap();
@@ -623,7 +573,7 @@ mod tests {
                 .job_key,
             make_job_key(11)
         );
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
 
         let mut bytes = [0u8; 4];
         let read = unsafe {
@@ -650,7 +600,7 @@ mod tests {
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
-        let worker = super::spawn_worker(
+        let worker = Worker::spawn(
             make_worker_job(23, 29),
             move |job| {
                 with_cancellable_region(|| {
@@ -669,13 +619,13 @@ mod tests {
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
-            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            worker.cancel_with_retry(Arc::clone(&notifier)),
             Ok(CancellationOutcome::NeedWait)
         );
         release_tx.send(()).unwrap();
         let (joined_tx, joined_rx) = mpsc::channel();
         let join = std::thread::spawn(move || {
-            assert!(free_worker(worker).is_none());
+            assert!(worker.join().is_none());
             joined_tx.send(()).unwrap();
         });
 
@@ -717,7 +667,7 @@ mod tests {
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
-        let worker = super::spawn_worker(
+        let worker = Worker::spawn(
             make_worker_job(17, 19),
             move |job| {
                 let (ret, errno) = with_cancellable_region(|| {
@@ -740,7 +690,7 @@ mod tests {
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
-            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            worker.cancel_with_retry(Arc::clone(&notifier)),
             Ok(CancellationOutcome::NeedWait)
         );
 
@@ -758,7 +708,7 @@ mod tests {
             "a retry is not job completion"
         );
         assert_eq!(
-            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            worker.cancel_with_retry(Arc::clone(&notifier)),
             Ok(CancellationOutcome::NeedWait)
         );
         release_tx.send(()).unwrap();
@@ -771,7 +721,7 @@ mod tests {
                 && notifier.fetch(&mut bytes).unwrap() == 4
             {
                 assert_eq!(i32::from_ne_bytes(bytes), 17);
-                if cancel_worker_with_retry(&worker, Arc::clone(&notifier)).unwrap()
+                if worker.cancel_with_retry(Arc::clone(&notifier)).unwrap()
                     == CancellationOutcome::JobFinished
                 {
                     result_at_completion = result_rx.try_recv().ok().map(|result| result.job.ret());
@@ -782,7 +732,7 @@ mod tests {
         }
         // Release the read even on failure, so a regression cannot strand it.
         drop(write);
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
         assert!(
             finished,
             "retry notification must eventually interrupt the read"
@@ -809,7 +759,7 @@ mod tests {
         let (handled_tx, handled_rx) = mpsc::channel();
         let (finish_tx, finish_rx) = mpsc::channel();
         let (completed, _results) = mpsc::channel();
-        let worker = super::spawn_worker(
+        let worker = Worker::spawn(
             make_worker_job(23, 29),
             move |_| {
                 with_cancellable_region(|| {
@@ -831,13 +781,13 @@ mod tests {
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
-            cancel_worker_with_retry(&worker, Arc::clone(&notifier)),
+            worker.cancel_with_retry(Arc::clone(&notifier)),
             Ok(CancellationOutcome::NeedWait)
         );
         signal_tx.send(()).unwrap();
         handled_rx.recv_timeout(Duration::from_secs(5)).unwrap();
 
-        assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
+        assert_eq!(worker.cancel(), Ok(CancellationOutcome::RetryLater));
         signal_tx.send(()).unwrap();
         handled_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let mut bytes = [0; 4];
@@ -846,7 +796,7 @@ mod tests {
         assert_eq!(notifier.fetch(&mut bytes).unwrap(), 0);
 
         finish_tx.send(()).unwrap();
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
         assert_eq!(notifier.fetch(&mut bytes).unwrap(), 4);
         assert_eq!(i32::from_ne_bytes(bytes), 23);
     }
@@ -866,7 +816,7 @@ mod tests {
         let (ack_tx, ack_rx) = mpsc::channel();
         let (finish_tx, finish_rx) = mpsc::channel();
         let (completed, _results) = mpsc::channel();
-        let worker = super::spawn_worker(
+        let worker = Worker::spawn(
             make_worker_job(23, 29),
             move |_| {
                 with_cancellable_region(|| {
@@ -883,14 +833,14 @@ mod tests {
             WorkerCompletionDestination::Pool(Arc::clone(&notifier)),
         );
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
+        assert_eq!(worker.cancel(), Ok(CancellationOutcome::RetryLater));
         release_tx.send(()).unwrap();
         ack_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::NeedWait));
+        assert_eq!(worker.cancel(), Ok(CancellationOutcome::NeedWait));
         let mut bytes = [0u8; 4];
         assert_eq!(notifier.fetch(&mut bytes).unwrap(), 0);
         finish_tx.send(()).unwrap();
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
         assert_eq!(notifier.fetch(&mut bytes).unwrap(), 4);
         assert_eq!(i32::from_ne_bytes(bytes), 23);
     }
@@ -910,12 +860,12 @@ mod tests {
         assert_eq!(receiver.recv().unwrap().0, WorkerCompletionId::from_abi(1));
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(2));
 
-        assert!(worker_enter_idle(&worker).is_none());
-        assert!(wake_worker(&worker, make_worker_job(3, 4)).is_none());
+        assert!(worker.take_pending().is_none());
+        assert!(worker.submit(make_worker_job(3, 4)).is_none());
 
         assert_eq!(receiver.recv().unwrap().0, WorkerCompletionId::from_abi(3));
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(4));
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
     }
 
     #[test]
@@ -938,7 +888,7 @@ mod tests {
             started_receiver.recv().unwrap().0,
             WorkerCompletionId::from_abi(1)
         );
-        assert!(wake_worker(&worker, make_worker_job(3, 4)).is_none());
+        assert!(worker.submit(make_worker_job(3, 4)).is_none());
         release_sender.send(()).unwrap();
 
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(2));
@@ -950,7 +900,7 @@ mod tests {
             WorkerCompletionId::from_abi(3)
         );
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(4));
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
     }
 
     #[cfg(unix)]
@@ -1001,20 +951,18 @@ mod tests {
                 make_job_key(2)
             );
             assert!(
-                wake_worker(
-                    &worker,
-                    WorkerJob::new(
+                worker
+                    .submit(WorkerJob::new(
                         WorkerCompletionId::from_abi(3),
                         make_job_key(4),
-                        wait_job.into()
-                    ),
-                )
-                .is_none()
+                        wait_job.into(),
+                    ))
+                    .is_none()
             );
             if cancel_while_running {
                 // The active ordinary Job has no override; cancellation must
                 // not fall through to the queued signal-wait Job's hook.
-                assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
+                assert_eq!(worker.cancel(), Ok(CancellationOutcome::RetryLater));
             }
             resume_run.send(()).unwrap();
             assert_eq!(
@@ -1024,7 +972,7 @@ mod tests {
             if !cancel_while_running {
                 // Delivery is paused after execution ends, keeping the next
                 // Job queued. Its cancellation must survive until it starts.
-                assert_eq!(cancel_worker(&worker), Ok(CancellationOutcome::RetryLater));
+                assert_eq!(worker.cancel(), Ok(CancellationOutcome::RetryLater));
             }
             resume_delivery.send(()).unwrap();
             assert_eq!(
@@ -1043,7 +991,7 @@ mod tests {
             if result.is_err() {
                 completion.recv_timeout(Duration::from_secs(5)).unwrap();
             }
-            assert!(free_worker(worker).is_none());
+            assert!(worker.join().is_none());
             if cancel_while_running {
                 assert_eq!(result, Err(mpsc::RecvTimeoutError::Timeout));
             } else {
@@ -1079,7 +1027,7 @@ mod tests {
             ProcessJob::wait_for_process(None, None, 0).unwrap().into(),
         );
         let queued_cancel = queued_job.job.cancellation_resource().unwrap();
-        assert!(wake_worker(&worker, queued_job).is_none());
+        assert!(worker.submit(queued_job).is_none());
         assert!(matches!(
             worker.cancellation_target(),
             WorkerCancellationTarget::Thread
@@ -1114,7 +1062,7 @@ mod tests {
             worker.cancellation_target(),
             WorkerCancellationTarget::Thread
         ));
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
     }
 
     #[test]
@@ -1132,7 +1080,7 @@ mod tests {
                 .unwrap(),
             123
         );
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
     }
 
     #[test]
@@ -1153,13 +1101,13 @@ mod tests {
         );
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(2));
 
-        assert!(wake_worker(&worker, make_worker_job(3, 4)).is_none());
+        assert!(worker.submit(make_worker_job(3, 4)).is_none());
         assert_eq!(
             started_receiver.recv().unwrap(),
             (WorkerCompletionId::from_abi(3), make_job_key(4))
         );
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(4));
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
     }
 
     #[test]
@@ -1180,8 +1128,8 @@ mod tests {
             started_receiver.recv().unwrap(),
             (WorkerCompletionId::from_abi(1), make_job_key(2))
         );
-        assert!(wake_worker(&worker, make_worker_job(3, 4)).is_none());
-        let displaced = worker_enter_idle(&worker).unwrap();
+        assert!(worker.submit(make_worker_job(3, 4)).is_none());
+        let displaced = worker.take_pending().unwrap();
         assert_eq!(
             worker_job_summary(&displaced),
             (WorkerCompletionId::from_abi(3), make_job_key(4))
@@ -1189,7 +1137,7 @@ mod tests {
 
         release_sender.send(()).unwrap();
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(2));
-        assert!(wake_worker(&worker, make_worker_job(5, 6)).is_none());
+        assert!(worker.submit(make_worker_job(5, 6)).is_none());
         assert_eq!(
             started_receiver
                 .recv_timeout(std::time::Duration::from_secs(1))
@@ -1198,7 +1146,7 @@ mod tests {
         );
         release_sender.send(()).unwrap();
         assert_eq!(completion_receiver.recv().unwrap(), make_job_key(6));
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
     }
 
     #[test]
@@ -1216,15 +1164,15 @@ mod tests {
         );
 
         started_receiver.recv().unwrap();
-        let displaced = wake_worker(&worker, make_worker_job(3, 4));
+        let displaced = worker.submit(make_worker_job(3, 4));
         let pending = worker.request_stop();
-        let rejected = wake_worker(&worker, make_worker_job(5, 6));
+        let rejected = worker.submit(make_worker_job(5, 6));
         let stopped_again = worker.request_stop();
 
         // Let the active Job finish and join before checking admission, so a
         // failed assertion cannot leave its thread waiting for this test.
         release_sender.send(()).unwrap();
-        let remaining = free_worker(worker);
+        let remaining = worker.join();
 
         assert!(displaced.is_none());
         assert_eq!(
@@ -1270,7 +1218,7 @@ mod tests {
             std::thread::yield_now();
         }
         assert!(worker.thread.is_finished());
-        assert!(free_worker(worker).is_none());
+        assert!(worker.join().is_none());
     }
 
     #[cfg(windows)]
@@ -1301,6 +1249,6 @@ mod tests {
             worker.cancellation_target(),
             WorkerCancellationTarget::Thread
         ));
-        assert!(free_worker(worker).is_some());
+        assert!(worker.join().is_some());
     }
 }

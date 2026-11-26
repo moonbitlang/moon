@@ -21,9 +21,7 @@
 use super::worker::WorkerCompletionId;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
-use crate::async_sys::internal::event_loop::{
-    CancellationRetryNotifier, ThreadPoolCompletionNotifier,
-};
+use crate::thread_pool::{CancellationRetryNotifier, ThreadPoolCompletionNotifier};
 #[cfg(unix)]
 use std::sync::Arc;
 use std::sync::{

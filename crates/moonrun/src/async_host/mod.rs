@@ -38,11 +38,6 @@ use std::sync::Arc;
 
 use slotmap::{Key, KeyData};
 
-#[cfg(unix)]
-use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
-use crate::async_sys::internal::event_loop::thread_pool::{
-    self, HostHandle, Job, JobPayload, WorkerCompletionDestination, WorkerCompletionId, WorkerJob,
-};
 use crate::filesystem::HostFs;
 use crate::filesystem::RawFile as RawFd;
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
@@ -58,6 +53,12 @@ pub(crate) use crate::runtime::HostKey as HandleKey;
 use crate::runtime::{
     Env, Handles, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream, null_handle,
 };
+#[cfg(unix)]
+use crate::thread_pool::ThreadPoolCompletionNotifier;
+use crate::thread_pool::{
+    self, HostHandle, InstanceWorkers, Job, JobPayload, WorkerCompletionDestination,
+    WorkerCompletionId, WorkerJob,
+};
 use crate::tls::HostTls;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -70,10 +71,6 @@ compile_error!("moonrun async wasm host requires little-endian host memory");
 mod windows_io;
 #[cfg(windows)]
 use windows_io::IoResultTable;
-
-mod workers;
-
-use workers::InstanceWorkers;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AsyncHostError {
@@ -1723,9 +1720,8 @@ impl AsyncHost {
     ) -> AsyncHostResult<u64> {
         let job_key = key_from_handle(job_handle);
         // Validate and acquire the writer before consuming the one-shot Job.
-        let notifier = crate::async_sys::internal::event_loop::PipeCompletionNotifier::new(
-            self.acquire_resource(writer_handle)?,
-        )?;
+        let notifier =
+            crate::thread_pool::PipeCompletionNotifier::new(self.acquire_resource(writer_handle)?)?;
         let first_job =
             self.take_worker_job(WorkerCompletionId::from_abi(completion_id), job_key)?;
         Ok(self.spawn_worker_thread(first_job, WorkerCompletionDestination::Pipe(notifier)))
@@ -1740,13 +1736,9 @@ impl AsyncHost {
         let completion_id = WorkerCompletionId::from_abi(completion_id);
         let worker_key = key_from_handle(worker_handle);
         let job_key = key_from_handle(job_handle);
-        let unrun_job = {
-            // Resolve the Worker before consuming the one-shot Job.
-            let workers = self.workers.workers.borrow();
-            let worker = workers.get(worker_key).ok_or(AsyncHostError::Badf)?;
-            let job = self.take_worker_job(completion_id, job_key)?;
-            thread_pool::wake_worker(worker, job)
-        };
+        let unrun_job = self
+            .workers
+            .wake(worker_key, || self.take_worker_job(completion_id, job_key))?;
         if let Some(unrun_job) = unrun_job {
             self.restore_unrun_worker_job(unrun_job);
         }
@@ -1763,14 +1755,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn free_worker(&self, worker_handle: u64) -> AsyncHostResult<()> {
-        let worker = self
-            .workers
-            .workers
-            .borrow_mut()
-            .remove(key_from_handle(worker_handle))
-            .ok_or(AsyncHostError::Badf)?;
-        // Cancellation and joining run after the owning table borrow ends.
-        for unrun_job in thread_pool::shutdown_workers([worker]) {
+        for unrun_job in self.workers.free(key_from_handle(worker_handle))? {
             self.restore_unrun_worker_job(unrun_job);
         }
         self.restore_completed_worker_jobs();
@@ -4683,10 +4668,9 @@ mod tests {
         let poll = host.poll_create().unwrap();
         host.init_thread_pool(poll).unwrap();
         let [reader, writer] = host.pipe(true, true).unwrap();
-        let notifier = crate::async_sys::internal::event_loop::PipeCompletionNotifier::new(
-            host.acquire_resource(writer).unwrap(),
-        )
-        .unwrap();
+        let notifier =
+            crate::thread_pool::PipeCompletionNotifier::new(host.acquire_resource(writer).unwrap())
+                .unwrap();
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let key = key_from_handle(job);
         let (started_tx, started_rx) = std::sync::mpsc::channel();

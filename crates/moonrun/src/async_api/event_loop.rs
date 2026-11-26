@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_sys::internal::event_loop::thread_pool;
+use crate::thread_pool;
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;

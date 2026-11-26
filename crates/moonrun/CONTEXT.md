@@ -423,9 +423,12 @@ belongs to the CLI and guest delivery belongs to Run Signals.
 _Avoid_: V8 adapter, placeholder unsupported imports
 
 **Thread Pool**:
-The shared host facility that schedules Jobs outside the guest coroutine loop.
-It owns the common Job result envelope, Workers, and Completion delivery. It
-does not interpret Filesystem, Network, Process, Run Signal, or SQLite semantics.
+The shared host facility in `thread_pool` that runs Jobs outside the guest
+coroutine loop. It owns Worker registration, execution, cancellation, Completion
+delivery, and teardown. The guest owns scheduling; Async Host transfers Jobs and
+accepts or discards their domain results. Worker internals remain private to the
+Thread Pool. Filesystem, Network, Process, Run Signal, and SQLite retain their
+operation semantics.
 _Avoid_: Filesystem executor, Network executor, Process executor, SQLite executor
 
 **Host Poller**:

@@ -23,9 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{VirtualPid, WaitClaim};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::thread_pool::{
-    CancellationOutcome, JobCancellation, JobCancellationOverride,
-};
+use crate::thread_pool::{CancellationOutcome, JobCancellation, JobCancellationOverride};
 use crate::{RunOutcome, RunTermination};
 
 // Use the same status encoding as native process waits and the CLI adapter.
@@ -430,9 +428,7 @@ impl JobCancellationOverride for WaitCancellation {
 mod tests {
     use super::super::{Entry, ProcessCompletion, ProcessInfo, ProcessState};
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::{
-        self, WorkerCompletionDestination, WorkerCompletionId, WorkerJob,
-    };
+    use crate::thread_pool::{self, WorkerCompletionDestination, WorkerCompletionId, WorkerJob};
     use std::collections::BTreeMap;
     use std::sync::{Mutex, mpsc};
     use std::time::Duration;
@@ -1073,9 +1069,9 @@ mod tests {
             let wait = context.wait(child.get()).unwrap();
             let (entered, started) = mpsc::channel();
             let (release, proceed) = mpsc::channel();
-            let (completed, results) = mpsc::channel();
+            let workers = thread_pool::InstanceWorkers::new(Default::default());
             let (notified, notification) = mpsc::channel();
-            let worker = thread_pool::spawn_worker(
+            let worker = workers.spawn(
                 WorkerJob::new(
                     WorkerCompletionId::from_abi(1),
                     slotmap::KeyData::from_ffi(1).into(),
@@ -1088,7 +1084,6 @@ mod tests {
                     }
                     thread_pool::run_host_job(&mut job.job, &crate::filesystem::HostFs::default());
                 },
-                completed,
                 WorkerCompletionDestination::Test(Box::new(move |_| {
                     notified.send(()).unwrap();
                 })),
@@ -1104,16 +1099,16 @@ mod tests {
                 ));
             }
             assert_eq!(
-                thread_pool::cancel_worker(&worker).unwrap(),
+                workers.cancel(worker).unwrap(),
                 CancellationOutcome::NeedWait
             );
             if before_wait {
                 release.send(()).unwrap();
             }
             notification.recv_timeout(Duration::from_secs(5)).unwrap();
-            let result = results.recv().unwrap();
+            let result = workers.try_recv_completed().unwrap();
             assert!(thread_pool::errno_is_cancelled(result.job.err()));
-            thread_pool::free_worker(worker);
+            assert!(workers.free(worker).unwrap().is_empty());
             drop(result);
             assert!(!table.lock().unwrap().entries[&child].waiting);
             assert!(completion.result.lock().unwrap().is_none());

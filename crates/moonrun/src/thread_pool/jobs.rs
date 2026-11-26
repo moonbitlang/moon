@@ -69,7 +69,7 @@ pub(crate) fn make_sleep_job(ms: i32) -> Job {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::run_host_job;
+    use crate::thread_pool::run_host_job;
 
     #[test]
     fn sleep_job_initial_result_matches_native_job_header() {

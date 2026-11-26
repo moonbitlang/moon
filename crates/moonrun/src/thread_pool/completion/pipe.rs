@@ -57,7 +57,7 @@ impl PipeCompletionNotifier {
     }
 
     #[cfg(unix)]
-    pub(crate) fn notify(
+    pub(in crate::thread_pool) fn notify(
         &self,
         completion_id: i32,
         is_stopping: &dyn Fn() -> bool,
@@ -101,7 +101,7 @@ impl PipeCompletionNotifier {
     }
 
     #[cfg(windows)]
-    pub(crate) fn notify(
+    pub(in crate::thread_pool) fn notify(
         &self,
         completion_id: i32,
         is_stopping: &dyn Fn() -> bool,

@@ -16,33 +16,37 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! Shared Job execution, Worker ownership, cancellation, and completion delivery.
+
 mod cancellation;
+mod completion;
 mod jobs;
+mod registry;
 mod runner;
 mod sleep;
 mod types;
 mod worker;
 
 pub(crate) use cancellation::with_cancellable_region;
+#[cfg(unix)]
+use completion::CancellationRetryNotifier;
+pub(crate) use completion::PipeCompletionNotifier;
+#[cfg(unix)]
+pub(crate) use completion::ThreadPoolCompletionNotifier;
 pub(crate) use jobs::make_failed_job;
 pub(crate) use jobs::make_sleep_job;
 pub(crate) use jobs::{errno_is_cancelled, get_platform};
 pub(crate) use jobs::{job_get_err, job_get_ret};
+pub(crate) use registry::InstanceWorkers;
 pub(crate) use runner::run_host_job;
 pub(crate) use types::{CancellationOutcome, HostHandle, Job, JobPayload};
 pub(crate) use types::{JobCancellation, JobCancellationOverride};
-#[cfg(test)]
-pub(crate) use worker::free_worker;
-pub(crate) use worker::{
-    CompletedJob, Worker, WorkerCompletionDestination, WorkerCompletionId, WorkerJob,
-    cancel_worker, cancel_worker_with_retry, shutdown_workers, spawn_worker, wake_worker,
-    worker_enter_idle,
-};
+pub(crate) use worker::{CompletedJob, WorkerCompletionDestination, WorkerCompletionId, WorkerJob};
 
 #[cfg(test)]
 pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     let mut symbols = jobs::PORTED_SYMBOLS.to_vec();
-    symbols.extend_from_slice(worker::PORTED_SYMBOLS);
+    symbols.extend_from_slice(worker::Worker::PORTED_SYMBOLS);
     symbols
 }
 

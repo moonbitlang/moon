@@ -20,11 +20,10 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::{Arc, Mutex, Weak};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::{
-    ThreadPoolCompletionNotifier,
-    thread_pool::{CancellationOutcome, JobCancellation, JobCancellationOverride},
-};
 use crate::run_signal::{SignalReceiver, SignalTargetGuard, signal_mask};
+use crate::thread_pool::{
+    CancellationOutcome, JobCancellation, JobCancellationOverride, ThreadPoolCompletionNotifier,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct SigwaitTarget {

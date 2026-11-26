@@ -21,11 +21,11 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 #[cfg(unix)]
-use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
-#[cfg(unix)]
 use crate::async_sys::signal::SigwaitTarget;
 #[cfg(windows)]
 use crate::poll::{self, CompletionPort};
+#[cfg(unix)]
+use crate::thread_pool::ThreadPoolCompletionNotifier;
 
 /// The sending half of one Run's signal channel.
 ///

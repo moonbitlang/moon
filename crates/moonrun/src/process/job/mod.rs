@@ -72,9 +72,7 @@ impl Job {
         }
     }
 
-    pub(crate) fn cancellation_override(
-        &self,
-    ) -> Option<crate::async_sys::internal::event_loop::thread_pool::JobCancellation> {
+    pub(crate) fn cancellation_override(&self) -> Option<crate::thread_pool::JobCancellation> {
         match &self.kind {
             Kind::WaitForVirtualProcess(wait) => Some(wait.cancellation()),
             _ => None,

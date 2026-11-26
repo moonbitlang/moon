@@ -22,4 +22,6 @@ mod unix;
 
 pub(crate) use pipe::PipeCompletionNotifier;
 #[cfg(unix)]
-pub(crate) use unix::{CancellationRetryNotifier, ThreadPoolCompletionNotifier};
+pub(super) use unix::CancellationRetryNotifier;
+#[cfg(unix)]
+pub(crate) use unix::ThreadPoolCompletionNotifier;

@@ -22,14 +22,14 @@
 //! completion delivery belong to one Run.
 
 use crate::async_host::AsyncHostResult;
-#[cfg(unix)]
-use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::ported_fns;
 #[cfg(windows)]
 use crate::poll::CompletionPort;
 use crate::run_signal::SignalReceiver;
 #[cfg(unix)]
 use crate::run_signal::SignalTargetGuard;
+#[cfg(unix)]
+use crate::thread_pool::ThreadPoolCompletionNotifier;
 #[cfg(unix)]
 use std::sync::Arc;
 
