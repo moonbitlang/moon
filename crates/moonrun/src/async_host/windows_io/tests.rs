@@ -291,6 +291,49 @@ fn read_dir_changes_io_result_leases_buffer_until_free() {
 }
 
 #[test]
+fn pending_watcher_cancellation_keeps_the_buffer_lease() {
+    let host = default_host();
+    let [read, write] = host.pipe(true, true).unwrap();
+    let buffer = host.buffers().allocate_windows_watcher();
+    let request = host.make_read_dir_changes_io_result(buffer).unwrap();
+    {
+        // No native I/O is submitted. Keep this request pending until explicit
+        // retirement, independently of when a real cancellation packet arrives.
+        let mut results = host.io_results.borrow_mut();
+        let result = results
+            .io_results
+            .get_mut(key_from_handle(request))
+            .unwrap();
+        result.overlapped.Internal = windows_sys::Win32::Foundation::STATUS_PENDING as usize;
+        result
+            .mark_pending(host.acquire_resource(read).unwrap())
+            .unwrap();
+    }
+
+    assert_eq!(host.cancel_io_result(request, read), Ok(1));
+    assert_eq!(host.free_io_result(request), Err(AsyncHostError::Inval));
+    assert_eq!(
+        host.buffers().with_windows_watcher(buffer, |_| Ok(())),
+        Err(AsyncHostError::Badf)
+    );
+    host.io_results
+        .borrow_mut()
+        .io_results
+        .get_mut(key_from_handle(request))
+        .unwrap()
+        .clear_pending();
+    host.free_io_result(request).unwrap();
+    assert_eq!(
+        host.buffers().with_windows_watcher(buffer, |_| Ok(())),
+        Ok(())
+    );
+    host.buffers().free_windows_watcher(buffer).unwrap();
+    host.close_fd(read).unwrap();
+    host.close_fd(write).unwrap();
+    assert!(host.leak_summary().is_none());
+}
+
+#[test]
 fn freed_watcher_buffer_is_not_restored_by_its_io_result() {
     let host = default_host();
     let buffer = host.buffers().allocate_windows_watcher();
@@ -924,6 +967,12 @@ fn watcher_iocp_completion_returns_the_buffer_and_handles_buffered_changes() {
     );
     std::fs::write(directory.path().join("first"), b"x").unwrap();
     assert_eq!(host.poll_wait(poll, 5000, &Default::default()), Ok(1));
+    // Native completion alone does not release the lease: status still has to
+    // finalize the event buffer before the guest can parse it.
+    assert_eq!(
+        host.buffers().with_windows_watcher(buffer, |_| Ok(())),
+        Err(AsyncHostError::Badf)
+    );
     assert!(host.io_result_get_status(result, directory_handle).unwrap() > 0);
     host.free_io_result(result).unwrap();
     host.buffers()

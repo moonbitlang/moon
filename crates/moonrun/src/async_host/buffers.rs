@@ -338,6 +338,75 @@ mod tests {
     use super::*;
 
     #[test]
+    fn borrowed_buffer_returns_explicitly_after_worker_handoff() {
+        let buffers = Buffers::new(Rc::default());
+        let handle = buffers.publish(b"abcd".to_vec().into_boxed_slice());
+        let mut lease = buffers.lease(handle).unwrap();
+        assert_eq!(buffers.get(handle, 0), Err(AsyncHostError::Badf));
+        assert_eq!(
+            buffers.blit_to_c(handle, 0, b"x", 0, 1),
+            Err(AsyncHostError::Badf)
+        );
+        assert!(matches!(buffers.lease(handle), Err(AsyncHostError::Badf)));
+
+        // The operation can move to a Worker without retaining the Handle table.
+        let lease = std::thread::spawn(move || {
+            lease.as_mut_slice()[0] = b'x';
+            lease
+        })
+        .join()
+        .unwrap();
+        // The completed operation still owns the bytes until its owner returns them.
+        assert_eq!(buffers.get(handle, 0), Err(AsyncHostError::Badf));
+        buffers.restore(lease);
+        assert_eq!(buffers.get(handle, 0), Ok(b'x'));
+        buffers.blit_to_c(handle, 1, b"y", 0, 1).unwrap();
+
+        // Reuse follows the same protocol after the previous return.
+        let mut lease = buffers.lease(handle).unwrap();
+        assert_eq!(lease.as_mut_slice(), b"xycd");
+        lease.as_mut_slice()[2] = b'z';
+        buffers.restore(lease);
+        assert_eq!(buffers.get(handle, 2), Ok(b'z'));
+        buffers.free(handle).unwrap();
+    }
+
+    #[test]
+    fn a_late_return_cannot_reach_a_replacement_buffer() {
+        let buffers = Buffers::new(Rc::default());
+        let old = buffers.publish(b"old".to_vec().into_boxed_slice());
+        let lease = buffers.lease(old).unwrap();
+        buffers.free(old).unwrap();
+        let replacement = buffers.publish(b"new".to_vec().into_boxed_slice());
+        let replacement_lease = buffers.lease(replacement).unwrap();
+
+        buffers.restore(lease);
+        assert_eq!(buffers.get(old, 0), Err(AsyncHostError::Badf));
+        assert_eq!(buffers.get(replacement, 0), Err(AsyncHostError::Badf));
+        buffers.restore(replacement_lease);
+        buffers
+            .with_buffer(replacement, |buffer| {
+                assert_eq!(buffer, b"new");
+                Ok(())
+            })
+            .unwrap();
+        buffers.free(replacement).unwrap();
+    }
+
+    #[test]
+    fn buffer_lease_outlives_registration_table() {
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let buffers = Buffers::new(keys.clone());
+        let handle = buffers.publish(b"abcd".to_vec().into_boxed_slice());
+        let mut lease = buffers.lease(handle).unwrap();
+        drop(buffers);
+
+        assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
+        lease.as_mut_slice()[0] = b'x';
+        drop(lease);
+    }
+
+    #[test]
     fn c_buffer_access_rejects_interior_raw_pointer() {
         let buffers = Buffers::new(Rc::default());
         let handle = buffers.publish(b"abcd".to_vec().into_boxed_slice());

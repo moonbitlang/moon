@@ -3393,7 +3393,12 @@ mod tests {
 
         let job = FilesystemJob::readdir(Arc::new(Resource::invalid()), lease, 4, false);
         let job = host.insert_job(job).unwrap();
-        host.run_job(job).unwrap();
+        let key = key_from_handle(job);
+        let mut completed = host.jobs.borrow_mut().take_ready_job(key).unwrap();
+        AsyncHost::run_policy_checked_job(&host.filesystem, &host.process, &mut completed);
+        // Finishing execution alone does not return access before collection.
+        assert_eq!(host.buffers().get(handle, 0), Err(AsyncHostError::Badf));
+        host.restore_job(key, completed).unwrap();
 
         host.buffers()
             .with_buffer(handle, |buffer| {
@@ -3419,6 +3424,31 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+    }
+
+    #[test]
+    fn restored_unrun_readdir_job_keeps_its_buffer_lease() {
+        let host = default_host();
+        let handle = host.buffers().publish(b"abcd".to_vec().into_boxed_slice());
+        let lease = host.buffers().lease(handle).unwrap();
+        let job = host
+            .insert_job(FilesystemJob::readdir(
+                Arc::new(Resource::invalid()),
+                lease,
+                4,
+                false,
+            ))
+            .unwrap();
+        let worker_job = host
+            .take_worker_job(WorkerCompletionId::from_abi(1), key_from_handle(job))
+            .unwrap();
+
+        // Returning an unrun Job to Ready retains its buffer for later execution.
+        host.restore_unrun_worker_job(worker_job);
+        assert_eq!(host.buffers().get(handle, 0), Err(AsyncHostError::Badf));
+        host.free_job(job).unwrap();
+        assert_eq!(host.buffers().get(handle, 0), Ok(b'a'));
+        host.buffers().free(handle).unwrap();
     }
 
     #[test]
