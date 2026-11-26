@@ -74,7 +74,8 @@ pub(super) fn decode_len(
 ) -> AsyncHostResult<u32> {
     let string = context
         .host
-        .with_c_buffer(ptr, |buffer| decode_native_string(buffer, offset, len))?;
+        .buffers()
+        .with_buffer(ptr, |buffer| decode_native_string(buffer, offset, len))?;
     utf16_len(&string)
 }
 
@@ -88,7 +89,8 @@ pub(super) fn decode(
 ) -> AsyncHostResult<()> {
     let string = context
         .host
-        .with_c_buffer(ptr, |buffer| decode_native_string(buffer, offset, len))?;
+        .buffers()
+        .with_buffer(ptr, |buffer| decode_native_string(buffer, offset, len))?;
     let units = string.encode_utf16().collect::<Vec<_>>();
     let actual_len = u32::try_from(units.len()).map_err(|_| AsyncHostError::Fault)?;
     if actual_len != out_len {

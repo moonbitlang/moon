@@ -676,7 +676,7 @@ pub(super) fn make_readdir_job(
     let dir = context
         .host
         .acquire_resource_of_class(dir, ResourceClass::File)?;
-    let buffer = context.host.lease_c_buffer(buf)?;
+    let buffer = context.host.buffers().lease(buf)?;
     context.host.insert_job(
         FilesystemJob::readdir(dir, buffer, len, restart != 0),
     )

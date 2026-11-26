@@ -100,7 +100,7 @@ pub(super) fn init_ipv6_addr(
 #[ported(source = "src/internal/event_loop/network.wasm.mbt", original = "gai_strerror")]
 #[cfg(unix)]
 pub(super) fn gai_strerror(context: &mut ImportContext<'_>, code: i32) -> u64 {
-    context.host.insert_c_buffer(
+    context.host.buffers().publish(
         dns::gai_strerror(code).into_bytes_with_nul().into_boxed_slice(),
     )
 }
@@ -482,7 +482,7 @@ pub(super) fn if_indextoname(context: &mut ImportContext<'_>, index: u32) -> u64
                 name.encode_wide().chain(std::iter::once(0))
                     .flat_map(u16::to_le_bytes).collect::<Vec<_>>()
             };
-            context.host.insert_c_buffer(bytes.into_boxed_slice())
+            context.host.buffers().publish(bytes.into_boxed_slice())
         },
         Err(error) => {
             context.host.record_error(error.into());

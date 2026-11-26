@@ -419,7 +419,7 @@ ported_fns! {
     pub(super) fn run_readdir_job(
         filesystem: &HostFs,
         dir: &mut Option<ResourceRef>,
-        buffer: &mut Option<crate::async_host::CBufferLease>,
+        buffer: &mut Option<crate::async_host::buffers::CBufferLease>,
         len: u32,
         restart: bool,
     ) -> AsyncHostResult<i64> {

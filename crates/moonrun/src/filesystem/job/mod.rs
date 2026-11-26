@@ -26,7 +26,8 @@ use super::metadata::legacy::FileTimeResult;
 
 use std::ffi::{OsStr, OsString};
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};
+use crate::async_host::buffers::CBufferLease;
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::filesystem::{FsPath, HostFs};
 use crate::guest_memory::GuestMemory;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};

@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::c_buffer::stub;
 use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
@@ -40,9 +39,7 @@ pub(super) fn blit_to_c(
     let src_len = src_offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
     context.with_host_and_memory_mut(|host, memory| {
         let src = memory.read_exact(src, src_len)?;
-        host.with_c_buffer_mut(dst, |dst| {
-            stub::blit_to_c(dst, dst_offset, src, src_offset, len)
-        })
+        host.buffers().blit_to_c(dst, dst_offset, src, src_offset, len)
     })
 }
 
@@ -58,9 +55,7 @@ pub(super) fn blit_from_c(
     let dst_len = dst_offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
     context.with_host_and_memory_mut(|host, memory| {
         let dst = memory.read_exact_mut(dst, dst_len)?;
-        host.with_c_buffer(src, |src| {
-            stub::blit_from_c(src, src_offset, dst, dst_offset, len)
-        })
+        host.buffers().blit_from_c(src, src_offset, dst, dst_offset, len)
     })
 }
 
@@ -70,23 +65,23 @@ pub(super) fn c_buffer_get(
     buf: u64,
     index: u32,
 ) -> AsyncHostResult<i32> {
-    context.host
-        .with_c_buffer(buf, |buf| stub::c_buffer_get(buf, index).map(i32::from))
+    context.host.buffers().get(buf, index).map(i32::from)
 }
 
 #[ported(source = "src/internal/c_buffer/stub.c")]
 pub(super) fn strlen(context: &mut ImportContext<'_>, buf: u64) -> AsyncHostResult<u32> {
-    context.host.with_c_buffer(buf, stub::strlen)
+    context.host.buffers().strlen(buf)
 }
 
 pub(super) fn length(context: &mut ImportContext<'_>, buf: u64) -> AsyncHostResult<u32> {
     context
         .host
-        .with_c_buffer(buf, |buf| u32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault))
+        .buffers()
+        .with_buffer(buf, |buf| u32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault))
 }
 
 pub(super) fn free(context: &mut ImportContext<'_>, handle: u64) -> AsyncHostResult<()> {
-    context.host.free_c_buffer(handle)
+    context.host.buffers().free(handle)
 }
 
 #[ported(
@@ -94,7 +89,7 @@ pub(super) fn free(context: &mut ImportContext<'_>, handle: u64) -> AsyncHostRes
     original = "moonbitlang_async_make_c_buffer"
 )]
 pub(super) fn new(context: &mut ImportContext<'_>, size: u32) -> AsyncHostResult<u64> {
-    Ok(context.host.insert_c_buffer(stub::make_c_buffer(size)?))
+    context.host.buffers().allocate(size)
 }
 
 }

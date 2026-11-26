@@ -59,6 +59,13 @@ That borrow ends before value destructors run.
 
 ## Operation ownership
 
+`async_host::buffers` owns guest-visible buffer registrations and access.
+Publishing an operation's result creates a Handle; leasing temporarily transfers
+an already-published buffer to an operation. Both can apply to the same object.
+Buffer availability describes access, not whether its contents are a completed
+result. Jobs and I/OResults own completion and cleanup timing; their private
+storage does not need a separate buffer registration.
+
 A Job or I/OResult may own buffer bytes while the table retains a leased entry.
 Freeing the Handle retires its registration and removes that reservation; the
 operation retains ownership of the bytes until its cleanup completes. A returned
