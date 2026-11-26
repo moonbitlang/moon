@@ -154,3 +154,38 @@ pub(crate) fn process_id(handle: RawHandle) -> io::Result<u32> {
         Ok(pid)
     }
 }
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::os::windows::io::AsRawHandle;
+    use std::process::Command;
+
+    use super::*;
+
+    #[test]
+    fn running_process_result_is_pending() {
+        let mut child = Command::new("cmd.exe")
+            .args(["/D", "/C", "ping -n 30 127.0.0.1 >NUL"])
+            .spawn()
+            .unwrap();
+        let result = try_wait_handle(child.as_raw_handle());
+
+        let _ = child.kill();
+        child.wait().unwrap();
+
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn completed_process_can_return_still_active_value() {
+        let mut child = Command::new("cmd.exe")
+            .args(["/D", "/C", "exit /B 259"])
+            .spawn()
+            .unwrap();
+        let handle = child.as_raw_handle();
+
+        child.wait().unwrap();
+
+        assert_eq!(try_wait_handle(handle).unwrap().unwrap().code(), Some(259));
+    }
+}

@@ -16,15 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[cfg(unix)]
-use std::os::fd::AsRawFd;
-#[cfg(windows)]
-use std::os::windows::io::AsRawHandle;
-
+#[cfg(target_os = "linux")]
+use crate::async_host::AsyncHostError;
+use crate::async_host::AsyncHostResult;
 #[cfg(windows)]
 use crate::async_host::read_u16;
-use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::process;
 use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
@@ -251,64 +247,22 @@ pub(super) fn argv_array_add_entry_unix(
     context.host.process_inputs().add_argv(argv, index, arg)
 }
 
-#[cfg(all(unix, not(target_os = "linux")))]
-pub(super) fn open_pid_handle(
-    context: &mut ImportContext<'_>,
-    pid: i32,
-) -> AsyncHostResult<u64> {
-    if let Some(result) = context.host.open_virtual_process_handle(pid) {
-        return result;
-    }
-    let handle = context
-        .host
-        .with_owned_child_pid(pid, || Ok(context.host.invalid_fd()))?;
-    // The invalid handle selects the kqueue fallback rather than reporting an
-    // error. Match the native C implementation by clearing any stale errno.
-    context.host.set_errno(0);
-    Ok(handle)
-}
-
 #[ported(
     source = "src/internal/event_loop/process.c",
     original = "moonbitlang_async_open_pid_handle"
 )]
-#[cfg(target_os = "linux")]
 pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    if let Some(result) = context.host.open_virtual_process_handle(pid) {
-        return result;
+    let result = context.host.open_process_handle(pid);
+    // Preserve the existing Linux ABI fallback without recording the pidfd
+    // error. Other successful PID-only targets clear errno in AsyncHost.
+    #[cfg(target_os = "linux")]
+    if matches!(result, Err(AsyncHostError::Native(errno)) if errno == libc::ENOSYS || errno == libc::EPERM) {
+        return Ok(context.host.invalid_fd());
     }
-    let handle = context.host.with_owned_child_pid(pid, || {
-        match process::open_pid_handle(pid) {
-            Ok(handle) => Ok(Some(handle)),
-            Err(error) if process::pidfd_open_is_unsupported(error) => Ok(None),
-            Err(error) => Err(error),
-        }
-    })?;
-    match handle {
-        Some(handle) => Ok(context.host.insert_host_process_handle(handle, pid)),
-        None => Ok(context.host.invalid_fd()),
-    }
-}
-
-#[ported(
-    source = "src/internal/event_loop/process.c",
-    original = "moonbitlang_async_open_pid_handle"
-)]
-#[cfg(windows)]
-pub(super) fn open_pid_handle(
-    context: &mut ImportContext<'_>,
-    pid: i32,
-) -> AsyncHostResult<u64> {
-    if let Some(result) = context.host.open_virtual_process_handle(pid) {
-        return result;
-    }
-    let handle = context
-        .host
-        .with_owned_child_pid(pid, || process::open_pid_handle(pid))?;
-    Ok(context.host.insert_host_process_handle(handle, pid))
+    result
 }
 
 #[ported(
@@ -321,66 +275,9 @@ pub(super) fn get_process_result(
     pid: i32,
     out: u32,
 ) -> i32 {
-    let result = (|| {
-        let handle_id = if handle == context.host.invalid_fd() {
-            None
-        } else {
-            Some(handle)
-        };
-        if let Some(process) = context.host.process().context() {
-            #[cfg(unix)]
-            if handle_id.is_some() {
-                return Err(AsyncHostError::Badf);
-            }
-            #[cfg(windows)]
-            {
-                let resource = context.host
-                    .acquire_resource(handle_id.ok_or(AsyncHostError::Badf)?)?;
-                let handle = resource.as_process()?;
-                if !handle.matches(process, pid) {
-                    return Err(AsyncHostError::PermissionDenied);
-                }
-                return handle.read_exit(|code| {
-                    context.with_memory_mut(|memory| Ok(memory.write_exact(out, &code.to_le_bytes())?))
-                });
-            }
-            #[cfg(unix)]
-            return process.read_exit(pid, |code| {
-                context.with_memory_mut(|memory| Ok(memory.write_exact(out, &code.to_le_bytes())?))
-            });
-        }
-        #[cfg(unix)]
-        let raw_handle = handle_id
-            .map(|handle| {
-                context
-                    .host
-                    .with_resource(handle, |resource| Ok(resource.as_fd()?.as_raw_fd()))
-            })
-            .transpose()?;
-        #[cfg(windows)]
-        let raw_handle = handle_id
-            .map(|handle| {
-                context.host.with_resource(handle, |resource| {
-                    Ok(resource.as_handle()?.as_raw_handle())
-                })
-            })
-            .transpose()?;
-        #[cfg(unix)]
-        let code = context.host.finish_owned_child(pid, handle_id, || {
-            process::get_process_result(raw_handle, pid)
-        })?;
-        #[cfg(windows)]
-        let code = {
-            let handle_id = handle_id.ok_or(AsyncHostError::Badf)?;
-            let raw_handle = raw_handle.ok_or(AsyncHostError::Badf)?;
-            context
-                .host
-                .finish_process_handle(pid, handle_id, raw_handle, || {
-                    process::get_process_result(Some(raw_handle), pid)
-                })?
-        };
+    let result = context.host.read_process_exit(handle, pid, |code| {
         context.with_memory_mut(|memory| Ok(memory.write_exact(out, &code.to_le_bytes())?))
-    })();
+    });
     match result {
         Ok(()) => 0,
         Err(error) => {

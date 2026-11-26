@@ -957,7 +957,7 @@ impl AsyncHost {
             }
             return result;
         }
-        self.with_owned_child_pid(pid, || {
+        self.process.with_owned_child_pid(pid, || {
             let poll_key = key_from_handle(poll_handle);
             let polls = self.polls.borrow();
             let poll = polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?;
@@ -1685,36 +1685,6 @@ impl AsyncHost {
         self.process.check_owned_child_pid(pid)
     }
 
-    pub(crate) fn with_owned_child_pid<T>(
-        &self,
-        pid: i32,
-        f: impl FnOnce() -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        self.process.with_owned_child_pid(pid, f)
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn finish_owned_child<T>(
-        &self,
-        pid: i32,
-        handle: Option<HostHandle>,
-        f: impl FnOnce() -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        self.process.finish_owned_child(pid, handle, f)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn finish_process_handle<T>(
-        &self,
-        pid: i32,
-        handle: HostHandle,
-        raw_handle: RawFd,
-        f: impl FnOnce() -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        self.process
-            .finish_process_handle(pid, handle, raw_handle, f)
-    }
-
     fn process_handle_pid(&self, handle: HostHandle) -> AsyncHostResult<Option<i32>> {
         if handle == self.invalid_fd() {
             return Ok(None);
@@ -1722,29 +1692,37 @@ impl AsyncHost {
         self.process.process_handle_pid(handle)
     }
 
-    pub(crate) fn open_virtual_process_handle(
-        &self,
-        pid: i32,
-    ) -> Option<AsyncHostResult<HostHandle>> {
-        let context = self.process.context()?;
-        Some((|| {
-            #[cfg(unix)]
-            {
-                // Validate direct-child authority without consuming its completion.
-                drop(context.wait(pid)?);
+    pub(crate) fn open_process_handle(&self, pid: i32) -> AsyncHostResult<HostHandle> {
+        match self.process.open_handle(pid)? {
+            Some(resource) => {
+                let handle = self.resources.borrow_mut().insert_resource(resource);
+                self.process.track_process_handle(handle, pid);
+                Ok(handle)
+            }
+            None => {
+                // A PID-only target is a successful fallback, not an error.
                 self.set_errno(0);
                 Ok(self.invalid_fd())
             }
-            #[cfg(windows)]
-            {
-                Ok(self
-                    .resources
-                    .borrow_mut()
-                    .insert_resource(Resource::process(crate::process_tree::ProcessHandle::open(
-                        context, pid,
-                    )?)))
-            }
-        })())
+        }
+    }
+
+    pub(crate) fn read_process_exit(
+        &self,
+        handle: HostHandle,
+        pid: i32,
+        accept: impl FnOnce(i32) -> AsyncHostResult<()>,
+    ) -> AsyncHostResult<()> {
+        let resource = if handle == self.invalid_fd() {
+            None
+        } else {
+            Some(self.acquire_resource(handle)?)
+        };
+        self.process.read_exit(
+            pid,
+            resource.as_deref().map(|resource| (handle, resource)),
+            accept,
+        )
     }
 
     pub(crate) fn make_wait_for_process_job(
@@ -1773,16 +1751,6 @@ impl AsyncHost {
 
     fn untrack_process_handle(&self, handle: HostHandle) {
         self.process.untrack_process_handle(handle);
-    }
-
-    #[cfg(any(windows, target_os = "linux"))]
-    pub(crate) fn insert_host_process_handle(&self, raw_fd: RawFd, pid: i32) -> HostHandle {
-        let handle = self
-            .resources
-            .borrow_mut()
-            .insert_resource(Resource::new(raw_fd));
-        self.process.track_process_handle(handle, pid);
-        handle
     }
 
     pub(crate) fn with_resource<T>(
@@ -2949,6 +2917,57 @@ mod tests {
             assert_eq!(wait.err(), 0);
             assert_eq!(wait.ret(), expected_code, "command_line={command_line}");
         }
+    }
+
+    #[test]
+    fn native_process_result_checks_identity_and_revokes_before_copying() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[process]\nspawn = true\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        assert_eq!(
+            host.open_process_handle(std::process::id() as i32),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        let spawn = host.insert_job(successful_process_job()).unwrap();
+        host.run_job(spawn).unwrap();
+        assert_eq!(host.with_job(spawn, |job| job.err()).unwrap(), 0);
+        let pid = host.with_job(spawn, |job| job.ret()).unwrap() as i32;
+        let handle = host.get_spawn_job_result_handle(spawn).unwrap();
+        assert_eq!(
+            host.read_process_exit(handle, pid.wrapping_add(1), |_| panic!("wrong PID")),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        host.check_owned_child_pid(pid).unwrap();
+
+        // Native waiting has already observed/reaped the child when the ABI
+        // copies its result. A failed copy must not restore child authority.
+        #[cfg(unix)]
+        let pending = libc::EAGAIN;
+        #[cfg(windows)]
+        let pending = windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let result = host.read_process_exit(handle, pid, |code| {
+                assert_eq!(code, 0);
+                assert_eq!(
+                    host.check_owned_child_pid(pid),
+                    Err(AsyncHostError::PermissionDenied)
+                );
+                Err(AsyncHostError::Fault)
+            });
+            if result != Err(AsyncHostError::Native(pending)) {
+                assert_eq!(result, Err(AsyncHostError::Fault));
+                break;
+            }
+            host.check_owned_child_pid(pid).unwrap();
+            assert!(std::time::Instant::now() < deadline, "child did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        if handle != host.invalid_fd() {
+            host.close_fd(handle).unwrap();
+        }
+        host.free_job(spawn).unwrap();
     }
 
     #[test]
