@@ -174,7 +174,7 @@ mod tests {
         access: i32,
         create_mode: i32,
     ) -> AsyncHostResult<()> {
-        crate::filesystem::HostFs::new(
+        crate::filesystem::HostFs::with_policy(
             policy.as_ref().map(Policy::filesystem),
             Arc::new(crate::runtime::Env::ambient()),
             Arc::new(crate::runtime::WorkingDirectory::Ambient),

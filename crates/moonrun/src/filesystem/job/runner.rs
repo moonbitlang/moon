@@ -355,20 +355,22 @@ ported_fns! {
         new_path: &mut OsString,
         replace: bool,
     ) -> AsyncHostResult<i64> {
+        let options = os::RenameOptions {
+            replace,
+            cross_device: os::CrossDevice::AllowCopy,
+        };
         filesystem.authorize(FsOperation::Rename {
             source: FsPath::Cwd(old_path),
             destination: FsPath::Cwd(new_path),
+            options,
         })?;
         let old_path = filesystem.resolve_path(&std::mem::take(old_path));
         let new_path = filesystem.resolve_path(&std::mem::take(new_path));
 
-        crate::filesystem::os::rename(
+        os::rename(
             std::path::Path::new(&old_path),
             std::path::Path::new(&new_path),
-            crate::filesystem::os::RenameOptions {
-                replace,
-                cross_device: crate::filesystem::os::CrossDevice::AllowCopy,
-            },
+            options,
         )?;
         Ok(0)
     }

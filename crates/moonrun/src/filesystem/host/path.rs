@@ -94,17 +94,19 @@ impl HostFs {
     }
 
     pub(crate) fn rename(&self, source: &Path, target: &Path) -> Result<(), FsError> {
+        let options = os::RenameOptions {
+            replace: true,
+            cross_device: os::CrossDevice::Reject,
+        };
         self.authorize(FsOperation::Rename {
             source: FsPath::Cwd(source.as_os_str()),
             destination: FsPath::Cwd(target.as_os_str()),
+            options,
         })?;
         Ok(os::rename(
             Path::new(&self.resolve_path(source.as_os_str())),
             Path::new(&self.resolve_path(target.as_os_str())),
-            os::RenameOptions {
-                replace: true,
-                cross_device: os::CrossDevice::Reject,
-            },
+            options,
         )?)
     }
 

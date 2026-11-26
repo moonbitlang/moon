@@ -84,6 +84,14 @@ write and invalid creation/truncation combinations are rejected. Neither moves
 validation ahead of policy. Async opening's optional extra metadata read is
 checked after its open admission, using the same acquired-directory base.
 
+Each HostFs receives one bound `FsAuthorizer` and submits the complete operation.
+Runtime construction binds the built-in `PolicyAuthorizer` to the effective filesystem
+policy and the Run's working directory. This implementation checks the policy and
+acquired grants first. When configured with an additional authorizer, it submits
+the original operation once, intersects the rights and checks the requested effects
+before execution. Async opens retain the resulting grant. WASI descriptor rights
+and preopen checks still apply. The authorizer is local to that HostFs instance.
+
 Composite writes and recursive creation retain their existing target checks.
 This internal distinction does not change literal roots, `"*"`, glob rules,
 policy-group ordering, or rule transfer.

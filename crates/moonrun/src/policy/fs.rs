@@ -56,15 +56,20 @@ impl AccessRights {
         }
     }
 
+    pub(crate) const fn intersection(self, other: Self) -> Self {
+        Self {
+            read: self.read && other.read,
+            write: self.write && other.write,
+        }
+    }
+
     pub(crate) const fn contains(self, required: Self) -> bool {
         (!required.read || self.read) && (!required.write || self.write)
     }
 }
 
-/// Checks filesystem operations against every source's rules.
-///
-/// This is not a virtual filesystem. `HostFs` resolves runtime paths before
-/// asking these immutable rules whether the resulting target is allowed.
+/// Matches a path resolved by the filesystem authorizer against every
+/// policy source's read and write rules.
 #[derive(Clone, Debug)]
 pub(crate) struct FsPolicy {
     rule_groups: Vec<Arc<FsRules>>,

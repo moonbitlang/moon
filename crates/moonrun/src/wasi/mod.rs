@@ -1620,7 +1620,7 @@ mod tests {
             argv: Vec::new(),
             environment: Arc::new(Env::owned([]).unwrap()),
             stdio: Arc::new(Stdio::Ambient),
-            filesystem: Arc::new(HostFs::new(
+            filesystem: Arc::new(HostFs::with_policy(
                 None,
                 Arc::new(Env::ambient()),
                 Arc::new(crate::runtime::WorkingDirectory::Ambient),

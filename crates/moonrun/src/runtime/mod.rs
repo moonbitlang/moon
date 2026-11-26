@@ -37,7 +37,7 @@ use slotmap::Key;
 use slotmap::new_key_type;
 
 use crate::async_host::AsyncHost;
-use crate::filesystem::HostFs;
+use crate::filesystem::{HostFs, PolicyAuthorizer};
 use crate::network::HostNetwork;
 use crate::policy::{self, Policy};
 use crate::process::HostProcess;
@@ -220,7 +220,7 @@ impl Runtime {
         let stdio = Arc::new(config.stdio);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
-            filesystem_policy,
+            PolicyAuthorizer::new(filesystem_policy, Arc::clone(&working_directory), None),
             Arc::clone(&environment),
             Arc::clone(&working_directory),
         ));

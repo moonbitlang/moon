@@ -902,7 +902,7 @@ mod tests {
             std::fs::File::open(directory.path()).unwrap(),
             FileGrant::STDIO,
         );
-        let filesystem = HostFs::new(
+        let filesystem = HostFs::with_policy(
             Some(crate::policy::FsPolicy::default()),
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Ambient),
@@ -919,7 +919,7 @@ mod tests {
         use std::sync::Arc;
 
         let file = tempfile::NamedTempFile::new().unwrap();
-        let filesystem = HostFs::new(
+        let filesystem = HostFs::with_policy(
             Some(crate::policy::FsPolicy::default()),
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Ambient),
@@ -944,7 +944,7 @@ mod tests {
             WorkingDirectory::Fixed(directory.path().to_owned()),
         ] {
             let (policy, _) = policy::load_json(b"{}", &crate::runtime::Env::ambient()).unwrap();
-            let filesystem = HostFs::new(
+            let filesystem = HostFs::with_policy(
                 Some(policy.filesystem()),
                 Arc::new(Env::ambient()),
                 Arc::new(cwd),
@@ -978,7 +978,7 @@ mod tests {
         let config = serde_json::json!({"fs": {"read": [&allowed, &held], "write": [&held]}});
         let (policy, _) =
             crate::policy::load_json(&serde_json::to_vec(&config).unwrap(), &environment).unwrap();
-        let filesystem = HostFs::new(
+        let filesystem = HostFs::with_policy(
             Some(policy.filesystem()),
             environment,
             Arc::new(WorkingDirectory::Ambient),
@@ -1015,7 +1015,7 @@ mod tests {
         let config = serde_json::json!({"fs": {"read": [&original], "write": [&original]}});
         let (policy, _) =
             crate::policy::load_json(&serde_json::to_vec(&config).unwrap(), &environment).unwrap();
-        let filesystem = HostFs::new(
+        let filesystem = HostFs::with_policy(
             Some(policy.filesystem()),
             environment,
             Arc::new(WorkingDirectory::Fixed(root.path().to_owned())),
@@ -1073,7 +1073,7 @@ mod tests {
         use std::sync::Arc;
 
         let directory = tempfile::tempdir().unwrap();
-        let filesystem = HostFs::new(
+        let filesystem = HostFs::with_policy(
             None,
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
