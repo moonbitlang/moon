@@ -211,12 +211,13 @@ pub fn validate_module_dsl_deps(
 }
 
 pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
-    let file = File::open(path).with_context(|| format!("failed to load `{}`", path.display()))?;
-    let contents = std::io::read_to_string(file)
-        .with_context(|| format!("failed to load `{}`", path.display()))?;
+    read_module_dsl_file(path, path)
+}
 
-    let dsl = moon_pkg::parse(&contents)
-        .with_context(|| format!("failed to load `{}`", path.display()))?;
+fn read_module_dsl_file(path: &Path, display_path: &Path) -> anyhow::Result<MoonMod> {
+    let context = || format!("failed to load `{}`", display_path.display());
+    let contents = std::fs::read_to_string(path).with_context(context)?;
+    let dsl = moon_pkg::parse(&contents).with_context(context)?;
     // Top-level DSL keys accepted in `moon.mod`; the boolean says whether
     // repeated entries should be collected as a JSON array instead of rejected.
     let toplevel_keys = std::collections::HashMap::from([
@@ -544,56 +545,49 @@ pub fn read_module_desc_file_in_dir_with_legacy(
     Ok(read_module_manifest(dir, allow_legacy)?.1)
 }
 
-/// Read a project manifest, retaining its format for warnings and migration.
+/// Read the current project's manifest. Formatting can read legacy JSON for
+/// migration. Other commands report how the project author can migrate it.
 pub fn read_module_manifest(
     dir: &Path,
     allow_legacy: bool,
 ) -> anyhow::Result<(ManifestFormat, MoonMod)> {
-    let (format, module) = load_module_manifest(dir, allow_legacy)?;
+    let (path, format) =
+        preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON).with_context(|| {
+            format!(
+                "Failed to find `{MOON_MOD}` or `{MOON_MOD_JSON}` for module at path `{}`",
+                dir.display()
+            )
+        })?;
+    let module = match format {
+        ManifestFormat::New => read_module_from_dsl(&path)?,
+        ManifestFormat::Legacy if allow_legacy => read_module_from_json(&path)?,
+        ManifestFormat::Legacy => bail!(
+            "`{MOON_MOD_JSON}` at '{}' is no longer supported. Run `moon fmt` to migrate to `{MOON_MOD}`.",
+            dir.display()
+        ),
+    };
     // Only authors can migrate packaging rules. Dependency filters do not affect
     // this project's archive; rejecting them would break existing consumers.
     for field in ["include", "exclude"] {
         if module.ext.get(field).is_some() {
-            let filename = match format {
-                ManifestFormat::New => MOON_MOD,
-                ManifestFormat::Legacy => MOON_MOD_JSON,
-            };
             return Err(ModuleValidationError::RemovedPackagingField(field))
-                .with_context(|| format!("failed to load `{}`", dir.join(filename).display()));
+                .with_context(|| format!("failed to load `{}`", path.display()));
         }
     }
     Ok((format, module))
 }
 
-/// Read a dependency, allowing obsolete packaging filters from published modules.
-/// All ordinary parsing and semantic validation still applies.
+/// Read `moon.mod` for a module consumed as a dependency, including local
+/// dependencies and the standard library. Obsolete `include` and `exclude`
+/// fields do not prevent consumers from loading the module.
 pub fn read_dependency_module_manifest(dir: &Path) -> anyhow::Result<MoonMod> {
-    Ok(load_module_manifest(dir, false)?.1)
-}
-
-fn load_module_manifest(
-    dir: &Path,
-    allow_legacy: bool,
-) -> anyhow::Result<(ManifestFormat, MoonMod)> {
+    // The caller identifies the dependency. Its source may still be in a temporary directory.
     match preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON) {
-        Some((path, ManifestFormat::New)) => {
-            let module = read_module_from_dsl(&path)?;
-            Ok((ManifestFormat::New, module))
-        }
-        Some((path, ManifestFormat::Legacy)) if allow_legacy => {
-            let module = read_module_from_json(&path)?;
-            Ok((ManifestFormat::Legacy, module))
-        }
+        Some((path, ManifestFormat::New)) => read_module_dsl_file(&path, Path::new(MOON_MOD)),
         Some((_, ManifestFormat::Legacy)) => bail!(
-            "`{MOON_MOD_JSON}` at '{}' is no longer supported. Run `moon fmt` to migrate to `{MOON_MOD}`.",
-            dir.display()
+            "Dependency uses the legacy `{MOON_MOD_JSON}` format. A `{MOON_MOD}` manifest is required."
         ),
-        None => bail!(
-            "Failed to find `{}` or `{}` for module at path `{}`",
-            MOON_MOD,
-            MOON_MOD_JSON,
-            dir.display()
-        ),
+        None => bail!("Missing dependency manifest `{MOON_MOD}`."),
     }
 }
 

@@ -171,6 +171,54 @@ fn dependency_commands_reject_invalid_coordinates_before_registry_access() {
 }
 
 #[test]
+fn check_identifies_invalid_dependency_manifests_by_module_and_version() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"test/main\"\nimport {\n  \"alice/dep@1.2.3\",\n}\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+
+    for (files, cause) in [
+        (
+            vec![(
+                "moon.mod.json",
+                br#"{"name":"alice/dep","version":"1.2.3"}"#.to_vec(),
+            )],
+            "Dependency uses the legacy `moon.mod.json` format. A `moon.mod` manifest is required.",
+        ),
+        (vec![], "Missing dependency manifest `moon.mod`."),
+        (
+            vec![("moon.mod", b"name = ".to_vec())],
+            "failed to load `moon.mod`\n    4: Parsing error: unexpected token <EOF> at line 1, column 8",
+        ),
+    ] {
+        let moon_home = tempfile::tempdir().unwrap();
+        cache_registry_package(moon_home.path(), "alice/dep", "1.2.3", &files);
+        snapbox::cmd::Command::new(moon_bin())
+            .current_dir(dir.cwd())
+            .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+            .env("MOON_HOME", moon_home.path())
+            .arg("check")
+            .assert()
+            .failure()
+            .stdout_eq("")
+            .stderr_eq(format!(
+                "Using cached alice/dep@1.2.3
+Error: Failed to calculate build plan
+
+Caused by:
+    0: Failed to resolve the module dependency graph
+    1: When installing packages
+    2: Failed to load dependency `alice/dep@1.2.3`
+    3: {cause}
+"
+            ));
+    }
+}
+
+#[test]
 fn dependency_commands_preserve_nested_module_names() {
     let dir = TestDir::new_empty();
     std::fs::write(

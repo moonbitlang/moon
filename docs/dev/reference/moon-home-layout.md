@@ -136,7 +136,10 @@ $MOON_HOME/
   `.zip.lock` serializes publication of one module version.
 - Source archives are extracted concurrently, with CPU concurrency controlled by
   `-j` where available (otherwise available CPU parallelism). Publication remains
-  serial. Installation skips `postadd`; `moon run-postadd [MODULE]` provides
+  serial. Before publication, installation reads the extracted module manifest.
+  Manifest errors identify the release by module name and version. File names
+  in these errors are relative to the archive root.
+  Installation skips `postadd`; `moon run-postadd [MODULE]` provides
   temporary explicit execution without reinstalling sources or caching hook outputs.
 - Cached executable artifacts use a separate `assets` namespace. Module,
   version, and package segments form directories below it; `.moon-lock`

@@ -234,7 +234,8 @@ fn validate_cached_source(
 }
 
 fn validate_source(directory: &Path, module: &ModuleSource) -> anyhow::Result<MoonMod> {
-    let manifest = read_dependency_module_manifest(directory)?;
+    let manifest = read_dependency_module_manifest(directory)
+        .with_context(|| format!("Failed to load dependency `{module}`"))?;
     if manifest.name != module.name().to_string()
         || manifest.version.as_ref() != Some(module.version())
     {
