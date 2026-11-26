@@ -320,10 +320,7 @@ fn missing_stdlib_declarations_fail_before_invoking_the_compiler() {
 #[test]
 fn unusable_core_manifests_keep_the_underlying_error() {
     for (manifest, cause) in [
-        (
-            None,
-            "    3: Failed to find `moon.mod` or `moon.mod.json` for module at path `[..]`\n",
-        ),
+        (None, "    3: Missing dependency manifest `moon.mod`.\n"),
         (
             Some("name = 42\n"),
             "    3: invalid `name` in moon.mod\n    4: invalid type: integer `42`, expected a string\n",

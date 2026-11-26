@@ -229,8 +229,9 @@ Project manifest loading rejects the removed `include` and `exclude` keys in
 either format, including empty lists and JSON `null`. This applies to workspace
 members and formatting as well as local builds; `--quiet` does not suppress
 errors. Packaging filters belong in `.gitignore` or `.moonignore`. Dependency
-manifest loading ignores these obsolete filters so existing published modules
-remain usable; ordinary parsing and semantic validation still applies.
+manifest loading requires `moon.mod` and accepts obsolete `include` and `exclude`
+fields so consumers can still use modules that contain them. This applies to
+registry dependencies, local dependencies, and the standard library.
 The removed module `checksum` and package `bin-name` / `bin-target` fields use
 ordinary unknown-key warnings. Registry-provided archive checksums remain part
 of dependency integrity verification.
