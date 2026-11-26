@@ -1777,7 +1777,7 @@ mod tests {
     ) -> AsyncHost {
         let environment = Arc::new(environment);
         let working_directory = Arc::new(working_directory);
-        let filesystem = Arc::new(HostFs::new(
+        let filesystem = Arc::new(HostFs::with_policy(
             policy.as_ref().map(Policy::filesystem),
             Arc::clone(&environment),
             Arc::clone(&working_directory),

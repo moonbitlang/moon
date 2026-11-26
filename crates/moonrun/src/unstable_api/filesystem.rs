@@ -354,7 +354,7 @@ mod tests {
     use std::{ffi::OsStr, path::PathBuf};
 
     fn host_fs(policy: Option<Policy>, environment: Arc<Env>) -> HostFs {
-        HostFs::new(
+        HostFs::with_policy(
             policy.as_ref().map(Policy::filesystem),
             environment,
             Arc::new(WorkingDirectory::Ambient),
@@ -371,7 +371,7 @@ mod tests {
         let lossy_directory = PathBuf::from(directory.to_string_lossy().into_owned());
         std::fs::create_dir(&lossy_directory).unwrap();
         std::fs::write(lossy_directory.join("wrong.txt"), []).unwrap();
-        let host = HostFs::new(
+        let host = HostFs::with_policy(
             None,
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Fixed(directory)),
@@ -396,7 +396,7 @@ mod tests {
         std::fs::create_dir(&lossy_directory).unwrap();
         std::fs::write(directory.join("expected.txt"), []).unwrap();
         std::fs::write(lossy_directory.join("wrong.txt"), []).unwrap();
-        let host = HostFs::new(
+        let host = HostFs::with_policy(
             None,
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Fixed(directory)),

@@ -26,8 +26,22 @@ use std::fs;
 #[cfg(unix)]
 use std::path::Path;
 
+impl HostFs {
+    pub(crate) fn with_policy(
+        policy: Option<crate::policy::FsPolicy>,
+        environment: Arc<Env>,
+        working_directory: Arc<WorkingDirectory>,
+    ) -> Self {
+        Self::new(
+            crate::filesystem::PolicyAuthorizer::new(policy, Arc::clone(&working_directory), None),
+            environment,
+            working_directory,
+        )
+    }
+}
+
 fn host_fs(policy: Option<Policy>, environment: Arc<Env>) -> HostFs {
-    HostFs::new(
+    HostFs::with_policy(
         policy.as_ref().map(Policy::filesystem),
         environment,
         Arc::new(WorkingDirectory::Ambient),
@@ -37,7 +51,7 @@ fn host_fs(policy: Option<Policy>, environment: Arc<Env>) -> HostFs {
 #[cfg(unix)]
 #[test]
 fn builtin_timezone_grant_is_read_only_and_excludes_untrusted_aliases() {
-    let host = HostFs::new(
+    let host = HostFs::with_policy(
         Some(Default::default()),
         Arc::new(Env::ambient()),
         Arc::new(WorkingDirectory::Ambient),

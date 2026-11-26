@@ -56,7 +56,7 @@ fn ring_buffer_pop_is_limited_to_available_bytes() {
 fn tls_handles_reject_stale_and_other_family_handles() {
     let keys = Rc::new(RefCell::new(HostKeys::default()));
     let host = HostTls::new(
-        Arc::new(HostFs::new(
+        Arc::new(HostFs::with_policy(
             None,
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Ambient),
@@ -115,7 +115,7 @@ fn tls_set_server_files_resolves_relative_paths_against_fixed_directory() {
             (None, Env::ambient())
         };
         let host = HostTls::new(
-            Arc::new(HostFs::new(
+            Arc::new(HostFs::with_policy(
                 policy.as_ref().map(Policy::filesystem),
                 Arc::new(environment),
                 Arc::new(WorkingDirectory::Fixed(root.clone())),
@@ -162,7 +162,7 @@ fn tls_set_server_files_checks_file_policy_before_backend_load() {
     std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
     let (policy, environment) = policy::load_file(&policy_file).unwrap();
     let host = HostTls::new(
-        Arc::new(HostFs::new(
+        Arc::new(HostFs::with_policy(
             Some(policy.filesystem()),
             Arc::new(environment.realize().unwrap()),
             Arc::new(WorkingDirectory::Ambient),

@@ -72,14 +72,15 @@ use std::path::Path;
 /// Cross-device copying is a permitted Windows fallback, never a guarantee.
 /// Unix rename does not copy between filesystems.
 #[derive(Clone, Copy)]
-pub(super) enum CrossDevice {
+pub(crate) enum CrossDevice {
     Reject,
     AllowCopy,
 }
 
-pub(super) struct RenameOptions {
-    pub(super) replace: bool,
-    pub(super) cross_device: CrossDevice,
+#[derive(Clone, Copy)]
+pub(crate) struct RenameOptions {
+    pub(crate) replace: bool,
+    pub(crate) cross_device: CrossDevice,
 }
 
 #[cfg(unix)]

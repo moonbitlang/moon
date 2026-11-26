@@ -30,7 +30,9 @@ mod os;
 pub(crate) mod watch;
 
 pub(crate) use authorization::entry_before_directory_suffix;
-pub(crate) use authorization::{FileGrant, FsOperation, FsPath, FsTarget};
+pub(crate) use authorization::{
+    FileGrant, FsAuthorizer, FsOperation, FsPath, FsTarget, PolicyAuthorizer,
+};
 pub(crate) use host::{Directory, FileOpenOptions, FsError, HostFs};
 pub(crate) use job::Job;
 pub(crate) use os::RawFile;

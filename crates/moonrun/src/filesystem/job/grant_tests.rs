@@ -25,7 +25,7 @@ fn filesystem(directory: &Path, config: &str) -> HostFs {
     let path = directory.join("policy.toml");
     std::fs::write(&path, config).unwrap();
     let (policy, _) = crate::policy::load_file(&path).unwrap();
-    HostFs::new(
+    HostFs::with_policy(
         Some(policy.filesystem()),
         Arc::new(Env::ambient()),
         Arc::new(WorkingDirectory::Fixed(directory.to_owned())),
@@ -205,7 +205,7 @@ fn captured_access_intersects_all_policy_sources() {
     let (first, _) = crate::policy::load_file(&path).unwrap();
     std::fs::write(&path, "[fs]\nwrite = ['file']").unwrap();
     let (second, _) = crate::policy::load_file(&path).unwrap();
-    let fs = HostFs::new(
+    let fs = HostFs::with_policy(
         Some(first.intersect(second).filesystem()),
         Arc::new(Env::ambient()),
         Arc::new(WorkingDirectory::Fixed(dir.path().to_owned())),
@@ -216,4 +216,56 @@ fn captured_access_intersects_all_policy_sources() {
         Err(AsyncHostError::PermissionDenied)
     );
     assert_eq!(Job::write(file, b"new!".to_vec(), 0).run(&fs).unwrap(), 4);
+}
+
+#[test]
+fn host_authorizer_caps_the_open_grant_and_checks_extra_metadata_before_truncation() {
+    use crate::filesystem::{FsAuthorizer, FsError, FsOperation};
+    use crate::policy::AccessRights;
+
+    struct WriteOnlyOpen;
+    impl FsAuthorizer for WriteOnlyOpen {
+        fn authorize(&self, operation: FsOperation<'_>) -> Result<AccessRights, FsError> {
+            Ok(match operation {
+                FsOperation::OpenAsync { .. } => AccessRights::WRITE,
+                _ => AccessRights::READ_WRITE,
+            })
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("file");
+    std::fs::write(&path, b"keep").unwrap();
+    let working_directory = Arc::new(WorkingDirectory::Fixed(root.path().to_owned()));
+    let fs = HostFs::new(
+        crate::filesystem::PolicyAuthorizer::new(
+            None,
+            Arc::clone(&working_directory),
+            Some(Box::new(WriteOnlyOpen)),
+        ),
+        Arc::new(Env::owned([]).unwrap()),
+        working_directory,
+    );
+    let mut truncate = Job::open(
+        None,
+        "file".into(),
+        1,
+        1,
+        false,
+        0,
+        0o600,
+        stat::STAT_FILE_SIZE,
+        32,
+    )
+    .unwrap();
+    assert_eq!(truncate.run(&fs), Err(AsyncHostError::PermissionDenied));
+    assert_eq!(std::fs::read(&path).unwrap(), b"keep");
+
+    let file = open(&fs, None, "file", 1).unwrap();
+    assert_eq!(
+        Job::file_size(Arc::clone(&file)).run(&fs),
+        Err(AsyncHostError::PermissionDenied)
+    );
+    assert_eq!(Job::write(file, b"new!".to_vec(), 0).run(&fs).unwrap(), 4);
+    assert_eq!(std::fs::read(&path).unwrap(), b"new!");
 }

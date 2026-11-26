@@ -124,7 +124,7 @@ pub(super) mod tests {
     use crate::runtime::{Env, WorkingDirectory};
 
     pub(super) fn ambient_filesystem(policy: Option<Policy>) -> Arc<HostFs> {
-        Arc::new(HostFs::new(
+        Arc::new(HostFs::with_policy(
             policy.as_ref().map(Policy::filesystem),
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Ambient),

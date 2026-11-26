@@ -30,7 +30,8 @@ pub(crate) use directory::{Directory, FileOpenOptions};
 #[cfg(test)]
 pub(crate) use temp_dir::PORTED_SYMBOLS as TEMP_DIR_PORTED_SYMBOLS;
 
-use crate::policy::FsPolicy;
+use crate::filesystem::{FsAuthorizer, FsOperation};
+use crate::policy::AccessRights;
 use crate::runtime::{Env, WorkingDirectory};
 use std::ffi::{OsStr, OsString};
 use std::sync::Arc;
@@ -47,9 +48,9 @@ pub(crate) enum FsError {
 /// Engine-neutral filesystem operations that enforce the runtime policy
 /// before accessing the operating system's filesystem.
 pub(crate) struct HostFs {
-    pub(super) policy: Option<FsPolicy>,
+    authorizer: Box<dyn FsAuthorizer>,
     environment: Arc<Env>,
-    pub(super) working_directory: Arc<WorkingDirectory>,
+    working_directory: Arc<WorkingDirectory>,
 }
 
 // Domain executors require an explicit filesystem even in scheduler-only tests.
@@ -57,7 +58,7 @@ pub(crate) struct HostFs {
 #[cfg(test)]
 impl Default for HostFs {
     fn default() -> Self {
-        Self::new(
+        Self::with_policy(
             None,
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Ambient),
@@ -71,15 +72,19 @@ impl HostFs {
     }
 
     pub(crate) fn new(
-        policy: Option<FsPolicy>,
+        authorizer: impl FsAuthorizer + 'static,
         environment: Arc<Env>,
         working_directory: Arc<WorkingDirectory>,
     ) -> Self {
         Self {
-            policy,
+            authorizer: Box::new(authorizer),
             environment,
             working_directory,
         }
+    }
+
+    pub(crate) fn authorize(&self, operation: FsOperation<'_>) -> Result<AccessRights, FsError> {
+        self.authorizer.authorize(operation)
     }
 
     pub(crate) fn temp_dir(&self) -> Result<OsString, FsError> {

@@ -246,7 +246,7 @@ read = ["src"]
 write = ["src", { glob = "!src/**/*.mbt" }]
 "#,
     );
-    let host = HostFs::new(
+    let host = HostFs::with_policy(
         Some(rules.filesystem()),
         Arc::new(Env::ambient()),
         Arc::new(WorkingDirectory::Fixed(base.clone())),
@@ -563,7 +563,7 @@ fn host_filesystem_matches_resolved_targets_without_expanding_symlink_grants() {
         &base,
         "[fs]\nread = [{ glob = \"logs/**/*.txt\" }]\nwrite = [{ glob = \"logs/**/*.txt\" }]\n",
     );
-    let host = HostFs::new(
+    let host = HostFs::with_policy(
         Some(rules.filesystem()),
         Arc::new(Env::ambient()),
         Arc::new(WorkingDirectory::Fixed(base.clone())),

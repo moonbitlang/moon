@@ -276,6 +276,81 @@ fn entry_mutations_require_write_grants_before_effects() {
 }
 
 #[test]
+fn host_authorizer_can_deny_rename_across_async_and_wasi() {
+    use crate::async_host::AsyncHostError;
+    use crate::filesystem::{FsAuthorizer, FsOperation, Job};
+    use crate::policy::AccessRights;
+
+    // Record only rename requests. The rule sees the guest's whole operation,
+    // even though the ordinary policy checks its two directory entries.
+    struct DenyRename(Arc<Mutex<Vec<bool>>>);
+    impl FsAuthorizer for DenyRename {
+        fn authorize(&self, operation: FsOperation<'_>) -> Result<AccessRights, FsError> {
+            if let FsOperation::Rename { options, .. } = operation {
+                self.0.lock().unwrap().push(options.replace);
+                Err(FsError::Denied)
+            } else {
+                Ok(AccessRights::READ_WRITE)
+            }
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("file");
+    let dest = root.path().join("dest");
+    fs::write(&file, b"old").unwrap();
+    fs::write(&dest, b"keep").unwrap();
+    let policy = root.path().join("policy.toml");
+    fs::write(&policy, "[fs]\nwrite = ['file', 'dest']").unwrap();
+    let (policy, _) = crate::policy::load_file(&policy).unwrap();
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let mut context = tests::test_context(root.path());
+    let working_directory = Arc::new(WorkingDirectory::Fixed(root.path().to_owned()));
+    context.filesystem = Arc::new(HostFs::new(
+        crate::filesystem::PolicyAuthorizer::new(
+            Some(policy.filesystem()),
+            Arc::clone(&working_directory),
+            Some(Box::new(DenyRename(Arc::clone(&observed)))),
+        ),
+        Arc::new(Env::owned([]).unwrap()),
+        working_directory,
+    ));
+
+    Job::open_legacy("file".into(), 1, 1, false, 0, 0o600)
+        .run(&context.filesystem)
+        .unwrap();
+    assert_eq!(fs::read(&file).unwrap(), b"");
+    let fd = open(&context, 3, "file", 0, WASI_RIGHT_FD_WRITE, 0, 0).unwrap();
+    let mut memory = [0; 24];
+    memory[..4].copy_from_slice(&16u32.to_le_bytes());
+    memory[4..8].copy_from_slice(&3u32.to_le_bytes());
+    memory[16..19].copy_from_slice(b"new");
+    fd_write_impl(&context, &mut memory, fd, 0, 1, 8).unwrap();
+    fd_close_impl(&context, fd).unwrap();
+
+    for replace in [false, true] {
+        assert_eq!(
+            Job::rename("file".into(), "dest".into(), replace).run(&context.filesystem),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+    let mut names = *b"filedest";
+    assert_eq!(
+        path_rename_impl(&context, &mut names, 3, 0, 4, 3, 4, 4),
+        Err(WASI_ERRNO_ACCESS)
+    );
+    assert_eq!(*observed.lock().unwrap(), [false, true, true]);
+    assert_eq!(fs::read(&file).unwrap(), b"new");
+    assert_eq!(fs::read(&dest).unwrap(), b"keep");
+
+    // An authorizer permitting everything else cannot grant a denied path.
+    assert_eq!(
+        open(&context, 3, "file", 0, WASI_RIGHT_FD_READ, 0, 0),
+        Err(WASI_ERRNO_ACCESS)
+    );
+}
+
+#[test]
 fn rename_authorizes_both_entries() {
     for (source, target, permitted) in [
         ("allowed/a", "denied/b", false),
