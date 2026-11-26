@@ -39,7 +39,7 @@ fn moonbit_test_driver_internal_escape_json(value : String) -> String {
 }
 
 ///|
-#cfg(any(target="native", target="llvm"))
+#cfg(target="native")
 fn string_get(s : String, index : Int32) -> Int32 = "%string_get"
 
 ///|
@@ -47,23 +47,23 @@ fn string_get(s : String, index : Int32) -> Int32 = "%string_get"
 fn moonbit_unsafe_char_from_int(x : Int32) -> Char = "%identity"
 
 ///|
-#cfg(any(target="native", target="llvm"))
+#cfg(target="native")
 const MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE = true
 
 ///|
-#cfg(not(any(target="native", target="llvm")))
+#cfg(not(target="native"))
 const MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE = false
 
 ///|
-#cfg(all(any(target="native", target="llvm"), platform="windows"))
+#cfg(all(target="native", platform="windows"))
 priv struct MoonBitTestDriverInternalOsString(String)
 
 ///|
-#cfg(all(any(target="native", target="llvm"), not(platform="windows")))
+#cfg(all(target="native", not(platform="windows")))
 priv struct MoonBitTestDriverInternalOsString(Bytes)
 
 ///|
-#cfg(all(any(target="native", target="llvm"), platform="windows"))
+#cfg(all(target="native", platform="windows"))
 fn MoonBitTestDriverInternalOsString::to_string(
   self : MoonBitTestDriverInternalOsString,
 ) -> String {
@@ -71,7 +71,7 @@ fn MoonBitTestDriverInternalOsString::to_string(
 }
 
 ///|
-#cfg(all(any(target="native", target="llvm"), not(platform="windows")))
+#cfg(all(target="native", not(platform="windows")))
 fn MoonBitTestDriverInternalOsString::to_string(
   self : MoonBitTestDriverInternalOsString,
 ) -> String {
@@ -194,7 +194,7 @@ fn moonbit_test_driver_internal_string_from_extern(
 // =========================================================
 
 ///|
-#cfg(any(target="native", target="llvm"))
+#cfg(target="native")
 fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude.Array[
   (String, Int32),
 ] {
@@ -256,7 +256,7 @@ fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude
 }
 
 ///|
-#cfg(any(target="native", target="llvm"))
+#cfg(target="native")
 extern "C" fn moonbit_test_driver_internal_get_cli_args_ffi() -> FixedArray[
   MoonBitTestDriverInternalOsString,
 ] = "moonbit_rt_get_cli_args"
