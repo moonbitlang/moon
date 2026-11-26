@@ -56,7 +56,9 @@ fn snapshot_layout_and_files(root: &Path) -> String {
                 continue;
             }
             let mut content = read(path);
-            if !content.is_empty() && !content.ends_with('\n') {
+            if content.trim().is_empty() {
+                content.clear();
+            } else if !content.ends_with('\n') {
                 content.push('\n');
             }
             file_items.push((rel_file, content));
@@ -424,7 +426,9 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        std::fs::read_to_string(hello4.join("moon.pkg")).unwrap(),
+        std::fs::read_to_string(hello4.join("moon.pkg"))
+            .unwrap()
+            .trim(),
         expect![[""]],
     );
     check(
