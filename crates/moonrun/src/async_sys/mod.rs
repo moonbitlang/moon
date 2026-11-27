@@ -127,50 +127,62 @@ macro_rules! ported_fns {
         #[ported($source_root:ident = $source:literal, original = [$($original:literal),+ $(,)?])]
         #[cfg($cfg:meta)]
         $(#[$meta:meta])*
-        $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
-        $($rest:tt)*
+        $vis:vis $first:ident $($rest:tt)*
     ) => {
         ported_fns!(
-            @collect [$prefix] [
-                $($entries)*
-                $(#[cfg($cfg)]
-                crate::async_sys::PortedSymbol {
-                    rust_module: module_path!(),
-                    rust_symbol: concat!($prefix, stringify!($name)),
-                    native_symbol: $original,
-                    root: ported_fns!(@root $source_root),
-                    source: $source,
-                },)+
-            ] [$($compat_entries)*] [
-                $($out)*
-                #[cfg($cfg)]
-                $(#[$meta])*
-                $vis fn $name($($args)*) $(-> $ret)? $body
-            ]
-            $($rest)*
+            @function [$prefix] [$($entries)*] [$($compat_entries)*] [$($out)*]
+            [$source_root = $source, [$($original),+]] [$cfg]
+            [$(#[$meta])*] [$vis] [] $first $($rest)*
         );
     };
     (
         @collect [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
         #[ported($source_root:ident = $source:literal, original = [$($original:literal),+ $(,)?])]
         $(#[$meta:meta])*
-        $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
+        $vis:vis $first:ident $($rest:tt)*
+    ) => {
+        ported_fns!(
+            @function [$prefix] [$($entries)*] [$($compat_entries)*] [$($out)*]
+            [$source_root = $source, [$($original),+]] [all()]
+            [$(#[$meta])*] [$vis] [] $first $($rest)*
+        );
+    };
+    (
+        @function [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        [$source_root:ident = $source:literal, [$($original:literal),+]]
+        [$cfg:meta] [$($attrs:tt)*] [$vis:vis] [] unsafe $($rest:tt)*
+    ) => {
+        ported_fns!(
+            @function [$prefix] [$($entries)*] [$($compat_entries)*] [$($out)*]
+            [$source_root = $source, [$($original),+]] [$cfg]
+            [$($attrs)*] [$vis] [unsafe] $($rest)*
+        );
+    };
+    (
+        @function [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
+        [$source_root:ident = $source:literal, [$($original:literal),+]]
+        [$cfg:meta] [$($attrs:tt)*] [$vis:vis] [$($safety:tt)*]
+        fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
         $($rest:tt)*
     ) => {
         ported_fns!(
             @collect [$prefix] [
                 $($entries)*
-                $(crate::async_sys::PortedSymbol {
-                    rust_module: module_path!(),
-                    rust_symbol: concat!($prefix, stringify!($name)),
-                    native_symbol: $original,
-                    root: ported_fns!(@root $source_root),
-                    source: $source,
-                },)+
+                $(
+                    #[cfg($cfg)]
+                    crate::async_sys::PortedSymbol {
+                        rust_module: module_path!(),
+                        rust_symbol: concat!($prefix, stringify!($name)),
+                        native_symbol: $original,
+                        root: ported_fns!(@root $source_root),
+                        source: $source,
+                    },
+                )+
             ] [$($compat_entries)*] [
                 $($out)*
-                $(#[$meta])*
-                $vis fn $name($($args)*) $(-> $ret)? $body
+                #[cfg($cfg)]
+                $($attrs)*
+                $vis $($safety)* fn $name($($args)*) $(-> $ret)? $body
             ]
             $($rest)*
         );
@@ -242,6 +254,8 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     symbols.extend_from_slice(signal::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::network::os::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::network::os::SOCKET_PORTED_SYMBOLS);
+    #[cfg(windows)]
+    symbols.extend_from_slice(crate::network::os::OVERLAPPED_PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::network::os::interface::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::network::os::address::PORTED_SYMBOLS);
     #[cfg(unix)]
@@ -303,6 +317,44 @@ mod tests {
             "moonbitlang_async_schannel_unique_channel_binding"
         );
         for symbol in symbols {
+            symbol.assert_source_exists();
+        }
+    }
+
+    ported_fns! {
+        #[ported(source = "src/tls/schannel.c", original = [
+            "get_channel_binding",
+            "moonbitlang_async_schannel_unique_channel_binding",
+        ])]
+        /// # Safety
+        /// `value` must be valid for reading.
+        unsafe fn read_value(value: *const u32) -> u32 {
+            unsafe { *value }
+        }
+
+        #[ported(source = "missing.c", original = "disabled")]
+        #[cfg(any())]
+        unsafe fn disabled() {
+            unavailable_on_this_platform();
+        }
+    }
+
+    #[test]
+    fn unsafe_functions_keep_all_sources_and_exclude_disabled_functions() {
+        let value = 42;
+        assert_eq!(unsafe { read_value(&value) }, value);
+        assert_eq!(PORTED_SYMBOLS.len(), 2);
+        assert!(
+            PORTED_SYMBOLS
+                .iter()
+                .all(|symbol| symbol.rust_symbol == "read_value")
+        );
+        assert_eq!(PORTED_SYMBOLS[0].native_symbol, "get_channel_binding");
+        assert_eq!(
+            PORTED_SYMBOLS[1].native_symbol,
+            "moonbitlang_async_schannel_unique_channel_binding"
+        );
+        for symbol in PORTED_SYMBOLS {
             symbol.assert_source_exists();
         }
     }
