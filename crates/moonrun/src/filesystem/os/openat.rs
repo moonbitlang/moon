@@ -26,7 +26,8 @@ use std::fs::File;
 use super::{BlockingIo, RawFile};
 use std::io;
 
-pub(in crate::filesystem) enum Access {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Access {
     Read,
     Write,
     ReadWrite,
@@ -49,7 +50,8 @@ pub(in crate::filesystem) enum TypeConstraint {
     NonDirectory,
 }
 
-pub(in crate::filesystem) enum CreateMode {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CreateMode {
     Open,
     Truncate,
     Create,

@@ -206,21 +206,24 @@ mod tests {
     use super::*;
     use crate::async_host::AsyncHostError;
 
+    use crate::filesystem::{CreateMode, OpenAccess};
+
     fn check_ambient_open(
         policy: Option<Policy>,
         path: &OsStr,
-        access: i32,
-        create_mode: i32,
+        access: OpenAccess,
+        create: CreateMode,
     ) -> AsyncHostResult<()> {
         crate::filesystem::HostFs::with_policy(
             policy.as_ref().map(Policy::filesystem),
             Arc::new(crate::runtime::Env::ambient()),
             Arc::new(crate::runtime::WorkingDirectory::Ambient),
         )
-        .authorize(crate::filesystem::FsOperation::OpenAsync {
+        .authorize(crate::filesystem::FsOperation::Open {
             path: crate::filesystem::FsPath::Cwd(path),
-            access,
-            create_mode,
+            access: Some(access),
+            create: Some(create),
+            append: false,
             read_metadata: false,
         })
         .map(|_| ())
@@ -286,7 +289,13 @@ fn main {}
         .unwrap();
         let allowed = std::fs::canonicalize(allowed).unwrap();
 
-        check_ambient_open(Some(policy), allowed.as_os_str(), 0, 0).unwrap();
+        check_ambient_open(
+            Some(policy),
+            allowed.as_os_str(),
+            OpenAccess::Read,
+            CreateMode::Open,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -378,7 +387,13 @@ fn main {}
     fn no_policy_leaves_fs_unrestricted() {
         let policy: Option<Policy> = None;
 
-        check_ambient_open(policy, OsStr::new("missing-parent/new.txt"), 1, 4).unwrap();
+        check_ambient_open(
+            policy,
+            OsStr::new("missing-parent/new.txt"),
+            OpenAccess::Write,
+            CreateMode::Exclusive,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -396,8 +411,13 @@ fn main {}
         )
         .unwrap();
 
-        let error = check_ambient_open(Some(policy), OsStr::new("missing-parent/new.txt"), 1, 4)
-            .unwrap_err();
+        let error = check_ambient_open(
+            Some(policy),
+            OsStr::new("missing-parent/new.txt"),
+            OpenAccess::Write,
+            CreateMode::Exclusive,
+        )
+        .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -417,7 +437,13 @@ fn main {}
         .unwrap();
         let denied = tmp.path().join("new.txt");
 
-        let error = check_ambient_open(Some(policy), denied.as_os_str(), 1, 4).unwrap_err();
+        let error = check_ambient_open(
+            Some(policy),
+            denied.as_os_str(),
+            OpenAccess::Write,
+            CreateMode::Exclusive,
+        )
+        .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 

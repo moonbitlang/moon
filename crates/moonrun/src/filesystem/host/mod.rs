@@ -27,7 +27,7 @@ mod temp_dir;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use directory::{Directory, FileOpenOptions};
+pub(crate) use directory::Directory;
 #[cfg(test)]
 pub(crate) use temp_dir::PORTED_SYMBOLS as TEMP_DIR_PORTED_SYMBOLS;
 
@@ -85,7 +85,13 @@ impl HostFs {
     }
 
     pub(crate) fn authorize(&self, operation: FsOperation<'_>) -> Result<AccessRights, FsError> {
-        self.authorizer.authorize(operation)
+        let granted = self.authorizer.authorize(operation)?;
+        // An open grant is retained by async handles. A partial grant must
+        // never turn an explicit open into a successful, weaker one.
+        if matches!(operation, FsOperation::Open { .. }) {
+            operation.check_grant(granted)?;
+        }
+        Ok(granted)
     }
 
     pub(crate) fn temp_dir(&self) -> Result<OsString, FsError> {

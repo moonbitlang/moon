@@ -276,6 +276,112 @@ fn entry_mutations_require_write_grants_before_effects() {
 }
 
 #[test]
+fn async_and_wasi_submit_the_same_open_effects_and_reject_partial_grants() {
+    use crate::async_host::AsyncHostError;
+    use crate::filesystem::{FsAuthorizer, FsOperation, Job};
+    use crate::policy::AccessRights;
+
+    type ObservedOpen = (OpenAccess, CreateMode, bool);
+    struct ReadOnly(Arc<Mutex<Vec<ObservedOpen>>>);
+    impl FsAuthorizer for ReadOnly {
+        fn authorize(&self, operation: FsOperation<'_>) -> Result<AccessRights, FsError> {
+            let FsOperation::Open {
+                access: Some(access),
+                create: Some(create),
+                append,
+                read_metadata: false,
+                ..
+            } = operation
+            else {
+                panic!("expected a valid open without extra metadata");
+            };
+            self.0.lock().unwrap().push((access, create, append));
+            Ok(AccessRights::READ)
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("file"), b"keep").unwrap();
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let mut context = tests::test_context(root.path());
+    context.filesystem = Arc::new(HostFs::new(
+        ReadOnly(Arc::clone(&observed)),
+        Arc::new(Env::owned([]).unwrap()),
+        Arc::new(WorkingDirectory::Fixed(root.path().to_owned())),
+    ));
+
+    let rights = WASI_RIGHT_FD_READ | WASI_RIGHT_FD_WRITE;
+    for (create, oflags, disposition, append) in [
+        (0, 0, CreateMode::Open, false),
+        (0, 0, CreateMode::Open, true),
+        (1, WASI_OFLAGS_TRUNC, CreateMode::Truncate, false),
+        (4, WASI_OFLAGS_EXCL, CreateMode::Exclusive, false),
+    ] {
+        let expected = (OpenAccess::ReadWrite, disposition, append);
+        let name = if oflags == WASI_OFLAGS_EXCL {
+            "new"
+        } else {
+            "file"
+        };
+        let flags = if append { WASI_FDFLAG_APPEND } else { 0 };
+        assert_eq!(
+            Job::open_legacy(name.into(), 2, create, append, 0, 0o666).run(&context.filesystem),
+            Err(AsyncHostError::PermissionDenied),
+        );
+        assert_eq!(
+            open(&context, 3, name, oflags, rights, 0, flags),
+            Err(WASI_ERRNO_ACCESS)
+        );
+        assert_eq!(
+            std::mem::take(&mut *observed.lock().unwrap()),
+            [expected, expected]
+        );
+    }
+    assert!(context.descriptors.lock().unwrap().entries.is_empty());
+    assert_eq!(fs::read(root.path().join("file")).unwrap(), b"keep");
+    assert!(!root.path().join("new").exists());
+
+    // Async append on a read-only handle cannot write. WASI append requests
+    // native write access even when the guest requests only the read right.
+    Job::open_legacy("file".into(), 0, 0, true, 0, 0)
+        .run(&context.filesystem)
+        .unwrap();
+    assert_eq!(
+        open(
+            &context,
+            3,
+            "file",
+            0,
+            WASI_RIGHT_FD_READ,
+            0,
+            WASI_FDFLAG_APPEND
+        ),
+        Err(WASI_ERRNO_ACCESS)
+    );
+    assert_eq!(
+        std::mem::take(&mut *observed.lock().unwrap()),
+        [
+            (OpenAccess::Read, CreateMode::Open, true),
+            (OpenAccess::ReadWrite, CreateMode::Open, true),
+        ]
+    );
+
+    // Async asks to enumerate the directory. WASI only acquires a traversal handle.
+    Job::open_legacy(".".into(), 3, 0, false, 0, 0)
+        .run(&context.filesystem)
+        .unwrap();
+    let fd = open(&context, 3, ".", WASI_OFLAGS_DIRECTORY, 0, 0, 0).unwrap();
+    fd_close_impl(&context, fd).unwrap();
+    assert_eq!(
+        *observed.lock().unwrap(),
+        [
+            (OpenAccess::ListDirectory, CreateMode::Open, false),
+            (OpenAccess::TraverseDirectory, CreateMode::Open, false),
+        ]
+    );
+}
+
+#[test]
 fn host_authorizer_can_deny_rename_across_async_and_wasi() {
     use crate::async_host::AsyncHostError;
     use crate::filesystem::{FsAuthorizer, FsOperation, Job};

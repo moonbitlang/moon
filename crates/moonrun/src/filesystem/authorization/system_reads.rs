@@ -18,33 +18,25 @@
 
 //! Built-in read grants for installed system data. Keep the inventory in
 //! docs/dev/system-access.md in sync with these paths.
-use super::FsOperation;
+use super::{CreateMode, FsOperation, OpenAccess};
 use std::path::{Component, Path, PathBuf};
 
 const LOCALTIME: &str = "/etc/localtime";
 const ZONEINFO: &str = "/usr/share/zoneinfo";
 
 pub(super) fn allows(operation: &FsOperation<'_>, requested: &Path, resolved: &Path) -> bool {
-    let read_only = match *operation {
+    let read_only = matches!(
+        *operation,
         FsOperation::Read(_)
         | FsOperation::ListDirectory(super::FsTarget::Path(_))
         | FsOperation::AccessCheck { access: 0 | 1, .. } // F_OK or R_OK
-        | FsOperation::OpenAsync {
-            access: 0,
-            create_mode: 0,
+        | FsOperation::Open {
+            access: Some(OpenAccess::Read | OpenAccess::TraverseDirectory),
+            create: Some(CreateMode::Open),
             ..
         }
-        | FsOperation::Kind(_) | FsOperation::Metadata(_) => true,
-        FsOperation::OpenWithOptions { options, .. } => {
-            options.read
-                && !(options.write
-                    || options.create
-                    || options.create_new
-                    || options.truncate
-                    || options.append)
-        }
-        _ => false,
-    };
+        | FsOperation::Kind(_) | FsOperation::Metadata(_)
+    );
     read_only && timezone_file(requested, resolved)
 }
 

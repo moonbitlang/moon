@@ -68,10 +68,27 @@ ported_fns! {
         mode: i32,
         request: StatRequest,
     ) -> AsyncHostResult<i64> {
-        let granted = filesystem.authorize(FsOperation::OpenAsync {
+        use os::openat::{Access, CreateMode, OpenOptions, Sync, TypeConstraint};
+        let access = match access {
+            0 => Some(Access::Read),
+            1 => Some(Access::Write),
+            2 => Some(Access::ReadWrite),
+            3 => Some(Access::ListDirectory),
+            _ => None,
+        };
+        let create = match create_mode {
+            0 => Some(CreateMode::Open),
+            1 => Some(CreateMode::Truncate),
+            2 => Some(CreateMode::Create),
+            3 => Some(CreateMode::CreateOrTruncate),
+            4 => Some(CreateMode::Exclusive),
+            _ => None,
+        };
+        let granted = filesystem.authorize(FsOperation::Open {
             path: job_path(parent.as_deref(), filename)?,
             access,
-            create_mode,
+            create,
+            append,
             read_metadata: request.mask() & !super::STAT_OPEN_IDENTITY != 0,
         })?;
         let filename = take_execution_path(filesystem, parent.as_deref(), filename);
@@ -79,7 +96,23 @@ ported_fns! {
         let parent = parent.as_deref();
 
         let parent_handle = parent.map(raw_file_handle).transpose()?;
-        let options = open_options(access, create_mode, append, sync, mode)?;
+        let access = access.ok_or(AsyncHostError::Inval)?;
+        let list = access == Access::ListDirectory;
+        let options = OpenOptions {
+            access,
+            type_constraint: if list { TypeConstraint::Directory } else { TypeConstraint::Any },
+            follow_symlink: true,
+            is_async: list,
+            create: create.ok_or(AsyncHostError::Inval)?,
+            append,
+            sync: match sync {
+                0 => Sync::None,
+                1 => Sync::Data,
+                2 => Sync::All,
+                _ => return Err(AsyncHostError::Inval),
+            },
+            permission: mode as u32,
+        };
         let file = super::super::os::openat::open(
             parent_handle,
             &filename,
@@ -491,44 +524,4 @@ ported_fns! {
         *result = Some(RealpathJobResult::Unpublished(bytes.into_boxed_slice()));
         Ok(0)
     }
-}
-
-fn open_options(
-    access: i32,
-    create_mode: i32,
-    append: bool,
-    sync: i32,
-    mode: i32,
-) -> AsyncHostResult<super::super::os::openat::OpenOptions> {
-    use super::super::os::openat::{Access, CreateMode, OpenOptions, Sync, TypeConstraint};
-    let is_async = access == 3;
-    let (access, type_constraint) = match access {
-        0 => (Access::Read, TypeConstraint::Any),
-        1 => (Access::Write, TypeConstraint::Any),
-        2 => (Access::ReadWrite, TypeConstraint::Any),
-        3 => (Access::ListDirectory, TypeConstraint::Directory),
-        _ => return Err(AsyncHostError::Inval),
-    };
-    Ok(OpenOptions {
-        access,
-        type_constraint,
-        follow_symlink: true,
-        is_async,
-        create: match create_mode {
-            0 => CreateMode::Open,
-            1 => CreateMode::Truncate,
-            2 => CreateMode::Create,
-            3 => CreateMode::CreateOrTruncate,
-            4 => CreateMode::Exclusive,
-            _ => return Err(AsyncHostError::Inval),
-        },
-        append,
-        sync: match sync {
-            0 => Sync::None,
-            1 => Sync::Data,
-            2 => Sync::All,
-            _ => return Err(AsyncHostError::Inval),
-        },
-        permission: mode as u32,
-    })
 }

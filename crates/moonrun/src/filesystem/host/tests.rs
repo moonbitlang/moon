@@ -19,7 +19,7 @@
 use super::*;
 #[cfg(unix)]
 use crate::filesystem::FsTarget;
-use crate::filesystem::{FsOperation, FsPath};
+use crate::filesystem::{CreateMode, FsOperation, FsPath, OpenAccess};
 use crate::policy::{self, Policy};
 #[cfg(unix)]
 use std::fs;
@@ -74,10 +74,11 @@ fn builtin_timezone_grant_is_read_only_and_excludes_untrusted_aliases() {
         FsOperation::Write(path),
         FsOperation::UnlinkFile(path),
         FsOperation::Watch(FsTarget::Path(path)),
-        FsOperation::OpenAsync {
+        FsOperation::Open {
             path,
-            access: 0,
-            create_mode: 1,
+            access: Some(OpenAccess::Read),
+            create: Some(CreateMode::Truncate),
+            append: false,
             read_metadata: false,
         },
     ] {
@@ -197,10 +198,11 @@ fn create_mode_requires_write_even_for_read_access() {
     let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
     assert!(matches!(
-        host.authorize(FsOperation::OpenAsync {
+        host.authorize(FsOperation::Open {
             path: FsPath::Cwd(allowed.join("new.txt").as_os_str()),
-            access: 0,
-            create_mode: 1,
+            access: Some(OpenAccess::Read),
+            create: Some(CreateMode::Truncate),
+            append: false,
             read_metadata: false,
         }),
         Err(FsError::Denied)
@@ -397,14 +399,9 @@ fn creation_policy_does_not_walk_past_unresolved_symlinks() {
         host.open_file_at(
             &directory,
             Path::new("link"),
-            FileOpenOptions {
-                read: false,
-                write: true,
-                append: false,
-                create: true,
-                create_new: false,
-                truncate: false,
-            }
+            OpenAccess::Write,
+            CreateMode::Create,
+            false
         ),
         Err(FsError::Denied)
     ));
