@@ -64,6 +64,19 @@ pub(crate) enum InheritedPolicyInput {
     Transfer(Vec<u8>),
 }
 
+impl InheritedPolicyInput {
+    fn resolve_with(&self, additional: Option<Policy>) -> anyhow::Result<Policy> {
+        let inherited = match self {
+            Self::Resolved(policy) => policy.clone(),
+            Self::Transfer(contents) => Policy::from_transfer(contents)?,
+        };
+        Ok(match additional {
+            Some(additional) => inherited.intersect(additional),
+            None => inherited,
+        })
+    }
+}
+
 /// One policy source's compiled rules, with filesystem roots already resolved.
 #[derive(Clone, Debug)]
 struct Rules {
@@ -88,6 +101,31 @@ impl Policy {
             net: Arc::new(net),
             process: Arc::new(process),
         }]))
+    }
+
+    /// An absent child policy adds no restrictions. An explicitly empty policy
+    /// contributes its deny-by-default rule group like any other selected policy.
+    pub(crate) fn for_run(
+        inherited: Option<&InheritedPolicyInput>,
+        selected: Option<&Self>,
+    ) -> anyhow::Result<Option<Self>> {
+        let selected = selected.cloned();
+        match inherited {
+            Some(inherited) => Ok(Some(inherited.resolve_with(selected)?)),
+            None => Ok(selected),
+        }
+    }
+
+    pub(crate) fn from_delegation(
+        host: Option<&InheritedPolicyInput>,
+        contents: &[u8],
+    ) -> anyhow::Result<Self> {
+        // Report a malformed incoming transfer before inspecting the host policy.
+        let delegated = Self::from_transfer(contents)?;
+        match host {
+            Some(host) => host.resolve_with(Some(delegated)),
+            None => Ok(delegated),
+        }
     }
 
     /// Intersect complete policies without I/O, parsing, or Env provisioning.

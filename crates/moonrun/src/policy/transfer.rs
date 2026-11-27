@@ -143,7 +143,7 @@ pub(super) struct Command {
 }
 
 impl Policy {
-    pub(crate) fn from_transfer(contents: &[u8]) -> anyhow::Result<Self> {
+    pub(super) fn from_transfer(contents: &[u8]) -> anyhow::Result<Self> {
         let transfer: Transfer =
             serde_json::from_slice(contents).context("failed to decode inherited policy")?;
         anyhow::ensure!(transfer.version == 3, "unsupported policy transfer version");
