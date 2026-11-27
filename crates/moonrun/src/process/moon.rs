@@ -22,14 +22,14 @@
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs::File;
-#[cfg(unix)]
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use super::HostProcess;
 use super::SpawnOptions;
 use super::lookup::LookupPlan;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::policy::Policy;
 use crate::process_tree::ProcessContext;
 use crate::resource::{ResourcePublication, ResourceRef};
 #[cfg(unix)]
@@ -59,7 +59,8 @@ impl Spawn {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        parent: &HostProcess,
+        policy: Option<Policy>,
+        tmp_dir: Option<Arc<Path>>,
     ) -> AsyncHostResult<Self> {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         let env = env
@@ -90,7 +91,8 @@ impl Spawn {
             env,
             stdio,
             cwd,
-            parent,
+            policy,
+            tmp_dir,
         )?;
         spawn
             .options
@@ -111,7 +113,8 @@ impl Spawn {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        parent: &HostProcess,
+        policy: Option<Policy>,
+        tmp_dir: Option<Arc<Path>>,
     ) -> AsyncHostResult<Self> {
         use std::os::windows::ffi::OsStringExt;
         let program = args.remove(0);
@@ -133,7 +136,9 @@ impl Spawn {
                 ))
             })
             .collect::<AsyncHostResult<Vec<_>>>()?;
-        let mut spawn = Self::prepare(context, program, plan, args, env, stdio, cwd, parent)?;
+        let mut spawn = Self::prepare(
+            context, program, plan, args, env, stdio, cwd, policy, tmp_dir,
+        )?;
         spawn.no_console_window = options.no_console_window;
         Ok(spawn)
     }
@@ -147,7 +152,8 @@ impl Spawn {
         env: Vec<(OsString, OsString)>,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
-        parent: &HostProcess,
+        policy: Option<Policy>,
+        tmp_dir: Option<Arc<Path>>,
     ) -> AsyncHostResult<Self> {
         if program.as_encoded_bytes().contains(&0)
             || args.iter().any(|arg| arg.as_encoded_bytes().contains(&0))
@@ -226,9 +232,9 @@ impl Spawn {
                 duplicate(stdout, StdioStream::Stdout)?,
                 duplicate(stderr, StdioStream::Stderr)?,
             );
-        run.runtime.tmp_dir = parent.tmp_dir.clone();
-        if let Some(policy) = &parent.policy_inheritance {
-            run = run.with_parent_policy(policy.clone());
+        run.runtime.tmp_dir = tmp_dir;
+        if let Some(policy) = policy {
+            run = run.with_parent_policy(policy);
         }
         Ok(Self {
             context,

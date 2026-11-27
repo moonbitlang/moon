@@ -270,7 +270,8 @@ impl HostProcess {
                 request.stdio,
                 request.cwd,
                 request.options,
-                self,
+                self.policy_inheritance.clone(),
+                self.tmp_dir.clone(),
             )?;
             #[cfg(windows)]
             let spawn = super::moon::Spawn::windows(
@@ -281,7 +282,8 @@ impl HostProcess {
                 request.stdio,
                 request.cwd,
                 request.options,
-                self,
+                self.policy_inheritance.clone(),
+                self.tmp_dir.clone(),
             )?;
             return Ok(PreparedSpawn::Moon(Box::new(spawn)));
         }
