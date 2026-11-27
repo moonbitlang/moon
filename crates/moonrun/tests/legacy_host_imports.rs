@@ -285,27 +285,20 @@ fn filesystem_uses_fixed_working_directory_and_retains_status_results() {
 }
 
 #[test]
-fn legacy_stdio_random_and_time_work_without_guest_memory() {
+fn legacy_stdio_and_time_work_without_guest_memory() {
     let engine = Engine::default();
     let module = engine.compile("services.wasm", wat::parse_str(r#"(module
         (import "spectest" "read_char" (func $read (result i32)))
         (import "__moonbit_io_unstable" "write_char" (func $write (param i32 i32)))
         (import "__moonbit_io_unstable" "flush" (func $flush (param i32)))
-        (import "__moonbit_rand_unstable" "stdrng_seed_from_u64" (func $rng (param i32) (result externref)))
-        (import "__moonbit_rand_unstable" "stdrng_gen_range" (func $random (param externref i32) (result i32)))
         (import "__moonbit_time_unstable" "instant_now" (func $instant (result externref)))
         (import "__moonbit_time_unstable" "instant_elapsed_as_secs_f64" (func $elapsed (param externref) (result f64)))
         (import "__moonbit_time_unstable" "now" (func $now (result i64)))
-        (func (export "_start") (local $a externref) (local $b externref)
+        (func (export "_start")
             i32.const 1 call $read call $write
             i32.const 2 call $read call $write
             call $read i32.const -1 i32.ne if unreachable end
             i32.const 1 call $flush i32.const 2 call $flush
-            i32.const -1 call $rng local.set $a
-            i32.const -1 call $rng local.set $b
-            local.get $a i32.const 100000 call $random
-            local.get $b i32.const 100000 call $random i32.ne if unreachable end
-            local.get $a i32.const 1 call $random if unreachable end
             call $instant call $elapsed f64.const 0 f64.lt if unreachable end
             call $now i64.const 0 i64.le_s if unreachable end))"#).unwrap()).unwrap();
     let directory = tempfile::tempdir().unwrap();

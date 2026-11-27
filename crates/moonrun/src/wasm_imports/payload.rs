@@ -22,7 +22,6 @@ use super::{
     ImportError, Values,
     values::{Ref, Result},
 };
-use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{
     any::Any,
     sync::{
@@ -60,7 +59,6 @@ impl<T: Clone> Reader<T> {
         value
     }
 }
-struct Random(Mutex<StdRng>);
 
 pub(crate) trait PayloadContext<'call> {
     // Preserve raw UTF-16 here: converting through Rust String would lose lone
@@ -193,25 +191,6 @@ impl<'call, C: PayloadContext<'call>> Values<'call> for C {
         let units = read(self, value, |value: &Reader<Vec<u16>>| value.read())?
             .unwrap_or_else(|| "ffi_end_of_/string_array".encode_utf16().collect());
         self.new_string_units(units)
-    }
-    fn new_rng(&mut self, seed: i32) -> Result<Ref<'call>> {
-        self.new_payload(Box::new(Random(Mutex::new(StdRng::seed_from_u64(
-            seed as u64,
-        )))))
-    }
-    fn random(&mut self, value: &Ref<'call>, upper: i32) -> Result<i32> {
-        if upper <= 0 {
-            return Err(ImportError::Operation(
-                "random range upper bound must be positive".into(),
-            ));
-        }
-        read(self, value, |value: &Random| {
-            value
-                .0
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .gen_range(0..upper)
-        })
     }
     fn new_instant(&mut self) -> Result<Ref<'call>> {
         self.new_payload(Box::new(Instant::now()))
