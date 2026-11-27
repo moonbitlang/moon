@@ -98,9 +98,11 @@ policy-group ordering, or rule transfer.
 
 Filesystem glob exclusions override matching grants within the same read or write
 list, independent of rule order. A matching positive rule is still required.
-Exclusions constrain each authorized path; recursive removal and directory rename
-currently authorize directory endpoints without visiting descendants. They do
-not yet guarantee protection of excluded descendants from ancestor operations.
+The legacy recursive removal imports first attempt to remove each directory as
+an empty entry. A nonempty directory requires enumeration access, and each
+child removal requires its own grant. A denial stops traversal and may leave a
+partially removed tree. Directory rename still checks the two endpoints without
+visiting descendants.
 
 ### Operation ownership
 

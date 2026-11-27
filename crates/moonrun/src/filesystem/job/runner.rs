@@ -316,7 +316,7 @@ ported_fns! {
         original = "remove_job_worker"
     )]
     pub(super) fn run_remove_job(filesystem: &HostFs, path: &mut OsString) -> AsyncHostResult<i64> {
-        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        filesystem.authorize(FsOperation::RemoveEntry(FsPath::Cwd(path)))?;
         let path = filesystem.resolve_path(&std::mem::take(path));
 
         os::path::remove(&path)?;
@@ -332,7 +332,7 @@ ported_fns! {
         parent: &mut Option<ResourceRef>,
         path: &mut OsString,
     ) -> AsyncHostResult<i64> {
-        filesystem.authorize(FsOperation::ChangeEntry(job_path(parent.as_deref(), path)?))?;
+        filesystem.authorize(FsOperation::RemoveEntry(job_path(parent.as_deref(), path)?))?;
         let path = take_execution_path(filesystem, parent.as_deref(), path);
         let parent = parent.take();
         let parent = parent.as_deref();
@@ -385,7 +385,7 @@ ported_fns! {
         path: &mut OsString,
         force_symlink: bool,
     ) -> AsyncHostResult<i64> {
-        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        filesystem.authorize(FsOperation::CreateSymlink { path: FsPath::Cwd(path), target, force_symlink })?;
         let path = filesystem.resolve_path(&std::mem::take(path));
 
         os::symlink::create(&std::mem::take(target), &path, force_symlink)?;
@@ -398,7 +398,7 @@ ported_fns! {
         path: &mut OsString,
         mode: i32,
     ) -> AsyncHostResult<i64> {
-        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        filesystem.authorize(FsOperation::CreateDirectory { path: FsPath::Cwd(path), mode: Some(mode as u32) })?;
         let path = filesystem.resolve_path(&std::mem::take(path));
 
         os::path::mkdir(&path, mode as u32)?;
@@ -407,7 +407,7 @@ ported_fns! {
 
     #[ported(source = "src/internal/event_loop/fs.c", original = "rmdir_job_worker")]
     pub(super) fn run_rmdir_job(filesystem: &HostFs, path: &mut OsString) -> AsyncHostResult<i64> {
-        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        filesystem.authorize(FsOperation::RemoveDirectory(FsPath::Cwd(path)))?;
         let path = filesystem.resolve_path(&std::mem::take(path));
 
         os::path::rmdir(&path)?;
@@ -425,9 +425,9 @@ ported_fns! {
         len: u32,
         restart: bool,
     ) -> AsyncHostResult<i64> {
-        filesystem.authorize(FsOperation::ReadResource(
+        filesystem.authorize(FsOperation::ListDirectory(FsTarget::File(
             dir.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
-        ))?;
+        )))?;
         let dir = dir.take().ok_or(AsyncHostError::Badf)?;
         let buffer = buffer.as_mut().ok_or(AsyncHostError::Badf)?.as_mut_slice();
 

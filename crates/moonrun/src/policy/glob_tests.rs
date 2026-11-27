@@ -291,6 +291,14 @@ write = ["src", { glob = "!src/**/*.mbt" }]
     );
     assert!(!base.join("src/new.mbt").exists());
     assert!(!base.join("src/deep/new.mbt").exists());
+    assert!(matches!(
+        host.remove_directory_all(Path::new("src")),
+        Err(FsError::Denied)
+    ));
+    assert_eq!(
+        std::fs::read(base.join("src/deep/keep.mbt")).unwrap(),
+        b"keep"
+    );
 }
 
 #[test]

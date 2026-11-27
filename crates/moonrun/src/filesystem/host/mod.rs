@@ -21,6 +21,7 @@
 
 mod directory;
 mod path;
+mod remove_tree;
 mod resource;
 mod temp_dir;
 #[cfg(test)]
