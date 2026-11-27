@@ -249,13 +249,13 @@ impl ExecutionScope<'_> {
         options: &mut RunOptions,
         signals: &crate::SignalReceiver,
     ) -> Result<(), ProcessError> {
+        options.prepare_root()?;
         if !options.virtualize() && !options.ipc() {
             return Ok(());
         }
         if !SUPPORTS_RUN_TERMINATION {
             return Err(ProcessError::UnsupportedBackend);
         }
-        options.prepare_root()?;
         options.native_stack_budget = Some(engine.guest_stack_budget()?);
         let pid = if let Some(exit) = &self.exit {
             exit.pid

@@ -63,6 +63,7 @@ pub(super) struct NativeSpawn {
     pub(super) _stdio_owner: Arc<Stdio>,
     pub(super) executable: Executable,
     pub(super) policy_inheritance: Option<crate::policy::Policy>,
+    pub(super) tmp_dir: Option<Arc<Path>>,
 }
 
 pub(super) enum PreparedSpawn {
@@ -166,6 +167,7 @@ impl HostProcess {
                 request,
                 _stdio_owner: Arc::clone(&self.stdio),
                 executable,
+                tmp_dir: self.tmp_dir.clone(),
                 policy_inheritance: if inherits_policy {
                     self.policy_inheritance.clone()
                 } else {
@@ -269,6 +271,7 @@ impl HostProcess {
                 request.cwd,
                 request.options,
                 self.policy_inheritance.clone(),
+                self.tmp_dir.clone(),
             )?;
             #[cfg(windows)]
             let spawn = super::moon::Spawn::windows(
@@ -280,6 +283,7 @@ impl HostProcess {
                 request.cwd,
                 request.options,
                 self.policy_inheritance.clone(),
+                self.tmp_dir.clone(),
             )?;
             return Ok(PreparedSpawn::Moon(Box::new(spawn)));
         }
@@ -297,6 +301,7 @@ impl HostProcess {
             request,
             _stdio_owner: Arc::clone(&self.stdio),
             executable,
+            tmp_dir: self.tmp_dir.clone(),
             policy_inheritance: if inherits_policy {
                 self.policy_inheritance.clone()
             } else {

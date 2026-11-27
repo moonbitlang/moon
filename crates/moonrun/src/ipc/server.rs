@@ -50,8 +50,12 @@ impl IpcServer {
     pub(crate) fn start(
         engine: Engine,
         policy: Option<Policy>,
+        tmp_dir: Option<Arc<std::path::Path>>,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
+        #[cfg(unix)]
+        let (mut listener, wake, endpoint) = Listener::bind(tmp_dir.as_deref())?;
+        #[cfg(windows)]
         let (mut listener, wake, endpoint) = Listener::bind()?;
         let connections = Arc::new(Mutex::new(Connections::default()));
         let state = Arc::clone(&connections);
@@ -87,11 +91,13 @@ impl IpcServer {
                         let state = &state;
                         let engine = &engine;
                         let policy = policy.clone();
+                        let tmp_dir = tmp_dir.clone();
                         let worker = std::thread::Builder::new()
                             .name("moonrun-ipc-run".into())
                             .stack_size(thread_stack)
                             .spawn_scoped(scope, move || {
                                 let mut options = RunOptions::default().with_ipc(true);
+                                options.runtime.tmp_dir = tmp_dir;
                                 if let Some(policy) = policy {
                                     options = options.with_parent_policy(policy);
                                 }
@@ -190,10 +196,12 @@ mod tests {
             let server = IpcServer::start(
                 Engine::default(),
                 None,
+                Some(Arc::from(directory.path())),
                 crate::runtime::current_signal_mask().unwrap(),
             )
             .unwrap();
             let endpoint = server.endpoint();
+            assert!(endpoint.starts_with(directory.path()));
             let mut connection = Connection::connect(&endpoint).unwrap();
             rustix::net::sockopt::set_socket_recv_buffer_size(&connection, 4096).unwrap();
             let stdio = [

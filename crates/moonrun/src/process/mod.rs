@@ -55,6 +55,7 @@ pub(crate) struct HostProcess {
     ipc_endpoint: Option<std::path::PathBuf>,
     policy: Option<ProcessPolicy>,
     policy_inheritance: Option<Policy>,
+    tmp_dir: Option<Arc<std::path::Path>>,
     working_directory: Arc<WorkingDirectory>,
     stdio: Arc<Stdio>,
     child_authority: Option<Arc<ChildAuthorityState>>,
@@ -92,12 +93,18 @@ impl HostProcess {
             ipc_endpoint: None,
             policy: policy.as_ref().map(Policy::process),
             policy_inheritance: policy,
+            tmp_dir: None,
             working_directory,
             stdio,
             child_authority,
             context,
             environment,
         }
+    }
+
+    pub(crate) fn with_tmp_dir(mut self, tmp_dir: Option<Arc<std::path::Path>>) -> Self {
+        self.tmp_dir = tmp_dir;
+        self
     }
 
     pub(crate) fn with_ipc_endpoint(mut self, endpoint: Option<std::path::PathBuf>) -> Self {

@@ -224,7 +224,13 @@ impl Job {
                     _stdio_owner,
                     executable,
                     policy_inheritance,
+                    tmp_dir,
                 } = *spawn.take().ok_or(AsyncHostError::Inval)?;
+                // Publish the policy on the worker before creating the OS child.
+                let transfer = policy_inheritance
+                    .map(|policy| policy.open_transfer(tmp_dir.as_deref()))
+                    .transpose()
+                    .map_err(native::policy_transfer_error)?;
                 #[cfg(unix)]
                 return native::run_spawn_job_unix(
                     executable,
@@ -233,7 +239,7 @@ impl Job {
                     request.stdio,
                     request.cwd,
                     request.options,
-                    policy_inheritance,
+                    transfer,
                     result,
                 );
                 #[cfg(windows)]
@@ -244,7 +250,7 @@ impl Job {
                     request.stdio,
                     request.cwd,
                     request.options,
-                    policy_inheritance,
+                    transfer,
                     result,
                 );
             }

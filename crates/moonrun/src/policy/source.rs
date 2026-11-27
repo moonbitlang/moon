@@ -238,7 +238,7 @@ required_from_host = ["VALUE"]
                 );
                 #[cfg(windows)]
                 assert!(process.allows_windows("moonx.exe".as_ref()).is_err());
-                let transfer = policy.open_transfer().unwrap().read().unwrap();
+                let transfer = policy.to_transfer().unwrap();
                 let child = crate::RunOptions::default().with_inherited_policy(transfer.clone());
                 assert!(!child.virtualize());
                 assert!(!String::from_utf8(transfer).unwrap().contains("virtualize"));

@@ -359,7 +359,8 @@ fn session_shutdown_joins_active_execution() {
             i32.const 4 i32.const 1 i32.store
             i32.const 1 i32.const 0 i32.const 1 i32.const 8 call $write drop
             (loop $forever br $forever)))"#).unwrap()).unwrap();
-    let server = crate::ipc::server::IpcServer::start(crate::Engine::default(), None).unwrap();
+    let server =
+        crate::ipc::server::IpcServer::start(crate::Engine::default(), None, None).unwrap();
     let endpoint = server.endpoint();
     let (mut ready, writer) = std::io::pipe().unwrap();
     let run = crate::ipc::ClientRun::submit(

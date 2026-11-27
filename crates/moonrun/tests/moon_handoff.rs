@@ -541,6 +541,7 @@ fn moon_commands_run_in_virtual_tree() {
         .arg(&helper)
         .assert()
         .success();
+    let run_tmp = tempfile::tempdir().unwrap();
     for (terminate, publish) in [(false, false), (true, false), (true, true)] {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let mut args = vec![listener.local_addr().unwrap().to_string().into()];
@@ -548,7 +549,9 @@ fn moon_commands_run_in_virtual_tree() {
             args.push(handoff.directory().as_os_str().to_owned());
         }
         let stdout = tempfile::tempfile().unwrap();
-        let options = RunOptions::default().with_virtualize(true);
+        let options = RunOptions::default()
+            .with_virtualize(true)
+            .with_tmp_dir(run_tmp.path());
         // Exercise the preserved-signal-mask helper path used by the CLI.
         #[cfg(unix)]
         let options = options.preserve_current_signal_mask_for_children().unwrap();
@@ -571,6 +574,7 @@ fn moon_commands_run_in_virtual_tree() {
         let mut ready = [0];
         helper.read_exact(&mut ready).unwrap();
         assert_eq!(ready, [b'R']);
+        assert_eq!(fs::read_dir(run_tmp.path()).unwrap().count(), 1);
         if terminate {
             assert!(tree.terminate(pid, RunTermination::Exit(42)).unwrap());
             assert_eq!(
@@ -598,6 +602,7 @@ fn moon_commands_run_in_virtual_tree() {
             RunOutcome::Exited(if terminate { 42 } else { 23 })
         );
         waiter.join().unwrap();
+        assert_eq!(fs::read_dir(run_tmp.path()).unwrap().count(), 0);
         assert_eq!(contents(stdout), "", "cancelled preparation started Wasm");
     }
 

@@ -46,8 +46,13 @@ impl Wake {
     }
 }
 impl Listener {
-    pub(crate) fn bind() -> io::Result<(Self, Wake, PathBuf)> {
-        let directory = tempfile::Builder::new().prefix("moonrun-").tempdir()?;
+    pub(crate) fn bind(tmp_dir: Option<&std::path::Path>) -> io::Result<(Self, Wake, PathBuf)> {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("moonrun-");
+        let directory = match tmp_dir {
+            Some(root) => builder.tempdir_in(root)?,
+            None => builder.tempdir()?,
+        };
         let endpoint = directory.path().join("ipc");
         let listener = UnixListener::bind(&endpoint)?;
         let (wake, interrupted) = UnixStream::pair()?;

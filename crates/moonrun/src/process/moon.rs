@@ -22,9 +22,9 @@
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs::File;
-#[cfg(unix)]
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::SpawnOptions;
 use super::lookup::LookupPlan;
@@ -60,6 +60,7 @@ impl Spawn {
         cwd: Option<OsString>,
         options: SpawnOptions,
         policy: Option<Policy>,
+        tmp_dir: Option<Arc<Path>>,
     ) -> AsyncHostResult<Self> {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         let env = env
@@ -91,6 +92,7 @@ impl Spawn {
             stdio,
             cwd,
             policy,
+            tmp_dir,
         )?;
         spawn
             .options
@@ -112,6 +114,7 @@ impl Spawn {
         cwd: Option<OsString>,
         options: SpawnOptions,
         policy: Option<Policy>,
+        tmp_dir: Option<Arc<Path>>,
     ) -> AsyncHostResult<Self> {
         use std::os::windows::ffi::OsStringExt;
         let program = args.remove(0);
@@ -133,7 +136,9 @@ impl Spawn {
                 ))
             })
             .collect::<AsyncHostResult<Vec<_>>>()?;
-        let mut spawn = Self::prepare(context, program, plan, args, env, stdio, cwd, policy)?;
+        let mut spawn = Self::prepare(
+            context, program, plan, args, env, stdio, cwd, policy, tmp_dir,
+        )?;
         spawn.no_console_window = options.no_console_window;
         Ok(spawn)
     }
@@ -148,6 +153,7 @@ impl Spawn {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         policy: Option<Policy>,
+        tmp_dir: Option<Arc<Path>>,
     ) -> AsyncHostResult<Self> {
         if program.as_encoded_bytes().contains(&0)
             || args.iter().any(|arg| arg.as_encoded_bytes().contains(&0))
@@ -226,6 +232,7 @@ impl Spawn {
                 duplicate(stdout, StdioStream::Stdout)?,
                 duplicate(stderr, StdioStream::Stderr)?,
             );
+        run.runtime.tmp_dir = tmp_dir;
         if let Some(policy) = policy {
             run = run.with_parent_policy(policy);
         }
