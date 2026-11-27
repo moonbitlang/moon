@@ -50,7 +50,7 @@ impl IpcServer {
     pub(crate) fn start(
         engine: Engine,
         policy: Option<Policy>,
-        session_tmp: Option<std::path::PathBuf>,
+        session_tmp: std::path::PathBuf,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
         let (mut listener, wake, endpoint) = Listener::bind()?;
@@ -94,7 +94,7 @@ impl IpcServer {
                             .stack_size(thread_stack)
                             .spawn_scoped(scope, move || {
                                 let mut options = RunOptions::default().with_ipc(true);
-                                options.runtime.session_tmp = session_tmp;
+                                options.runtime.session_tmp = Some(session_tmp);
                                 if let Some(policy) = policy {
                                     options = options.with_parent_policy(policy);
                                 }
@@ -193,7 +193,7 @@ mod tests {
             let server = IpcServer::start(
                 Engine::default(),
                 None,
-                None,
+                std::env::temp_dir(),
                 crate::runtime::current_signal_mask().unwrap(),
             )
             .unwrap();

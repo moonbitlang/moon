@@ -121,6 +121,7 @@ pub(crate) struct Runtime {
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeConfig {
     pub(crate) ipc_engine: Option<crate::Engine>,
+    // IPC delegates retain the server’s choice across guest-provided environments.
     pub(crate) session_tmp: Option<std::path::PathBuf>,
     pub(crate) selected_policy: Option<policy::LoadedPolicy>,
     pub(crate) inherited_policy: Option<policy::InheritedPolicyInput>,
@@ -217,7 +218,16 @@ impl Runtime {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(network_policy);
-        let session_tmp = config.session_tmp.map(std::path::absolute).transpose()?;
+        // Freeze the host-side location before guest code can mutate its Env.
+        let session_tmp = match config.session_tmp {
+            Some(inherited) => inherited,
+            None => match environment.configured_temp_dir() {
+                Some(path) if !environment.is_ambient() => {
+                    working_directory.resolve_absolute(std::path::Path::new(&path))?
+                }
+                _ => std::path::absolute(std::env::temp_dir())?,
+            },
+        };
         let ipc_server = config
             .ipc_engine
             .take()

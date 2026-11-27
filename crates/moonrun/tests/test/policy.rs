@@ -197,14 +197,20 @@ spawn = true
     // to its own temp directory.
     let policy_transfer_temp = tempfile::TempDir::new().expect("create policy transfer temp");
     let transfer_policy = dir.path().join("transfer-policy.json");
-    std::fs::write(&transfer_policy, serde_json::to_vec(&serde_json::json!({
-        "env": {"from_host": ["*"], "set": {
-            "TMPDIR": policy_transfer_temp.path(), "TMP": policy_transfer_temp.path(),
-            "TEMP": policy_transfer_temp.path(), "REPLACEMENT_TMP": dir.path()
-        }},
-        "fs": {"write": ["*"]},
-        "process": {"spawn": true}
-    })).unwrap()).unwrap();
+    std::fs::write(
+        &transfer_policy,
+        serde_json::to_vec(&serde_json::json!({
+            "env": {"from_host": ["*"], "set": {
+                "TMPDIR": policy_transfer_temp.path(), "TMP": policy_transfer_temp.path(),
+                "TEMP": policy_transfer_temp.path(), "REPLACEMENT_TMP": dir.path(),
+                "MOONRUN_POLICY_ENV": "inherited"
+            }},
+            "fs": {"write": ["*"]},
+            "process": {"spawn": true}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     moon_cmd()
         .current_dir(dir.path())
         .env("PATH", &path)

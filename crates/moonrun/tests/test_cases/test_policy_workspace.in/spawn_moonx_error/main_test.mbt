@@ -29,6 +29,10 @@ fn host_platform() -> HostPlatform = "moonbitlang/async" "runtime/get_platform"
 
 ///|
 async test "policy transfer failure is reported by the spawn job" {
+  let (code, _) = @process.collect_stdout("moonx", [
+    "moonbitlang/parser/cmd/moonfmt@0.3.3",
+  ])
+  assert_eq(code, 0)
   let temp_dir = if host_platform() is Windows {
     @env.get_env_var("TEMP")
   } else {

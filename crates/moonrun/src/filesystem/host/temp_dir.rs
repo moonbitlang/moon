@@ -35,7 +35,7 @@ ported_fns! {
         {
             // Env owns both ambient lookup and per-Runtime overrides.
             // Async appends a generated filename directly to this base path.
-            Ok(environment.get("TMPDIR".as_ref())
+            Ok(environment.configured_temp_dir()
                 .and_then(with_separator)
                 .unwrap_or_else(|| OsString::from(DEFAULT_TEMP_DIR)))
         }
@@ -46,8 +46,7 @@ ported_fns! {
             if environment.is_ambient() {
                 return Ok(crate::filesystem::os::path::temp_dir()?);
             }
-            environment.get("TMP".as_ref()).and_then(with_separator)
-                .or_else(|| environment.get("TEMP".as_ref()).and_then(with_separator))
+            environment.configured_temp_dir().and_then(with_separator)
                 .ok_or(FsError::Denied)
         }
     }

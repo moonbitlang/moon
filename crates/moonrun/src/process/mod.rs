@@ -102,8 +102,8 @@ impl HostProcess {
         }
     }
 
-    pub(crate) fn with_session_tmp(mut self, session_tmp: Option<std::path::PathBuf>) -> Self {
-        self.session_tmp = session_tmp.map(Arc::from);
+    pub(crate) fn with_session_tmp(mut self, session_tmp: std::path::PathBuf) -> Self {
+        self.session_tmp = Some(Arc::from(session_tmp));
         self
     }
 
