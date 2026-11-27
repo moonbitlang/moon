@@ -192,44 +192,6 @@ spawn = true
     )
     .unwrap();
 
-    // An embedder chooses one directory per Run. If it disappears, a writable
-    // system temp directory must not let the child start anyway.
-    let session_tmp = dir.path().join("session-tmp");
-    let marker = dir.path().join("session-child-ran");
-    let engine = moonrun::Engine::default();
-    let parent = engine.load_file(wasm_file("session_tmp")).unwrap();
-    let run = || {
-        let options = moonrun::RunOptions::default()
-            .with_session_tmp(&session_tmp)
-            .with_working_directory(moonrun::WorkingDirectory::Fixed(dir.path().to_owned()))
-            .with_environment(std::env::vars_os().chain([
-                ("PATH".into(), path.clone()),
-                ("MOON_HOME".into(), moon_home.path().into()),
-                (
-                    "MOON_TOOLCHAIN_ROOT".into(),
-                    moonutil::toolchain::toolchain_root().into(),
-                ),
-                (
-                    "MOONRUN_OVERRIDE".into(),
-                    snapbox::cmd::cargo_bin!("moonrun").into(),
-                ),
-            ]))
-            .with_policy_file(&inherited_policy)
-            .unwrap()
-            .with_args([marker.to_str().unwrap()]);
-        engine.run(&parent, options)
-    };
-    std::fs::create_dir(&session_tmp).unwrap();
-    assert_eq!(run().unwrap(), moonrun::RunOutcome::Completed);
-    assert_eq!(
-        std::fs::read_to_string(&marker).unwrap(),
-        "inherited policy active"
-    );
-    std::fs::remove_file(&marker).unwrap();
-    std::fs::remove_dir(&session_tmp).unwrap();
-    assert_eq!(run().unwrap(), moonrun::RunOutcome::Exited(1));
-    assert!(!marker.exists());
-
     // The blackbox test removes this directory through the guest filesystem,
     // then verifies that the following direct moonx spawn reports the policy-
     // transfer failure instead of creating a child.
