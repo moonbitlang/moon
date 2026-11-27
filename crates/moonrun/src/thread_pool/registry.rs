@@ -188,12 +188,9 @@ mod tests {
         let (_sender, receiver) = crate::signal_channel();
         let (notifier, notifier_fd): (_, RawFd) =
             crate::thread_pool::ThreadPoolCompletionNotifier::new().unwrap();
-        let wait_job = crate::async_sys::signal::make_sigwait_job(
-            &receiver,
-            &[libc::SIGINT],
-            Arc::new(notifier),
-        )
-        .unwrap();
+        let wait_job = receiver
+            .make_sigwait_job(&[libc::SIGINT], Arc::new(notifier))
+            .unwrap();
         let worker_job = WorkerJob::new(WorkerCompletionId::from_abi(7), job_key, wait_job.into());
         let (completed, completion) = mpsc::channel();
         let (started, worker_started) = mpsc::sync_channel(0);

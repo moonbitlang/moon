@@ -26,14 +26,14 @@ use crate::thread_pool::{
 };
 
 #[derive(Clone, Debug)]
-pub(crate) struct SigwaitTarget {
+pub(super) struct SigwaitTarget {
     signals: u32,
     state: Arc<Mutex<SigwaitState>>,
     wake: Arc<OwnedFd>,
 }
 
 impl SigwaitTarget {
-    pub(crate) fn send(&self, bit: u32) -> AsyncHostResult<bool> {
+    pub(super) fn send(&self, bit: u32) -> AsyncHostResult<bool> {
         if self.signals & bit == 0 {
             return Ok(false);
         }
@@ -117,32 +117,34 @@ impl SigwaitJob {
     }
 }
 
-pub(crate) fn make_sigwait_job(
-    receiver: &SignalReceiver,
-    signals: &[i32],
-    notifier: Arc<ThreadPoolCompletionNotifier>,
-) -> AsyncHostResult<SigwaitJob> {
-    let [wake_recv, wake_send] = crate::filesystem::pipe(false, true)?.map(OwnedFd::from);
-    let state = Arc::new(Mutex::new(SigwaitState::default()));
-    let wake_send = Arc::new(wake_send);
-    let target = receiver
-        .attach_target(SigwaitTarget {
-            signals: signal_mask(signals),
+impl SignalReceiver {
+    pub(crate) fn make_sigwait_job(
+        &self,
+        signals: &[i32],
+        notifier: Arc<ThreadPoolCompletionNotifier>,
+    ) -> AsyncHostResult<SigwaitJob> {
+        let [wake_recv, wake_send] = crate::filesystem::pipe(false, true)?.map(OwnedFd::from);
+        let state = Arc::new(Mutex::new(SigwaitState::default()));
+        let wake_send = Arc::new(wake_send);
+        let target = self
+            .attach_target(SigwaitTarget {
+                signals: signal_mask(signals),
+                state: Arc::clone(&state),
+                wake: Arc::clone(&wake_send),
+            })
+            .ok_or(AsyncHostError::Inval)?;
+        let cancellation = Arc::new(SigwaitCancellation {
             state: Arc::clone(&state),
-            wake: Arc::clone(&wake_send),
+            wake: Arc::downgrade(&wake_send),
+        });
+        Ok(SigwaitJob {
+            _target: target,
+            state,
+            cancellation,
+            wake: wake_recv,
+            notifier,
         })
-        .ok_or(AsyncHostError::Inval)?;
-    let cancellation = Arc::new(SigwaitCancellation {
-        state: Arc::clone(&state),
-        wake: Arc::downgrade(&wake_send),
-    });
-    Ok(SigwaitJob {
-        _target: target,
-        state,
-        cancellation,
-        wake: wake_recv,
-        notifier,
-    })
+    }
 }
 
 // The process broker owns the real sigwait. This per-Run Job preserves the
@@ -203,94 +205,6 @@ fn write_wakeup(wake: &OwnedFd) -> AsyncHostResult<bool> {
     }
 }
 
-pub(super) fn set_global_cancellation_signals(
-    receiver: &SignalReceiver,
-    all_signals: &[i32],
-    signals: &[i32],
-) -> AsyncHostResult<()> {
-    receiver.configure(all_signals, signals);
-    Ok(())
-}
-
-pub(crate) fn init_thread_pool_signal_mask() -> AsyncHostResult<libc::sigset_t> {
-    let mut signals_to_block = empty_signal_set()?;
-    check_signal_call(unsafe { libc::sigaddset(&mut signals_to_block, libc::SIGCHLD) })?;
-    let mut old = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-    check_pthread_call(unsafe {
-        libc::pthread_sigmask(libc::SIG_BLOCK, &signals_to_block, &mut old)
-    })?;
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
-    }
-    Ok(old)
-}
-
-pub(crate) fn restore_thread_pool_signal_mask(old: &libc::sigset_t) -> AsyncHostResult<()> {
-    check_pthread_call(unsafe {
-        libc::pthread_sigmask(libc::SIG_SETMASK, old, std::ptr::null_mut())
-    })
-}
-
-pub(crate) fn block_worker_thread_signals() -> AsyncHostResult<libc::sigset_t> {
-    let mut worker_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-    check_signal_call(unsafe { libc::sigfillset(&mut worker_mask) })?;
-    let mut old = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-    check_pthread_call(unsafe {
-        libc::pthread_sigmask(libc::SIG_SETMASK, &worker_mask, &mut old)
-    })?;
-    Ok(old)
-}
-
-pub(crate) fn unblock_worker_cancellation_signal() -> AsyncHostResult<()> {
-    let mut signal = empty_signal_set()?;
-    check_signal_call(unsafe { libc::sigaddset(&mut signal, libc::SIGUSR2) })?;
-    check_pthread_call(unsafe {
-        libc::pthread_sigmask(libc::SIG_UNBLOCK, &signal, std::ptr::null_mut())
-    })
-}
-
-pub(super) fn signal_int() -> i32 {
-    libc::SIGINT
-}
-
-pub(super) fn signal_term() -> i32 {
-    libc::SIGTERM
-}
-
-pub(super) fn signal_hup() -> i32 {
-    libc::SIGHUP
-}
-
-pub(super) fn signal_break() -> i32 {
-    -1
-}
-
-fn empty_signal_set() -> AsyncHostResult<libc::sigset_t> {
-    let mut set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-    check_signal_call(unsafe { libc::sigemptyset(&mut set) })?;
-    Ok(set)
-}
-
-fn check_signal_call(result: i32) -> AsyncHostResult<()> {
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(last_native_error())
-    }
-}
-
-fn check_pthread_call(result: i32) -> AsyncHostResult<()> {
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(AsyncHostError::Native(result))
-    }
-}
-
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(last_native_errno())
-}
-
 #[cfg(target_os = "linux")]
 fn last_native_errno() -> i32 {
     unsafe { *libc::__errno_location() }
@@ -324,30 +238,21 @@ mod tests {
 
         let (first_notifier, first_fd) = ThreadPoolCompletionNotifier::new().unwrap();
         let first_notifier = Arc::new(first_notifier);
-        let mut first_job = make_sigwait_job(
-            &first_receiver,
-            &[libc::SIGINT, libc::SIGTERM],
-            Arc::clone(&first_notifier),
-        )
-        .unwrap();
+        let mut first_job = first_receiver
+            .make_sigwait_job(&[libc::SIGINT, libc::SIGTERM], Arc::clone(&first_notifier))
+            .unwrap();
         assert_eq!(
-            make_sigwait_job(
-                &first_receiver,
-                &[libc::SIGINT],
-                Arc::clone(&first_notifier),
-            )
-            .unwrap_err(),
+            first_receiver
+                .make_sigwait_job(&[libc::SIGINT], Arc::clone(&first_notifier))
+                .unwrap_err(),
             AsyncHostError::Inval
         );
 
         let (second_notifier, second_fd) = ThreadPoolCompletionNotifier::new().unwrap();
         let second_notifier = Arc::new(second_notifier);
-        let mut second_job = make_sigwait_job(
-            &second_receiver,
-            &[libc::SIGINT],
-            Arc::clone(&second_notifier),
-        )
-        .unwrap();
+        let mut second_job = second_receiver
+            .make_sigwait_job(&[libc::SIGINT], Arc::clone(&second_notifier))
+            .unwrap();
 
         // Signals may become pending after the virtual waiter is installed but
         // before its Worker begins running it.
@@ -394,20 +299,43 @@ mod tests {
     }
 
     #[test]
-    fn virtual_waiter_releases_its_run_target_when_dropped() {
+    fn virtual_waiter_and_direct_delivery_exclusively_own_the_run_target() {
         let (_sender, receiver) = signal_channel();
         receiver.configure(&[libc::SIGINT], &[libc::SIGINT]);
         let (notifier, notifier_fd) = ThreadPoolCompletionNotifier::new().unwrap();
         let notifier = Arc::new(notifier);
 
-        let waiter = make_sigwait_job(&receiver, &[libc::SIGINT], Arc::clone(&notifier)).unwrap();
+        let waiter = receiver
+            .make_sigwait_job(&[libc::SIGINT], Arc::clone(&notifier))
+            .unwrap();
         assert_eq!(
-            make_sigwait_job(&receiver, &[libc::SIGINT], Arc::clone(&notifier)).unwrap_err(),
+            receiver.start_signal_handler(Arc::clone(&notifier)),
+            Err(AsyncHostError::Inval)
+        );
+        // Stopping direct delivery must not detach a compatibility Job's target.
+        receiver.terminate_signal_handler();
+        assert_eq!(
+            receiver
+                .make_sigwait_job(&[libc::SIGINT], Arc::clone(&notifier))
+                .unwrap_err(),
             AsyncHostError::Inval
         );
         drop(waiter);
 
-        let replacement = make_sigwait_job(&receiver, &[libc::SIGINT], Arc::clone(&notifier));
+        receiver
+            .start_signal_handler(Arc::clone(&notifier))
+            .unwrap();
+        receiver
+            .start_signal_handler(Arc::clone(&notifier))
+            .unwrap();
+        assert_eq!(
+            receiver
+                .make_sigwait_job(&[libc::SIGINT], Arc::clone(&notifier))
+                .unwrap_err(),
+            AsyncHostError::Inval
+        );
+        receiver.terminate_signal_handler();
+        let replacement = receiver.make_sigwait_job(&[libc::SIGINT], Arc::clone(&notifier));
         assert!(replacement.is_ok());
 
         drop(replacement);
@@ -421,8 +349,9 @@ mod tests {
         receiver.configure(&[libc::SIGINT], &[libc::SIGINT]);
         let (notifier, notifier_fd) = ThreadPoolCompletionNotifier::new().unwrap();
         let notifier = Arc::new(notifier);
-        let mut waiter =
-            make_sigwait_job(&receiver, &[libc::SIGINT], Arc::clone(&notifier)).unwrap();
+        let mut waiter = receiver
+            .make_sigwait_job(&[libc::SIGINT], Arc::clone(&notifier))
+            .unwrap();
 
         assert_eq!(sender.send(libc::SIGINT), Ok(true));
         assert_eq!(

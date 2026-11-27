@@ -20,12 +20,20 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_sys::ported_fns;
+
 #[cfg(unix)]
-use crate::async_sys::signal::SigwaitTarget;
+mod sigwait;
+
 #[cfg(windows)]
 use crate::poll::{self, CompletionPort};
 #[cfg(unix)]
 use crate::thread_pool::ThreadPoolCompletionNotifier;
+#[cfg(unix)]
+pub(crate) use sigwait::SigwaitJob;
+#[cfg(unix)]
+use sigwait::SigwaitTarget;
 
 /// The sending half of one Run's signal channel.
 ///
@@ -45,7 +53,7 @@ pub struct SignalReceiver {
 }
 
 #[cfg(unix)]
-pub(crate) struct SignalTargetGuard {
+struct SignalTargetGuard {
     shared: Arc<SignalState>,
 }
 
@@ -175,56 +183,85 @@ impl SignalReceiver {
         }
     }
 
-    pub(crate) fn configure(&self, all_signals: &[i32], signals: &[i32]) {
-        self.shared.inner.lock().unwrap().interested =
-            signal_mask(signals) & signal_mask(all_signals);
-    }
-
     #[cfg(unix)]
-    pub(crate) fn attach_target(&self, target: SigwaitTarget) -> Option<SignalTargetGuard> {
-        self.attach_unix_target(SignalTarget::CompatibilityWaiter(target))
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn attach_completion_target(
-        &self,
-        target: Arc<ThreadPoolCompletionNotifier>,
-    ) -> Option<SignalTargetGuard> {
-        self.attach_unix_target(SignalTarget::Completion(target))
-    }
-
-    #[cfg(unix)]
-    fn attach_unix_target(&self, target: SignalTarget) -> Option<SignalTargetGuard> {
+    fn attach_target(&self, target: SigwaitTarget) -> Option<SignalTargetGuard> {
         let Ok(mut state) = self.shared.inner.lock() else {
             return None;
         };
         if !state.receiver_alive || state.target.is_some() {
             return None;
         }
-        state.target = Some(target);
+        state.target = Some(SignalTarget::CompatibilityWaiter(target));
         Some(SignalTargetGuard {
             shared: Arc::clone(&self.shared),
         })
     }
+}
 
-    #[cfg(windows)]
-    pub(crate) fn attach_target(&self, target: CompletionPort) {
-        self.shared.inner.lock().unwrap().target = Some(target);
+ported_fns! {
+impl SignalReceiver {
+    #[ported(runtime = "signal.c", original = "moonbit_rt_set_global_cancellation_signals")]
+    pub(crate) fn configure(&self, all_signals: &[i32], signals: &[i32]) {
+        self.shared.inner.lock().unwrap().interested =
+            signal_mask(signals) & signal_mask(all_signals);
     }
 
-    #[cfg(windows)]
-    pub(crate) fn detach_target(&self) {
-        self.shared.inner.lock().unwrap().target = None;
+    #[ported(runtime = "signal.c", original = "moonbit_rt_start_signal_handler")]
+    #[cfg(unix)]
+    pub(crate) fn start_signal_handler(
+        &self,
+        notifier: Arc<ThreadPoolCompletionNotifier>,
+    ) -> AsyncHostResult<()> {
+        let mut state = self.shared.inner.lock().map_err(|_| AsyncHostError::Inval)?;
+        if !state.receiver_alive {
+            return Err(AsyncHostError::Inval);
+        }
+        match &state.target {
+            Some(SignalTarget::Completion(_)) => Ok(()),
+            Some(SignalTarget::CompatibilityWaiter(_)) => Err(AsyncHostError::Inval),
+            None => {
+                state.target = Some(SignalTarget::Completion(notifier));
+                Ok(())
+            }
+        }
     }
+
+    #[ported(runtime = "signal.c", original = "moonbit_rt_terminate_signal_handler")]
+    #[cfg(unix)]
+    pub(crate) fn terminate_signal_handler(&self) {
+        let mut state = self.shared.inner.lock().unwrap();
+        if let Some(SignalTarget::Completion(target)) = &state.target {
+            target.discard_signals();
+            state.target = None;
+        }
+        // A compatibility waiter owns its registration until its Job is dropped.
+        state.interested = 0;
+    }
+
+    #[ported(runtime = "signal.c", original = "moonbit_rt_set_console_control_handler")]
+    #[cfg(windows)]
+    pub(crate) fn set_console_control_handler(
+        &self,
+        add: bool,
+        completion_target: Option<CompletionPort>,
+    ) -> AsyncHostResult<i32> {
+        // The CLI owns the process callback; this selects its per-Run destination.
+        let target = if add {
+            Some(completion_target.ok_or(AsyncHostError::Badf)?)
+        } else {
+            None
+        };
+        self.shared.inner.lock().unwrap().target = target;
+        Ok(1)
+    }
+}
 }
 
 #[cfg(unix)]
 impl Drop for SignalTargetGuard {
     fn drop(&mut self) {
         let mut state = self.shared.inner.lock().unwrap();
-        if let Some(SignalTarget::Completion(target)) = state.target.take() {
-            target.discard_signals();
-        }
+        state.target = None;
     }
 }
 
@@ -261,7 +298,7 @@ fn signal_bit(signal: i32) -> u32 {
         .unwrap_or(0)
 }
 
-pub(crate) fn signal_mask(signals: &[i32]) -> u32 {
+fn signal_mask(signals: &[i32]) -> u32 {
     signals
         .iter()
         .copied()
@@ -300,8 +337,18 @@ mod tests {
         let first = first_poll.create().unwrap();
         let mut second_poll = poll::PollTable::new(Default::default());
         let second = second_poll.create().unwrap();
-        first_receiver.attach_target(first_poll.get_mut(first).unwrap().completion_port());
-        second_receiver.attach_target(second_poll.get_mut(second).unwrap().completion_port());
+        first_receiver
+            .set_console_control_handler(
+                true,
+                Some(first_poll.get_mut(first).unwrap().completion_port()),
+            )
+            .unwrap();
+        second_receiver
+            .set_console_control_handler(
+                true,
+                Some(second_poll.get_mut(second).unwrap().completion_port()),
+            )
+            .unwrap();
 
         assert_eq!(first_sender.send(signal), Ok(true));
         assert_eq!(

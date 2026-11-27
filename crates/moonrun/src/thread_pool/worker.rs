@@ -181,11 +181,11 @@ impl Worker {
         });
         let worker_shared = Arc::clone(&shared);
         #[cfg(unix)]
-        let parent_signal_mask = crate::async_sys::signal::block_worker_thread_signals().ok();
+        let parent_signal_mask = super::SignalMask::for_worker_spawn().ok();
         let thread = std::thread::spawn(move || {
             #[cfg(unix)]
             {
-                let _ = crate::async_sys::signal::unblock_worker_cancellation_signal();
+                let _ = super::signal_mask::unblock_worker_cancellation_signal();
             }
 
             loop {
@@ -278,12 +278,7 @@ impl Worker {
             }
         });
         #[cfg(unix)]
-        {
-            if let Some(parent_signal_mask) = parent_signal_mask {
-                let _ =
-                    crate::async_sys::signal::restore_thread_pool_signal_mask(&parent_signal_mask);
-            }
-        }
+        drop(parent_signal_mask);
         Self { shared, thread }
     }
 
@@ -913,12 +908,9 @@ mod tests {
             let (_signals, receiver) = crate::signal_channel();
             let (notifier, reader) = ThreadPoolCompletionNotifier::new().unwrap();
             let _reader = unsafe { OwnedFd::from_raw_fd(reader) };
-            let wait_job = crate::async_sys::signal::make_sigwait_job(
-                &receiver,
-                &[libc::SIGINT],
-                Arc::new(notifier),
-            )
-            .unwrap();
+            let wait_job = receiver
+                .make_sigwait_job(&[libc::SIGINT], Arc::new(notifier))
+                .unwrap();
             let wait_cancel = wait_job.cancellation_override();
             let (started, start) = mpsc::channel();
             let (resume_run, run_resume) = mpsc::channel();

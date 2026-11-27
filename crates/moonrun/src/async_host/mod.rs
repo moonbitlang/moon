@@ -413,34 +413,9 @@ struct ThreadPoolRegistration {
     #[cfg(unix)]
     source: HostHandle,
     #[cfg(unix)]
-    old_signal_mask: libc::sigset_t,
+    signal_mask: thread_pool::SignalMask,
     #[cfg(windows)]
     port: poll::CompletionPort,
-}
-
-#[cfg(unix)]
-struct ThreadPoolSignalMaskGuard {
-    old: Option<libc::sigset_t>,
-}
-
-#[cfg(unix)]
-impl ThreadPoolSignalMaskGuard {
-    fn new(old: libc::sigset_t) -> Self {
-        Self { old: Some(old) }
-    }
-
-    fn commit(mut self) -> libc::sigset_t {
-        self.old.take().unwrap()
-    }
-}
-
-#[cfg(unix)]
-impl Drop for ThreadPoolSignalMaskGuard {
-    fn drop(&mut self) {
-        if let Some(old) = self.old.take() {
-            let _ = crate::async_sys::signal::restore_thread_pool_signal_mask(&old);
-        }
-    }
 }
 
 pub(crate) struct AsyncHost {
@@ -462,8 +437,6 @@ pub(crate) struct AsyncHost {
     polls: RefCell<PollTable>,
     thread_pool_registration: RefCell<Option<ThreadPoolRegistration>>,
     signals: SignalReceiver,
-    #[cfg(unix)]
-    signal_handler: RefCell<Option<crate::run_signal::SignalTargetGuard>>,
     resources: RefCell<ResourceHandles>,
     tls: HostTls,
 }
@@ -497,8 +470,6 @@ impl AsyncHost {
             polls: RefCell::new(PollTable::new(keys.clone())),
             thread_pool_registration: RefCell::new(None),
             signals,
-            #[cfg(unix)]
-            signal_handler: RefCell::new(None),
             resources: RefCell::new(ResourceHandles::new(keys, stdio.raw_handles())),
         }
     }
@@ -787,37 +758,25 @@ impl AsyncHost {
         all_signals: &[i32],
         signals: &[i32],
     ) -> AsyncHostResult<()> {
-        crate::async_sys::signal::set_global_cancellation_signals(
-            &self.signals,
-            all_signals,
-            signals,
-        )
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn start_signal_handler(&self) -> AsyncHostResult<()> {
-        if self.signal_handler.borrow().is_none() {
-            let handler = crate::async_sys::signal::start_signal_handler(
-                &self.signals,
-                self.thread_pool_notifier()?,
-            )?;
-            *self.signal_handler.borrow_mut() = Some(handler);
-        }
+        self.signals.configure(all_signals, signals);
         Ok(())
     }
 
     #[cfg(unix)]
+    pub(crate) fn start_signal_handler(&self) -> AsyncHostResult<()> {
+        self.signals
+            .start_signal_handler(self.thread_pool_notifier()?)
+    }
+
+    #[cfg(unix)]
     pub(crate) fn terminate_signal_handler(&self) {
-        crate::async_sys::signal::terminate_signal_handler(
-            &self.signals,
-            self.signal_handler.borrow_mut().take(),
-        );
+        self.signals.terminate_signal_handler();
     }
 
     #[cfg(unix)]
     pub(crate) fn make_sigwait_job(&self, signals: Vec<i32>) -> AsyncHostResult<HostHandle> {
         let notifier = self.thread_pool_notifier()?;
-        let job = crate::async_sys::signal::make_sigwait_job(&self.signals, &signals, notifier)?;
+        let job = self.signals.make_sigwait_job(&signals, notifier)?;
         self.insert_job(job)
     }
 
@@ -828,11 +787,8 @@ impl AsyncHost {
         } else {
             None
         };
-        crate::async_sys::signal::set_console_control_handler(
-            &self.signals,
-            enabled,
-            completion_target,
-        )
+        self.signals
+            .set_console_control_handler(enabled, completion_target)
     }
 
     pub(crate) fn init_thread_pool(&self, poll_handle: u64) -> AsyncHostResult<HostHandle> {
@@ -845,8 +801,7 @@ impl AsyncHost {
         }
         #[cfg(unix)]
         {
-            let old_signal_mask = crate::async_sys::signal::init_thread_pool_signal_mask()?;
-            let signal_mask_guard = ThreadPoolSignalMaskGuard::new(old_signal_mask);
+            let signal_mask = thread_pool::SignalMask::for_thread_pool()?;
             let (completion_notifier, event_fd) = ThreadPoolCompletionNotifier::new()?;
             let completion_notifier = Arc::new(completion_notifier);
             let source = self
@@ -865,7 +820,7 @@ impl AsyncHost {
                 poll: poll_key,
                 notifier: completion_notifier,
                 source,
-                old_signal_mask: signal_mask_guard.commit(),
+                signal_mask,
             });
             Ok(source)
         }
@@ -896,30 +851,32 @@ impl AsyncHost {
     fn unregister_thread_pool(&self, registration: ThreadPoolRegistration) {
         #[cfg(unix)]
         {
+            let ThreadPoolRegistration {
+                notifier,
+                source,
+                signal_mask,
+                ..
+            } = registration;
             self.terminate_signal_handler();
             // The source may already have been removed by close_fd. Retain a
             // surviving resource until every poll has released its descriptor.
-            let source = self
-                .resources
-                .borrow_mut()
-                .remove_resource(registration.source)
-                .ok();
+            let source = self.resources.borrow_mut().remove_resource(source).ok();
             let source_fd = source
                 .as_ref()
                 .and_then(|source| source.as_fd().ok())
                 .map(|source| source.as_raw_fd());
-            let signal_fd = registration.notifier.signal_fd();
+            let signal_fd = notifier.signal_fd();
             let mut polls = self.polls.borrow_mut();
             for fd in [source_fd, Some(signal_fd)].into_iter().flatten() {
                 polls.unregister_fd(fd);
             }
-            let _ = crate::async_sys::signal::restore_thread_pool_signal_mask(
-                &registration.old_signal_mask,
-            );
+            drop(signal_mask);
         }
         #[cfg(windows)]
-        let _ = self.set_signal_delivery_enabled(false);
-        drop(registration);
+        {
+            let _ = self.set_signal_delivery_enabled(false);
+            drop(registration);
+        }
     }
 
     pub(crate) fn buffers(&self) -> &Buffers {
@@ -2813,7 +2770,6 @@ mod tests {
         assert_eq!(notifier.fetch(&mut event), Ok(4));
         host.destroy_thread_pool();
         assert_eq!(sender.send(libc::SIGINT), Ok(false));
-        assert!(host.signal_handler.borrow().is_none());
     }
 
     #[cfg(unix)]
@@ -2940,7 +2896,6 @@ mod tests {
                 host.close_fd(source).unwrap();
             }
             assert_eq!(sender.send(libc::SIGINT), Ok(false));
-            assert!(host.signal_handler.borrow().is_none());
         }
     }
 
