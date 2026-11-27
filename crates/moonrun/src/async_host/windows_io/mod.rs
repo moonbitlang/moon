@@ -28,7 +28,7 @@ use crate::network::AcceptBuffer;
 use crate::poll::CompletionPort;
 use crate::resource::{Resource, ResourceClass, ResourceRef};
 use crate::runtime::{Handles, HostKeys};
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::os::windows::io::{AsRawHandle, AsRawSocket, FromRawHandle, OwnedHandle, RawHandle};
 use std::rc::Rc;
@@ -74,7 +74,7 @@ impl IoResultTable {
         let address = OverlappedAddr::from_ptr(overlapped);
         let handle = *self.io_results_by_overlapped.get(&address)?;
         let key = key_from_handle(handle);
-        self.io_results.get_mut(key)?.io.clear_pending();
+        self.io_results.get_mut(key)?.complete_pending();
         Some(key)
     }
 
@@ -183,12 +183,29 @@ enum HostIoOperation {
         addr_len: i32,
     },
     Connect(Box<[u8]>),
-    Accept(AcceptBuffer),
+    Accept {
+        buffer: AcceptBuffer,
+        peer_addr: OnceCell<AsyncHostResult<Box<[u8]>>>,
+    },
     // The I/OResult can outlive the lease returned after completion or cancel.
     ReadDirChanges(Option<WindowsWatcherBufferLease>),
 }
 
 impl HostIoOperation {
+    // Called only on successful native completion; getters consume this result
+    // without re-entering the provider parser.
+    fn complete_success(&mut self) {
+        if let Self::Accept { buffer, peer_addr } = self {
+            peer_addr
+                .set(
+                    unsafe { buffer.parse_peer_addr() }
+                        .map(Box::from)
+                        .map_err(Into::into),
+                )
+                .expect("accept output is produced once per submission");
+        }
+    }
+
     fn validate_resource(&self, resource: &Resource) -> AsyncHostResult<()> {
         let class = resource.resource_class();
         match self {
@@ -237,6 +254,46 @@ struct PendingIo {
 }
 
 impl HostIoResult {
+    // Called when a pending request's completion is observed. Fresh requests
+    // also have a zero native status, but have no output to finalize.
+    fn complete_pending(&mut self) {
+        if !self.io.is_pending() {
+            return;
+        }
+        self.io.clear_pending();
+        if self.io.overlapped.Internal == windows_sys::Win32::Foundation::STATUS_SUCCESS as usize {
+            self.operation.complete_success();
+        }
+    }
+
+    fn cancel_pending(&mut self) -> AsyncHostResult<i32> {
+        self.io.request_cancel()?;
+        let Some(pending) = &self.io.pending else {
+            return Ok(0);
+        };
+        if self.io.completion_port.is_some() {
+            // Cancellation does not retire the packet's pointer identity.
+            // The guest must still poll before reusing/freeing this result.
+            return Ok(1);
+        }
+        let raw = raw_overlapped_handle(&pending.resource)?;
+        let mut bytes = 0;
+        unsafe {
+            windows_sys::Win32::System::IO::GetOverlappedResult(
+                raw,
+                self.io.overlapped_ptr(),
+                &mut bytes,
+                0,
+            );
+        }
+        if self.io.native_completed() {
+            self.complete_pending();
+            Ok(0)
+        } else {
+            Ok(1)
+        }
+    }
+
     fn for_file_read(len: u32, position: i64) -> AsyncHostResult<Self> {
         let buffer =
             vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?].into_boxed_slice();
@@ -326,9 +383,10 @@ impl HostIoResult {
 
     fn for_accept(addr_len: u32) -> AsyncHostResult<Self> {
         Ok(Self {
-            operation: HostIoOperation::Accept(
-                AcceptBuffer::new(addr_len).map_err(|_| AsyncHostError::Fault)?,
-            ),
+            operation: HostIoOperation::Accept {
+                buffer: AcceptBuffer::new(addr_len).map_err(|_| AsyncHostError::Fault)?,
+                peer_addr: OnceCell::new(),
+            },
             event: IO_RESULT_READ_EVENT,
             io: OverlappedIo::default(),
         })
@@ -380,7 +438,7 @@ impl HostIoResult {
             HostIoOperation::File(buffer) | HostIoOperation::Socket { buffer, .. } => buffer,
             // Accept historically exposes an empty generic read result. Preserve
             // its zero-length copy and bounds errors for direct ABI callers.
-            HostIoOperation::Accept(_) => &[],
+            HostIoOperation::Accept { .. } => &[],
             _ => return Err(AsyncHostError::Inval),
         };
         Self::copy_read_payload(buffer, memory, dst, offset, len)
@@ -506,34 +564,6 @@ impl OverlappedIo {
         // HasOverlappedIoCompleted check, including terminal error results.
         (unsafe { std::ptr::read_volatile(&self.overlapped.Internal) })
             != windows_sys::Win32::Foundation::STATUS_PENDING as usize
-    }
-
-    fn cancel_pending(&mut self) -> AsyncHostResult<i32> {
-        self.request_cancel()?;
-        let Some(pending) = &self.pending else {
-            return Ok(0);
-        };
-        if self.completion_port.is_some() {
-            // Cancellation does not retire the packet's pointer identity.
-            // The guest must still poll before reusing/freeing this result.
-            return Ok(1);
-        }
-        let raw = raw_overlapped_handle(&pending.resource)?;
-        let mut bytes = 0;
-        unsafe {
-            windows_sys::Win32::System::IO::GetOverlappedResult(
-                raw,
-                self.overlapped_ptr(),
-                &mut bytes,
-                0,
-            );
-        }
-        if self.native_completed() {
-            self.clear_pending();
-            Ok(0)
-        } else {
-            Ok(1)
-        }
     }
 
     fn prepare_submission(&mut self, port: Option<CompletionPort>) -> AsyncHostResult<()> {
@@ -733,7 +763,7 @@ impl AsyncHost {
             .get_mut(result_key)
             .ok_or(AsyncHostError::Badf)?;
         result.io.validate_pending_resource(file)?;
-        let status = result.io.cancel_pending();
+        let status = result.cancel_pending();
         let buffer = if !result.io.is_pending() {
             match &mut result.operation {
                 HostIoOperation::ReadDirChanges(buffer) => buffer.take(),
@@ -791,13 +821,13 @@ impl AsyncHost {
                 return Err(error);
             }
             if result.io.native_completed() {
-                result.io.clear_pending();
+                result.complete_pending();
             } else {
                 return Err(error);
             }
             Err(error)
         } else {
-            result.io.clear_pending();
+            result.complete_pending();
             i32::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
         };
         let buffer = if let HostIoOperation::ReadDirChanges(buffer) = &mut result.operation {
@@ -1079,16 +1109,21 @@ impl AsyncHost {
         if result.io.is_pending() {
             return Err(AsyncHostError::Inval);
         }
-        let HostIoOperation::Accept(buffer) = &mut result.operation else {
+        let HostIoOperation::Accept { buffer, peer_addr } = &mut result.operation else {
             return Err(AsyncHostError::Inval);
         };
+        // A rejected resubmission must not expose an earlier request's output.
+        peer_addr.take();
         result.io.prepare_submission(port)?;
         let overlapped = result.io.overlapped_ptr();
         match unsafe {
             self.network
                 .accept_overlapped(&server_file, &conn_file, buffer, overlapped)
         } {
-            Ok(()) => Ok(1),
+            Ok(()) => {
+                result.operation.complete_success();
+                Ok(1)
+            }
             Err(error) => {
                 if matches!(error, AsyncHostError::Native(errno)
                     if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32)
@@ -1112,13 +1147,14 @@ impl AsyncHost {
         let key = key_from_handle(result_handle);
         let io_results = self.io_results.borrow();
         let result = io_results.io_results.get(key).ok_or(AsyncHostError::Badf)?;
-        if result.io.is_pending() {
-            return Err(AsyncHostError::Inval);
-        }
-        let HostIoOperation::Accept(buffer) = &result.operation else {
+        let HostIoOperation::Accept { peer_addr, .. } = &result.operation else {
             return Err(AsyncHostError::Inval);
         };
-        let addr = buffer.peer_addr();
+        let addr = peer_addr
+            .get()
+            .ok_or(AsyncHostError::Inval)?
+            .as_deref()
+            .map_err(|error| *error)?;
         memory.write_with_capacity(dst, dst_len, addr)?;
         Ok(())
     }

@@ -175,70 +175,174 @@ fn pending_udp_receive_keeps_address_outputs_until_completion() {
 }
 
 #[test]
-fn pending_accept_keeps_both_sockets_and_returns_the_peer_address() {
+fn accept_completion_publishes_peer_address() {
     use crate::network::os::address;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
     use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
+    use windows_sys::Win32::System::IO::GetOverlappedResult;
 
-    const CHILD: &str = "MOONRUN_TEST_PENDING_ACCEPT";
+    const CHILD: &str = "MOONRUN_TEST_ACCEPT_COMPLETION";
     if std::env::var_os(CHILD).is_none() {
         snapbox::cmd::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "async_host::windows_io::tests::pending_accept_keeps_both_sockets_and_returns_the_peer_address", "--nocapture"])
+            .args([
+                "--exact",
+                "async_host::windows_io::tests::accept_completion_publishes_peer_address",
+                "--nocapture",
+            ])
             .env(CHILD, "1")
             .timeout(std::time::Duration::from_secs(15))
-            .assert().success();
+            .assert()
+            .success();
         return;
     }
     assert_eq!(crate::network::os::init_wsa(), 0);
-    let host = default_host();
-    let server = host.make_tcp_socket(4).unwrap();
-    let connection = host.make_tcp_socket(4).unwrap();
-    let mut addr = vec![0; address::ipv4_addr_size()];
-    address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
-    host.bind(server, &addr).unwrap();
-    host.listen(server).unwrap();
-    host.with_resource(server, |socket| {
-        host.network().getsockname(socket, &mut addr)
-    })
-    .unwrap();
-    let endpoint = SocketAddr::V4(SocketAddrV4::new(
-        Ipv4Addr::LOCALHOST,
-        address::ip_addr_get_port(&addr).unwrap(),
-    ));
-    let poll = host.poll_create().unwrap();
-    host.poll_register(poll, server, true).unwrap();
-    let result = host.make_accept_io_result(addr.len() as u32).unwrap();
-    assert_eq!(
-        host.accept_io_result(server, connection, result),
-        Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
-    );
-    // AcceptEx borrows the pre-created connection as well as the listener.
-    assert_eq!(host.close_fd(server), Err(AsyncHostError::Inval));
-    assert_eq!(host.close_fd(connection), Err(AsyncHostError::Inval));
-    assert_eq!(host.free_io_result(result), Err(AsyncHostError::Inval));
-
-    let client = TcpStream::connect_timeout(&endpoint, std::time::Duration::from_secs(5)).unwrap();
-    assert_eq!(host.poll_wait(poll, 5000, &Default::default()).unwrap(), 1);
-    let event = host.poll_get_event(poll, 0).unwrap();
-    assert_eq!(host.poll_event_io_result(event), Ok(result));
-    assert_eq!(host.io_result_get_status(result, server), Ok(0));
-    host.setup_accepted_socket(server, connection).unwrap();
-    let mut peer = vec![0; addr.len()];
-    host.get_accept_peer_addr(peer.as_mut_slice(), result, 0, addr.len() as u32)
+    // Exercise every way a successful accept becomes visible: IOCP, explicit
+    // status, cancellation losing to completion, and an already queued client.
+    for completion in ["iocp", "status", "cancel", "queued"] {
+        let host = default_host();
+        let server = host.make_tcp_socket(4).unwrap();
+        let connection = host.make_tcp_socket(4).unwrap();
+        let mut addr = vec![0; address::ipv4_addr_size()];
+        address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
+        host.bind(server, &addr).unwrap();
+        host.listen(server).unwrap();
+        host.with_resource(server, |socket| {
+            host.network().getsockname(socket, &mut addr)
+        })
         .unwrap();
+        let endpoint = SocketAddr::V4(SocketAddrV4::new(
+            Ipv4Addr::LOCALHOST,
+            address::ip_addr_get_port(&addr).unwrap(),
+        ));
+        let poll = if completion == "iocp" {
+            let poll = host.poll_create().unwrap();
+            host.poll_register(poll, server, true).unwrap();
+            Some(poll)
+        } else {
+            None
+        };
+        let result = host.make_accept_io_result(addr.len() as u32).unwrap();
+        let mut peer = vec![7; addr.len()];
+        // Querying a fresh OVERLAPPED can report zero status, but must not
+        // produce an address for an operation that never ran.
+        let _ = host.io_result_get_status(result, server);
+        assert_eq!(
+            host.get_accept_peer_addr(peer.as_mut_slice(), result, 0, addr.len() as u32),
+            Err(AsyncHostError::Inval)
+        );
+        let queued_client = (completion == "queued").then(|| {
+            TcpStream::connect_timeout(&endpoint, std::time::Duration::from_secs(5)).unwrap()
+        });
+        let accepted = host.accept_io_result(server, connection, result);
+        if completion != "queued" || accepted != Ok(1) {
+            assert_eq!(
+                accepted,
+                Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
+            );
+            assert_eq!(
+                host.get_accept_peer_addr(peer.as_mut_slice(), result, 0, addr.len() as u32),
+                Err(AsyncHostError::Inval)
+            );
+            // AcceptEx borrows the pre-created connection as well as the listener.
+            assert_eq!(host.close_fd(server), Err(AsyncHostError::Inval));
+            assert_eq!(host.close_fd(connection), Err(AsyncHostError::Inval));
+            assert_eq!(host.free_io_result(result), Err(AsyncHostError::Inval));
+        }
+        let client = queued_client.unwrap_or_else(|| {
+            TcpStream::connect_timeout(&endpoint, std::time::Duration::from_secs(5)).unwrap()
+        });
+        if let Some(poll) = poll {
+            assert_eq!(host.poll_wait(poll, 5000, &Default::default()).unwrap(), 1);
+            let event = host.poll_get_event(poll, 0).unwrap();
+            assert_eq!(host.poll_event_io_result(event), Ok(result));
+        } else if accepted != Ok(1) {
+            // Wait for native completion without retiring host ownership. The
+            // selected public entry point must finalize the output below.
+            let file = host.acquire_resource(server).unwrap();
+            let mut table = host.io_results.borrow_mut();
+            let request = table.io_results.get_mut(key_from_handle(result)).unwrap();
+            let mut bytes = 0;
+            assert_ne!(
+                unsafe {
+                    GetOverlappedResult(
+                        raw_overlapped_handle(&file).unwrap(),
+                        request.io.overlapped_ptr(),
+                        &mut bytes,
+                        1,
+                    )
+                },
+                0
+            );
+            drop(table);
+            if completion == "cancel" {
+                assert_eq!(host.cancel_io_result(result, server), Ok(0));
+            } else {
+                assert_eq!(host.io_result_get_status(result, server), Ok(0));
+            }
+        }
+        // No status query is required after IOCP or synchronous completion.
+        // Read before SO_UPDATE_ACCEPT_CONTEXT, as the guest does.
+        host.get_accept_peer_addr(peer.as_mut_slice(), result, 0, addr.len() as u32)
+            .unwrap();
+        assert_eq!(
+            address::ip_addr_get_port(&peer).unwrap(),
+            client.local_addr().unwrap().port(),
+            "{completion}"
+        );
+        assert_eq!(
+            address::ip_addr_get_ip(&peer).unwrap(),
+            u32::from(Ipv4Addr::LOCALHOST)
+        );
+        // Repeated status/getter calls must keep the already produced result.
+        assert_eq!(host.io_result_get_status(result, server), Ok(0));
+        let mut again = vec![0; peer.len()];
+        host.get_accept_peer_addr(again.as_mut_slice(), result, 0, addr.len() as u32)
+            .unwrap();
+        assert_eq!(again, peer);
+        host.setup_accepted_socket(server, connection).unwrap();
+        // An immediate error on resubmission must not expose the old address.
+        assert!(host.accept_io_result(server, connection, result).is_err());
+        assert_eq!(
+            host.get_accept_peer_addr(peer.as_mut_slice(), result, 0, addr.len() as u32),
+            Err(AsyncHostError::Inval)
+        );
+        host.free_io_result(result).unwrap();
+        host.close_fd(connection).unwrap();
+        host.close_fd(server).unwrap();
+        if let Some(poll) = poll {
+            host.poll_destroy(poll).unwrap();
+        }
+        assert_eq!(host.leak_summary(), None);
+    }
+}
+
+#[test]
+fn accept_peer_address_rejects_unsubmitted_and_failed_requests() {
+    let host = default_host();
+    let result = host.make_accept_io_result(16).unwrap();
+    let mut memory = [7; 16];
     assert_eq!(
-        address::ip_addr_get_port(&peer).unwrap(),
-        client.local_addr().unwrap().port()
+        host.get_accept_peer_addr(&mut memory[..], result, 0, 16),
+        Err(AsyncHostError::Inval)
     );
+    {
+        let mut table = host.io_results.borrow_mut();
+        let request = table.io_results.get_mut(key_from_handle(result)).unwrap();
+        request
+            .io
+            .mark_pending(Arc::new(Resource::invalid()))
+            .unwrap();
+        request.io.overlapped.Internal = windows_sys::Win32::Foundation::STATUS_CANCELLED as usize;
+        let overlapped = request.io.overlapped_ptr();
+        // A failed completion retires the request without parsing its storage.
+        table.complete(overlapped).unwrap();
+    }
     assert_eq!(
-        address::ip_addr_get_ip(&peer).unwrap(),
-        u32::from(Ipv4Addr::LOCALHOST)
+        host.get_accept_peer_addr(&mut memory[..], result, 0, 16),
+        Err(AsyncHostError::Inval)
     );
+    assert_eq!(memory, [7; 16]);
     host.free_io_result(result).unwrap();
-    host.close_fd(connection).unwrap();
-    host.close_fd(server).unwrap();
-    host.poll_destroy(poll).unwrap();
-    assert_eq!(host.leak_summary(), None);
 }
 
 #[test]
