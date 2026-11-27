@@ -18,6 +18,7 @@
 
 //! DNS authorization and published address-list ownership.
 
+use std::cell::Ref;
 use std::ffi::{OsStr, OsString};
 
 use slotmap::{Key, KeyData};
@@ -76,11 +77,13 @@ impl HostNetwork {
         Ok(addrinfo.next.unwrap_or_else(null_handle))
     }
 
-    pub(crate) fn addrinfo_addr(&self, handle: u64) -> AsyncHostResult<Box<[u8]>> {
+    /// Borrow a live address's bytes for one synchronous host call.
+    pub(crate) fn addrinfo_addr(&self, handle: u64) -> AsyncHostResult<Ref<'_, [u8]>> {
         let key = KeyData::from_ffi(handle).into();
-        let addr_infos = self.addr_infos.borrow();
-        let addrinfo = addr_infos.get(key).ok_or(AsyncHostError::Badf)?;
-        Ok(addrinfo.addr.clone())
+        Ref::filter_map(self.addr_infos.borrow(), |addr_infos| {
+            addr_infos.get(key).map(|addrinfo| addrinfo.addr.as_ref())
+        })
+        .map_err(|_| AsyncHostError::Badf)
     }
 
     pub(crate) fn free_addrinfo(&self, handle: u64) -> AsyncHostResult<()> {
@@ -142,7 +145,10 @@ mod tests {
         drop(job);
 
         let wrong_kind = buffer.data().as_ffi();
-        assert_eq!(network.addrinfo_addr(wrong_kind), Err(AsyncHostError::Badf));
+        assert_eq!(
+            network.addrinfo_addr(wrong_kind).unwrap_err(),
+            AsyncHostError::Badf
+        );
         assert_eq!(network.addrinfo_next(wrong_kind), Err(AsyncHostError::Badf));
         assert_eq!(network.free_addrinfo(wrong_kind), Err(AsyncHostError::Badf));
         assert_eq!(buffers.get(KeyData::from_ffi(first).into()), None);
@@ -150,7 +156,7 @@ mod tests {
         let mut first_handles = Vec::new();
         let mut current = first;
         for addr in &expected {
-            assert_eq!(&network.addrinfo_addr(current).unwrap(), addr);
+            assert_eq!(&*network.addrinfo_addr(current).unwrap(), addr.as_ref());
             first_handles.push(current);
             current = network.addrinfo_next(current).unwrap();
         }
@@ -158,7 +164,10 @@ mod tests {
         network.free_addrinfo(first).unwrap();
         let replacement = buffers.insert(());
         for handle in first_handles {
-            assert_eq!(network.addrinfo_addr(handle), Err(AsyncHostError::Badf));
+            assert_eq!(
+                network.addrinfo_addr(handle).unwrap_err(),
+                AsyncHostError::Badf
+            );
             assert_eq!(network.addrinfo_next(handle), Err(AsyncHostError::Badf));
             assert_eq!(network.free_addrinfo(handle), Err(AsyncHostError::Badf));
         }
@@ -166,7 +175,7 @@ mod tests {
         let mut second_keys = Vec::new();
         current = second;
         for addr in &expected {
-            assert_eq!(&network.addrinfo_addr(current).unwrap(), addr);
+            assert_eq!(&*network.addrinfo_addr(current).unwrap(), addr.as_ref());
             second_keys.push(KeyData::from_ffi(current).into());
             current = network.addrinfo_next(current).unwrap();
         }

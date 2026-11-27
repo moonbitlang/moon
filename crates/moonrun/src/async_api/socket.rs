@@ -691,3 +691,125 @@ fn zero_or_minus_one(context: &mut ImportContext<'_>, result: AsyncHostResult<()
     }
 }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::run_termination::TerminationRequest;
+    use crate::runtime::{Executable, Runtime, RuntimeConfig, null_handle};
+
+    #[test]
+    fn addrinfo_null_and_invalid_handles_do_not_require_guest_memory() {
+        let runtime = Runtime::new(
+            RuntimeConfig::default(),
+            Executable::unavailable(),
+            crate::signal_channel().1,
+        )
+        .unwrap();
+        let termination = TerminationRequest::default();
+        let mut context = ImportContext {
+            host: runtime.async_host(),
+            filesystem: runtime.filesystem(),
+            memory: Err(AsyncHostError::Fault),
+            termination_request: &termination,
+        };
+
+        assert_eq!(addrinfo_addr_size(&mut context, null_handle()), Ok(0));
+        assert_eq!(
+            addrinfo_fill_addr(&mut context, null_handle(), u32::MAX, 443, u32::MAX),
+            Ok(())
+        );
+        assert_eq!(
+            addrinfo_get_next(&mut context, null_handle()),
+            Ok(null_handle())
+        );
+        assert_eq!(addrinfo_free(&mut context, null_handle()), Ok(()));
+        for handle in [0, runtime.async_host().invalid_fd()] {
+            assert_eq!(
+                addrinfo_addr_size(&mut context, handle),
+                Err(AsyncHostError::Badf)
+            );
+            assert_eq!(
+                addrinfo_fill_addr(&mut context, handle, 0, 443, 0),
+                Err(AsyncHostError::Badf)
+            );
+        }
+    }
+
+    #[test]
+    fn addrinfo_reads_preserve_address_bytes_and_memory_error_ordering() {
+        #[cfg(windows)]
+        assert_eq!(crate::network::os::init_wsa(), 0);
+
+        let runtime = Runtime::new(
+            RuntimeConfig::default(),
+            Executable::unavailable(),
+            crate::signal_channel().1,
+        )
+        .unwrap();
+        let host = runtime.async_host();
+        let job = host.make_getaddrinfo_job("127.0.0.1".into()).unwrap();
+        host.run_job(job).unwrap();
+        let list = host.get_getaddrinfo_result(job).unwrap();
+        let original = host.network().addrinfo_addr(list).unwrap().to_vec();
+        let size = original.len() as u32;
+        let termination = TerminationRequest::default();
+        let mut context = ImportContext {
+            host,
+            filesystem: runtime.filesystem(),
+            memory: Err(AsyncHostError::Fault),
+            termination_request: &termination,
+        };
+
+        // Reading a size does not access memory; a valid address copy does.
+        assert_eq!(addrinfo_addr_size(&mut context, list), Ok(size));
+        assert_eq!(
+            addrinfo_fill_addr(&mut context, list, 0, 443, size),
+            Err(AsyncHostError::Fault)
+        );
+
+        let mut memory = vec![0xaa; original.len() + 8];
+        context.memory = Ok(&mut memory);
+        assert_eq!(
+            addrinfo_fill_addr(&mut context, list, u32::MAX, 443, size),
+            Err(AsyncHostError::Fault)
+        );
+        assert_eq!(
+            addrinfo_fill_addr(&mut context, list, 4, 443, size - 1),
+            Err(AsyncHostError::Fault)
+        );
+        assert!(
+            context
+                .memory
+                .as_deref()
+                .unwrap()
+                .iter()
+                .all(|byte| *byte == 0xaa)
+        );
+
+        for port in [443, 8080] {
+            addrinfo_fill_addr(&mut context, list, 4, port, size).unwrap();
+            assert_eq!(ip_addr_get_ip(&mut context, 4, size), Ok(0x7f000001));
+            assert_eq!(ip_addr_get_port(&mut context, 4, size), Ok(port));
+            let memory = context.memory.as_deref().unwrap();
+            assert_eq!(&memory[..4], &[0xaa; 4]);
+            assert_eq!(&memory[4 + original.len()..], &[0xaa; 4]);
+            assert_eq!(
+                &*host.network().addrinfo_addr(list).unwrap(),
+                original.as_slice()
+            );
+        }
+
+        addrinfo_free(&mut context, list).unwrap();
+        context.memory = Err(AsyncHostError::Fault);
+        assert_eq!(
+            addrinfo_fill_addr(&mut context, list, 0, 443, size),
+            Err(AsyncHostError::Badf)
+        );
+        host.free_job(job).unwrap();
+        assert!(host.leak_summary().is_none());
+
+        #[cfg(windows)]
+        assert_eq!(crate::network::os::cleanup_wsa(), 0);
+    }
+}
