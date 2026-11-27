@@ -75,11 +75,12 @@ boundary: Unix removes the temporary name before spawning, while Windows keeps
 the delete-on-close file exclusively open. The guest therefore has no
 filesystem name it can replace or modify.
 
-When a Run starts with its own environment, Moonrun uses its initial temporary
-directory for policy files (`TMPDIR` on Unix, `TMP` then `TEMP` on Windows).
-If none is set, Moonrun uses the host temporary directory. Guest environment
-changes and individual spawn requests do not redirect the parent's policy file.
-IPC delegates use the directory selected by the serving Run.
+Embedders can set `RunOptions::with_tmp_dir(path)` to place Moonrun's
+temporary files in an existing host directory for that Run. This applies to
+policy handoff files, Moon artifact handoff directories, and Unix IPC socket
+directories. IPC delegates and virtual moonx children inherit the setting.
+The default is the host system temporary directory. The guest's temporary
+directory is selected independently through its environment.
 
 Policy publication and handle setup run as part of the direct `moonx` spawn
 job. If either fails, the job reports the corresponding OS error and no child

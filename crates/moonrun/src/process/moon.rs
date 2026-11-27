@@ -26,10 +26,10 @@ use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 
+use super::HostProcess;
 use super::SpawnOptions;
 use super::lookup::LookupPlan;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::policy::Policy;
 use crate::process_tree::ProcessContext;
 use crate::resource::{ResourcePublication, ResourceRef};
 #[cfg(unix)]
@@ -59,7 +59,7 @@ impl Spawn {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy: Option<Policy>,
+        parent: &HostProcess,
     ) -> AsyncHostResult<Self> {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         let env = env
@@ -90,7 +90,7 @@ impl Spawn {
             env,
             stdio,
             cwd,
-            policy,
+            parent,
         )?;
         spawn
             .options
@@ -111,7 +111,7 @@ impl Spawn {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy: Option<Policy>,
+        parent: &HostProcess,
     ) -> AsyncHostResult<Self> {
         use std::os::windows::ffi::OsStringExt;
         let program = args.remove(0);
@@ -133,7 +133,7 @@ impl Spawn {
                 ))
             })
             .collect::<AsyncHostResult<Vec<_>>>()?;
-        let mut spawn = Self::prepare(context, program, plan, args, env, stdio, cwd, policy)?;
+        let mut spawn = Self::prepare(context, program, plan, args, env, stdio, cwd, parent)?;
         spawn.no_console_window = options.no_console_window;
         Ok(spawn)
     }
@@ -147,7 +147,7 @@ impl Spawn {
         env: Vec<(OsString, OsString)>,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
-        policy: Option<Policy>,
+        parent: &HostProcess,
     ) -> AsyncHostResult<Self> {
         if program.as_encoded_bytes().contains(&0)
             || args.iter().any(|arg| arg.as_encoded_bytes().contains(&0))
@@ -226,8 +226,9 @@ impl Spawn {
                 duplicate(stdout, StdioStream::Stdout)?,
                 duplicate(stderr, StdioStream::Stderr)?,
             );
-        if let Some(policy) = policy {
-            run = run.with_parent_policy(policy);
+        run.runtime.tmp_dir = parent.tmp_dir.clone();
+        if let Some(policy) = &parent.policy_inheritance {
+            run = run.with_parent_policy(policy.clone());
         }
         Ok(Self {
             context,

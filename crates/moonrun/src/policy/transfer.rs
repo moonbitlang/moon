@@ -190,9 +190,9 @@ impl Policy {
 
     pub(crate) fn open_transfer_in(
         &self,
-        session_tmp: Option<&std::path::Path>,
+        tmp_dir: Option<&std::path::Path>,
     ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
-        let mut file = match session_tmp {
+        let mut file = match tmp_dir {
             Some(dir) => tempfile::tempfile_in(dir)?,
             None => tempfile::tempfile()?,
         };
@@ -422,7 +422,12 @@ mod tests {
     #[test]
     fn inherited_transfer_outlives_the_canonical_representation() {
         let inheritance = compile(PolicyConfig::default());
-        let transfer = inheritance.open_transfer().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            inheritance.open_transfer_in(Some(&tmp.path().join("missing"))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        ));
+        let transfer = inheritance.open_transfer_in(Some(tmp.path())).unwrap();
 
         drop(inheritance);
 

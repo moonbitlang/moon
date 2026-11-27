@@ -224,11 +224,11 @@ impl Job {
                     _stdio_owner,
                     executable,
                     policy_inheritance,
-                    session_tmp,
+                    tmp_dir,
                 } = *spawn.take().ok_or(AsyncHostError::Inval)?;
                 // Publish the policy on the worker before creating the OS child.
                 let transfer = policy_inheritance
-                    .map(|policy| policy.open_transfer_in(session_tmp.as_deref()))
+                    .map(|policy| policy.open_transfer_in(tmp_dir.as_deref()))
                     .transpose()
                     .map_err(native::policy_transfer_error)?;
                 #[cfg(unix)]

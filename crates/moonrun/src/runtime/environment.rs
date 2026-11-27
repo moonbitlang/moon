@@ -93,16 +93,6 @@ impl Env {
         matches!(self.backing, EnvBacking::Ambient)
     }
 
-    /// Temporary directory explicitly selected by this environment.
-    pub(crate) fn configured_temp_dir(&self) -> Option<OsString> {
-        #[cfg(unix)]
-        let keys = ["TMPDIR"];
-        #[cfg(windows)]
-        let keys = ["TMP", "TEMP"];
-        keys.into_iter()
-            .find_map(|key| self.get(key.as_ref()).filter(|path| !path.is_empty()))
-    }
-
     pub(crate) fn get(&self, name: &OsStr) -> Option<OsString> {
         if !os::valid_initial_name(name) {
             return None;

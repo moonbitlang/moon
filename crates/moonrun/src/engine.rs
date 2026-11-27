@@ -177,6 +177,15 @@ impl RunOptions {
             .unwrap_or_else(|| self.runtime.selected_policy.as_ref().is_some_and(|p| p.ipc))
     }
 
+    /// Set the existing directory for this Run's host-side temporary files.
+    /// Relative paths resolve against the host working directory at Run startup.
+    /// By default Moonrun uses the host's system temporary directory. The Wasm
+    /// program's environment is configured separately.
+    pub fn with_tmp_dir(mut self, path: impl AsRef<Path>) -> Self {
+        self.runtime.tmp_dir = Some(Arc::from(path.as_ref()));
+        self
+    }
+
     /// Supply an owned environment. An empty iterator means an empty environment.
     /// Policy environment provisioning, when present, takes precedence.
     /// Guest changes affect only this execution's environment.
@@ -198,6 +207,11 @@ impl RunOptions {
     // Only host-facing entries may fill absent root inputs from ambient state.
     // Guest derivation supplies complete inputs before process admission.
     pub(crate) fn prepare_root(&mut self) -> std::io::Result<()> {
+        if let Some(path) = &self.runtime.tmp_dir
+            && path.is_relative()
+        {
+            self.runtime.tmp_dir = Some(Arc::from(std::path::absolute(path)?));
+        }
         if self.virtualize() || self.ipc() {
             self.runtime.capture_host_state()?;
         }

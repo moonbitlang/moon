@@ -121,8 +121,7 @@ pub(crate) struct Runtime {
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeConfig {
     pub(crate) ipc_engine: Option<crate::Engine>,
-    // IPC delegates retain the server’s choice across guest-provided environments.
-    pub(crate) session_tmp: Option<std::path::PathBuf>,
+    pub(crate) tmp_dir: Option<Arc<std::path::Path>>,
     pub(crate) selected_policy: Option<policy::LoadedPolicy>,
     pub(crate) inherited_policy: Option<policy::InheritedPolicyInput>,
     pub(crate) working_directory: WorkingDirectory,
@@ -218,16 +217,6 @@ impl Runtime {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(network_policy);
-        // Freeze the host-side location before guest code can mutate its Env.
-        let session_tmp = match config.session_tmp {
-            Some(inherited) => inherited,
-            None => match environment.configured_temp_dir() {
-                Some(path) if !environment.is_ambient() => {
-                    working_directory.resolve_absolute(std::path::Path::new(&path))?
-                }
-                _ => std::path::absolute(std::env::temp_dir())?,
-            },
-        };
         let ipc_server = config
             .ipc_engine
             .take()
@@ -235,7 +224,7 @@ impl Runtime {
                 crate::ipc::server::IpcServer::start(
                     engine,
                     policy.clone(),
-                    session_tmp.clone(),
+                    config.tmp_dir.clone(),
                     #[cfg(unix)]
                     child_signal_mask,
                 )
@@ -248,7 +237,7 @@ impl Runtime {
             config.process_context,
             Arc::clone(&environment),
         )
-        .with_session_tmp(session_tmp)
+        .with_tmp_dir(config.tmp_dir)
         .with_ipc_endpoint(ipc_server.as_ref().map(|server| server.endpoint()));
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
