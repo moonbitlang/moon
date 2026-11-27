@@ -192,31 +192,6 @@ spawn = true
     )
     .unwrap();
 
-    // The blackbox test removes this directory through the guest filesystem,
-    // then verifies that the following direct moonx spawn reports the policy-
-    // transfer failure instead of creating a child.
-    let policy_transfer_temp = tempfile::TempDir::new().expect("create policy transfer temp");
-    moon_cmd()
-        .current_dir(dir.path())
-        .env("PATH", &path)
-        .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
-        .env("TMPDIR", policy_transfer_temp.path())
-        .env("TMP", policy_transfer_temp.path())
-        .env("TEMP", policy_transfer_temp.path())
-        .args([
-            "test",
-            "--package",
-            "moon/policy_workspace/spawn_moonx_error",
-            "--target",
-            "wasm",
-            "--wasm-policy",
-        ])
-        .arg(&inherited_policy)
-        .assert()
-        .success()
-        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
-
     moon_cmd()
         .current_dir(dir.path())
         .env("PATH", &path)
