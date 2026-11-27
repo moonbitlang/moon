@@ -23,7 +23,6 @@ use crate::filesystem::{CreateMode, FsOperation, FsPath, OpenAccess};
 use crate::policy::{self, Policy};
 #[cfg(unix)]
 use std::fs;
-#[cfg(unix)]
 use std::path::Path;
 
 impl HostFs {
@@ -336,10 +335,14 @@ fn relative_at_authorization_uses_the_open_directory_path() {
     let (policy, _) = policy::load_file(&policy_file).unwrap();
     let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
-    host.authorize(FsOperation::Read(FsPath::At {
-        base: &allowed,
-        path: OsStr::new("input.txt"),
-    }))
+    let directory = Directory::preopen(&allowed).unwrap();
+    host.open_file_at(
+        &directory,
+        Path::new("input.txt"),
+        OpenAccess::Read,
+        CreateMode::Open,
+        false,
+    )
     .unwrap();
 }
 

@@ -149,10 +149,6 @@ impl PolicyAuthorizer {
                     .ok(),
                 format!("{:?}", path.to_string_lossy()),
             ),
-            FsTarget::Path(FsPath::At { base, path }) => (
-                Some(base.join(path)),
-                format!("{:?}", path.to_string_lossy()),
-            ),
             FsTarget::Path(FsPath::AtHandle { directory, path }) => {
                 // Query the directory even for an absolute child path, retaining
                 // the existing directory-error precedence. Both open checks use
