@@ -18,7 +18,7 @@
 
 //! V8-native representation and rooting of shared host values.
 //! Builders and readers retain their payloads in traced internal fields. Only
-//! opaque Rust RNG/clock values need finalizers; weak registrations never root them.
+//! opaque Rust clock values need finalizers. Weak registrations never root them.
 #[cfg(test)]
 use crate::v8::builder::ObjectExt;
 use crate::v8::builder::ScopeExt;
@@ -30,7 +30,6 @@ use crate::wasm_imports::{
 };
 use ValueImportError::{Range, Type, V8};
 use anyhow::Context;
-use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::cell::{Cell, RefCell};
 #[cfg(test)]
 use v8::FunctionCallbackArguments;
@@ -265,7 +264,6 @@ pub(super) struct State {
     string_reader: v8::Global<v8::Object>,
     byte_reader: v8::Global<v8::Object>,
     array_reader: v8::Global<v8::Object>,
-    rng: v8::Global<v8::Object>,
     instant: v8::Global<v8::Object>,
     // Weak handles own finalizer closures, not guest values. Dropping the run
     // also drops closures for objects that have not yet been collected.
@@ -283,7 +281,6 @@ impl State {
             string_reader: brand()?,
             byte_reader: brand()?,
             array_reader: brand()?,
-            rng: brand()?,
             instant: brand()?,
             finalizers: RefCell::new(Vec::new()),
         })
@@ -458,28 +455,6 @@ impl<'s, T> Values<'s> for super::wasm_imports::Context<'_, 's, T> {
             reader.read_element(self.scope, end.into())?,
         )))
     }
-    fn new_rng(&mut self, seed: i32) -> ImportResult<Ref<'s>> {
-        let kind = Local::new(self.scope, &self.values.rng);
-        self.values.opaque(
-            self.scope,
-            kind.into(),
-            RefCell::new(StdRng::seed_from_u64(seed as u64)),
-        )
-    }
-    fn random(&mut self, value: &Ref<'s>, upper: i32) -> ImportResult<i32> {
-        if upper <= 0 {
-            return Err(Range("random range upper bound must be positive").into());
-        }
-        let kind = Local::new(self.scope, &self.values.rng);
-        let value = local(self.scope, value);
-        let handle = Handle::from_value(self.scope, value, kind.into())?;
-        let payload =
-            Local::<v8::External>::try_from(handle.payload(self.scope)).expect("RNG payload");
-        // Only new_rng creates this private brand. The rooted object keeps the
-        // finalizer-owned allocation alive; no engine calls occur during access.
-        let rng = unsafe { &*payload.value().cast::<RefCell<StdRng>>() };
-        Ok(rng.borrow_mut().gen_range(0..upper))
-    }
     fn new_instant(&mut self) -> ImportResult<Ref<'s>> {
         let kind = Local::new(self.scope, &self.values.instant);
         self.values
@@ -518,7 +493,7 @@ mod tests {
         let drops = std::rc::Rc::new(Cell::new(0));
         {
             let scope = &mut HandleScope::new(scope);
-            let kind = Local::new(scope, &state.rng);
+            let kind = Local::new(scope, &state.instant);
             state
                 .opaque(scope, kind.into(), DropCount(std::rc::Rc::clone(&drops)))
                 .unwrap();

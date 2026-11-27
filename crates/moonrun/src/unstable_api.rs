@@ -261,8 +261,6 @@ pub(crate) fn register<R: ImportRegistry<Runtime>>(
                 .map_err(|e| ImportError::Host(e.into()))
         },
     )?;
-    registry.func_wrap("__moonbit_rand_unstable", "stdrng_seed_from_u64", new_rng)?;
-    registry.func_wrap("__moonbit_rand_unstable", "stdrng_gen_range", random)?;
     registry.func_wrap("__moonbit_time_unstable", "instant_now", new_instant)?;
     registry.func_wrap(
         "__moonbit_time_unstable",
@@ -372,16 +370,6 @@ fn array_get<'call, T>(
 }
 fn jsvalue_is_string<'call, T>(mut caller: Caller<'_, 'call, T>, value: Ref<'call>) -> Result<i32> {
     caller.values().is_string(&value)
-}
-fn new_rng<'call>(mut caller: Caller<'_, 'call, Runtime>, seed: i32) -> Result<Ref<'call>> {
-    caller.values().new_rng(seed)
-}
-fn random<'call>(
-    mut caller: Caller<'_, 'call, Runtime>,
-    rng: Ref<'call>,
-    upper: i32,
-) -> Result<i32> {
-    caller.values().random(&rng, upper)
 }
 fn new_instant<'call>(mut caller: Caller<'_, 'call, Runtime>) -> Result<Ref<'call>> {
     caller.values().new_instant()

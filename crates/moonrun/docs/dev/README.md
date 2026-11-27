@@ -38,7 +38,7 @@
 
 `wasm_imports::ImportRegistry` defines synchronous imports once for V8,
 Wasmtime and wee8. WASIp1, async, SQLite, core environment/executable paths, and
-the legacy filesystem/environment/value/stdio/random/time/process imports supply shared
+the legacy filesystem/environment/value/stdio/time/process imports supply shared
 registrations. Backend setup supplies per-run state, memory access, native value
 representation and callback retention.
 
@@ -142,8 +142,9 @@ Strings preserve UTF-16 code units, including unpaired surrogates. Builders own
 private V8 ArrayBuffers with geometric growth; readers retain their live source.
 The buffer/source and position are direct GC-traced fields of opaque, branded
 objects. Rust uses temporary typed views and owns no persistent builder/reader
-payload. Finishing a builder creates an independent value. Opaque RNG and clock values use branded V8 objects with native weak finalizers;
-the weak registrations own cleanup closures without keeping guest objects alive.
+payload. Finishing a builder creates an independent value. Opaque clock values
+use branded V8 objects with native weak finalizers. The weak registrations own
+cleanup closures without keeping guest objects alive.
 Run teardown also releases payloads that have not yet been collected. The exception adapter
 retains its constructor and tag through strong V8 handles for the duration of a Run.
 Byte slicing preserves relative/clamped indices, copying permits overlapping

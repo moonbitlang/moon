@@ -59,8 +59,6 @@ pub(crate) trait Values<'call> {
     fn read_byte(&mut self, value: &Ref<'call>) -> Result<i32>;
     fn array_reader(&mut self, value: &Ref<'call>) -> Result<Ref<'call>>;
     fn read_string(&mut self, value: &Ref<'call>) -> Result<Ref<'call>>;
-    fn new_rng(&mut self, seed: i32) -> Result<Ref<'call>>;
-    fn random(&mut self, value: &Ref<'call>, upper: i32) -> Result<i32>;
     fn new_instant(&mut self) -> Result<Ref<'call>>;
     fn elapsed(&mut self, value: &Ref<'call>) -> Result<f64>;
 }

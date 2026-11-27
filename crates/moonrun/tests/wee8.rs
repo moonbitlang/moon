@@ -459,13 +459,6 @@ fn legacy_host_imports_reject_bad_signatures_and_payloads() {
             (func (export "_start") call $args i32.const -1 call $get drop))"#,
             "array index out of bounds",
         ),
-        (
-            r#"(module
-            (import "__moonbit_rand_unstable" "stdrng_seed_from_u64" (func $new (param i32) (result externref)))
-            (import "__moonbit_rand_unstable" "stdrng_gen_range" (func $next (param externref i32) (result i32)))
-            (func (export "_start") i32.const 1 call $new i32.const 0 call $next drop))"#,
-            "random range upper bound must be positive",
-        ),
     ] {
         let module = engine
             .compile("invalid-host-value.wasm", wat::parse_str(source).unwrap())

@@ -178,7 +178,7 @@ This is a working integration MVP, not a replacement for either full backend:
   Host Domains as V8 and Wasmtime.
 - The legacy string/byte-array builders and readers, string arrays, arguments,
   environment lookup/mutation, synchronous filesystem operations, stdio,
-  seeded random numbers, clocks and process exit. All three engines use the
+  clocks and process exit. All three engines use the
   same typed import definitions. wee8 uses native V8 strings so values from
   host services work directly with V8's JS-string builtins. Wasmtime keeps its
   UTF-16 string payloads; byte/builders/readers retain shared Rust behavior.
