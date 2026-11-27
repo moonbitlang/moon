@@ -543,7 +543,7 @@ mod tests {
     fn windows_fstatx_reports_socket_kind_before_get_file_type_error() {
         assert_eq!(crate::network::os::init_wsa(), 0);
         let resource = std::sync::Arc::new(
-            crate::network::HostNetwork::new(None)
+            crate::network::HostNetwork::new(None, Default::default())
                 .make_tcp_socket(4)
                 .unwrap(),
         );

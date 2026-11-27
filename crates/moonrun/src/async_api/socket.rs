@@ -219,7 +219,7 @@ pub(super) fn addrinfo_get_next(
     context: &mut ImportContext<'_>,
     addrinfo: u64,
 ) -> AsyncHostResult<u64> {
-    context.host.addrinfo_next(addrinfo)
+    context.host.network().addrinfo_next(addrinfo)
 }
 
 #[ported(source = "src/socket/socket.c")]
@@ -230,7 +230,7 @@ pub(super) fn addrinfo_addr_size(
     if addrinfo == crate::runtime::null_handle() {
         return Ok(0);
     }
-    let addr = context.host.addrinfo_addr(addrinfo)?;
+    let addr = context.host.network().addrinfo_addr(addrinfo)?;
     Ok(u32::try_from(addr.len()).unwrap_or(0))
 }
 
@@ -245,7 +245,7 @@ pub(super) fn addrinfo_fill_addr(
     if addrinfo == crate::runtime::null_handle() {
         return Ok(());
     }
-    let addr = context.host.addrinfo_addr(addrinfo)?;
+    let addr = context.host.network().addrinfo_addr(addrinfo)?;
     context.with_memory_mut(|memory| {
         let out = memory.read_exact_mut(out, out_len)?;
         address::addrinfo_fill_addr(&addr, out, port as u16).map_err(address_error)
@@ -253,7 +253,7 @@ pub(super) fn addrinfo_fill_addr(
 }
 
 pub(super) fn addrinfo_free(context: &mut ImportContext<'_>, addrinfo: u64) -> AsyncHostResult<()> {
-    context.host.free_addrinfo(addrinfo)
+    context.host.network().free_addrinfo(addrinfo)
 }
 
 #[ported(source = "src/socket/socket.c")]

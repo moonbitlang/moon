@@ -215,7 +215,7 @@ impl Runtime {
             Arc::clone(&environment),
             Arc::clone(&working_directory),
         ));
-        let network = HostNetwork::new(network_policy);
+        let network = HostNetwork::new(network_policy, keys.clone());
         let ipc_server = config
             .ipc_engine
             .take()
