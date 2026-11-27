@@ -126,7 +126,7 @@ pub(super) fn last_native_error() -> io::Error {
 }
 
 #[cfg(test)]
-pub(in crate::poll) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+pub(in crate::poll) fn ported_symbols() -> Vec<crate::upstream::PortedSymbol> {
     let mut symbols = Vec::new();
     #[cfg(target_os = "linux")]
     symbols.extend_from_slice(epoll::PORTED_SYMBOLS);

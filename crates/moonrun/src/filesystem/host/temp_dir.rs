@@ -19,8 +19,8 @@
 //! Temporary-directory selection from Runtime Env, preserving native defaults.
 
 use super::FsError;
-use crate::async_sys::ported_fns;
 use crate::runtime::Env;
+use crate::upstream::ported_fns;
 use std::ffi::OsString;
 
 #[cfg(all(unix, target_os = "android"))]

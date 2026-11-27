@@ -19,7 +19,7 @@
 //! macOS vnode notification mechanisms. User data is an opaque caller token.
 
 use super::RawFile;
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 use std::io;
 
 ported_fns! {

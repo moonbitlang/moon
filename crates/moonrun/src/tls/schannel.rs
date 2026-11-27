@@ -18,7 +18,7 @@
 
 use std::io;
 
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 use windows_sys::Win32::Foundation::{
     SEC_E_INCOMPLETE_MESSAGE, SEC_E_NO_CREDENTIALS, SEC_E_OK, SEC_I_CONTEXT_EXPIRED,
@@ -1181,7 +1181,7 @@ ported_fns! {
 }
 
 #[cfg(test)]
-pub(super) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+pub(super) fn ported_symbols() -> Vec<crate::upstream::PortedSymbol> {
     [
         TlsConnection::PORTED_SYMBOLS,
         SchannelContext::PORTED_SYMBOLS,

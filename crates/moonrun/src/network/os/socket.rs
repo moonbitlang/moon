@@ -27,7 +27,7 @@ use windows_sys::Win32::Networking::WinSock as ws;
 
 use super::address::{read_sockaddr_in, read_sockaddr_in6, sockaddr_len};
 use super::{INVALID_ADDRESS, RawSocket};
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 #[cfg(windows)]
 fn socket(fd: RawSocket) -> ws::SOCKET {

@@ -22,7 +22,7 @@ use std::io;
 use windows_sys::Win32::Networking::WinSock as ws;
 use windows_sys::Win32::System::IO::OVERLAPPED;
 
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 use super::address::{sockaddr_family, sockaddr_len};
 use super::{INVALID_ADDRESS, INVALID_INPUT, RawSocket, last_wsa_error};

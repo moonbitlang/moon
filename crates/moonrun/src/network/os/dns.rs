@@ -32,7 +32,7 @@ use windows_sys::Win32::Networking::WinSock as ws;
 #[cfg(unix)]
 use super::INVALID_INPUT;
 #[cfg(unix)]
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 #[cfg(unix)]
 pub(in crate::network) fn copy_sockaddrs_from_getaddrinfo(

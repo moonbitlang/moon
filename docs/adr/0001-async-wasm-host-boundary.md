@@ -11,8 +11,8 @@ extends these constraints to embedding, Runtime ownership, supervision, and
 overall authority. It supersedes the initial module allocation below:
 `async_api` now owns backend-neutral ABI definitions, Runtime owns shared state
 and the Handle namespace, Host Domains own interpretation and authorization,
-and `async_sys` retains native-port mechanisms. Async Host continues to own
-async Resources, Jobs, Workers, and Completions within that composition.
+and native mechanisms live with their owning domains. Async Host coordinates
+async Resource and Job lifetimes with the Thread Pool and Completion delivery.
 
 The V8-specific JS memory plumbing, initial import-module name, and Deferred
 section below record the initial implementation plan. Use the

@@ -23,7 +23,7 @@
 use std::io;
 
 use super::{BlockingIo, RawFile};
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 ported_fns! {
     #[ported(source = "src/internal/event_loop/io_unix.c", original = "moonbitlang_async_read")]

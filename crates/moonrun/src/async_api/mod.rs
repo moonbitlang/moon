@@ -22,7 +22,7 @@
 //! adapters decode arguments, acquire guest memory, convert results and traps.
 //! Implementations use `ImportContext` independently of the selected engine.
 //! Host Domains own operation semantics and delegate mechanisms to their OS
-//! modules. `async_sys` retains shared scheduling and remaining native ports.
+//! modules. Upstream source tracking is independent of the import registry.
 
 mod c_buffer;
 mod context;
@@ -48,3 +48,8 @@ mod tls;
 
 pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
 pub(crate) use registry::register;
+
+#[cfg(test)]
+pub(crate) use os_error::{
+    COMPAT_SYMBOLS as OS_ERROR_COMPAT_SYMBOLS, PORTED_SYMBOLS as OS_ERROR_PORTED_SYMBOLS,
+};

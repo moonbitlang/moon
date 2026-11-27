@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 #[cfg(unix)]
 mod sigwait;

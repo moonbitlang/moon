@@ -18,9 +18,9 @@
 
 use super::os::{RawFile, watch};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::ported_fns;
 use crate::filesystem::{FsOperation, FsTarget, HostFs};
 use crate::resource::Resource;
+use crate::upstream::ported_fns;
 use std::os::fd::AsRawFd;
 pub(crate) use watch::create;
 

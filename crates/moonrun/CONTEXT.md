@@ -414,13 +414,12 @@ runtime adapters lower their own memory and scalar representations before
 crossing its interface.
 _Avoid_: SQLite API, Async Host, V8 SQLite
 
-**Async Sys**:
-The remaining V8-free native-stub support. Ports carry provenance for the native
-source path and symbol they track, including implementations in domain modules.
-Job implementations and reusable OS mechanisms live with their owning domain.
-Process signal capture belongs to the CLI, guest delivery to Run Signals, and
-Worker signal-mask ownership to the Thread Pool.
-_Avoid_: V8 adapter, placeholder unsupported imports
+**Upstream Provenance**:
+Source paths and symbols linking Moonrun implementations to the native behavior
+they track. `upstream` provides annotations and source checks; implementations
+live with their semantic owners. Async API tracks guest ABI provenance separately,
+so a native implementation need not correspond to one Wasm import.
+_Avoid_: shared OS facade, Wasm import registry
 
 **Thread Pool**:
 The shared host facility in `thread_pool` that runs Jobs outside the guest

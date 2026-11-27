@@ -21,8 +21,8 @@ use std::os::windows::io::{
 };
 use std::sync::Arc;
 
-use crate::async_sys::ported_fns;
 use crate::filesystem::RawFile as RawFd;
+use crate::upstream::ported_fns;
 use std::io;
 
 use super::{EVENT_BUFFER_SIZE, PollEvent, PollInstance, last_errno, last_native_error};

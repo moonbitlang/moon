@@ -110,13 +110,6 @@ impl HostProcess {
         self.context.as_ref()
     }
 
-    pub(crate) fn pid(&self) -> i32 {
-        self.context.as_ref().map_or_else(
-            || crate::async_sys::internal::env_util::stub::get_pid() as i32,
-            |context| context.pid(),
-        )
-    }
-
     // Native-handle paths must never reinterpret a virtual PID as an
     // operating-system process identity.
     fn require_ambient(&self) -> AsyncHostResult<()> {

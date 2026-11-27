@@ -20,7 +20,7 @@
 //! Offsets address a host-owned result buffer, independently of Guest Memory.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const NAME_MAX: usize = 255;

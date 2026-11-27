@@ -19,7 +19,7 @@
 //! Sleep job executor ported from
 //! `moonbitlang/async/src/internal/event_loop/thread_pool.c`.
 
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 ported_fns! {
     #[ported(

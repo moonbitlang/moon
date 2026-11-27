@@ -286,8 +286,7 @@ Runtime-owned state. Workers schedule Jobs and deliver Completions; they do not
 become a second owner of domain interpretation or authorization.
 
 Raw Operations can remain private within a domain, such as
-[process/os.rs](../../../src/process/os.rs), or live in
-[async_sys](../../../src/async_sys). Keep platform-specific operations close to
+[process/os.rs](../../../src/process/os.rs). Keep platform-specific operations close to
 their semantic owner. Reuse mature dependencies where appropriate, but account
 for their implicit cwd, environment, signal, and library-global behavior.
 Consolidating every primitive into one general OS facade is not a goal.

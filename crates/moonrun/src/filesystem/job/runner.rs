@@ -29,8 +29,8 @@ use std::os::fd::AsRawFd;
 use std::os::windows::io::AsRawHandle;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::ported_fns;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
+use crate::upstream::ported_fns;
 
 use super::stat::{PackedStat, StatRequest};
 use super::{FileTimeResult, OpenJobResult, RealpathJobResult, job_path, take_execution_path};

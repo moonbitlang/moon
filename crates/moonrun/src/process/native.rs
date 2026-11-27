@@ -22,13 +22,13 @@
 use super::os::Executable;
 use super::{SpawnOptions, os};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::ported_fns;
 use crate::policy::Policy;
 #[cfg(any(windows, target_os = "linux"))]
 use crate::resource::Resource;
 use crate::resource::{ResourcePublication, ResourceRef};
 #[cfg(unix)]
 use crate::thread_pool::with_cancellable_region;
+use crate::upstream::ported_fns;
 use std::ffi::{OsStr, OsString};
 #[cfg(target_os = "linux")]
 use std::os::fd::IntoRawFd;

@@ -33,7 +33,6 @@ compile_error!(
 // import coverage grows. Its adapter still has unused-code checks enabled.
 mod async_api;
 mod async_host;
-mod async_sys;
 // The binary and internal invocation adapters share this grammar. It is not
 // part of the stable embedding interface.
 #[doc(hidden)]
@@ -70,6 +69,7 @@ mod sqlite;
 mod thread_pool;
 mod tls;
 mod unstable_api;
+mod upstream;
 #[cfg(feature = "v8")]
 mod util;
 #[cfg(feature = "v8")]

@@ -20,9 +20,9 @@ use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::JoinHandle;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, HandleKey};
-use crate::async_sys::ported_fns;
 #[cfg(windows)]
 use crate::resource::ResourceRef;
+use crate::upstream::ported_fns;
 #[cfg(unix)]
 use std::os::unix::thread::JoinHandleExt;
 

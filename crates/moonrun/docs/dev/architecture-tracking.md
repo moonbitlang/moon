@@ -100,7 +100,7 @@ failures on ordinary paths can be addressed as separate fixes.
   Windows Job containing the embedding process.
 - [ ] Route diagnostics through an embedding-owned destination; policy denial
   writes to host stderr.
-- [ ] Separate OS mechanisms in Job runners and `async_sys` from ABI and domain
+- [ ] Separate remaining OS mechanisms in Job runners from ABI and domain
   responsibilities as those operations change.
 - [ ] Complete executable lookup compatibility, Windows special-path handling,
   trusted Moon identification, and stable file identity.

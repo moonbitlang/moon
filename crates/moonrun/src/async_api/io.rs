@@ -363,10 +363,8 @@ pub(super) fn write_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn errno_is_read_eof(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
-    if crate::async_sys::internal::event_loop::io::errno_is_read_eof(errno) {
-        1
-    } else {
-        0
-    }
+    use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF};
+
+    i32::from(errno == ERROR_HANDLE_EOF as i32 || errno == ERROR_BROKEN_PIPE as i32)
 }
 }

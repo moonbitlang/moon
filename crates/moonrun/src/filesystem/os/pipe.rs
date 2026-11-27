@@ -25,7 +25,7 @@ use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(windows)]
 use std::os::windows::io::FromRawHandle;
 
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 ported_fns! {
     #[ported(source = "src/internal/fd_util/stub.c", original = "moonbitlang_async_pipe")]

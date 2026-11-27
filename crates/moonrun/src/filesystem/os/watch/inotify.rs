@@ -19,7 +19,7 @@
 //! Linux file notification mechanisms. Callers retain the watcher descriptor.
 
 use super::{RawFile, path_to_cstring};
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 use std::{ffi::OsStr, io};
 
 ported_fns! {

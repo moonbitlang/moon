@@ -16,14 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! V8-free async host operations ported from `moonbitlang/async` native stubs.
+//! Upstream source tracking for native implementations.
 //!
 //! The provenance macros link host implementations to their upstream source
 //! paths and symbols independently of the Wasm ABI adapters. Implementations
-//! also live in the host domains; no matching Wasm import is required.
-
-pub(crate) mod internal;
-pub(crate) mod os_error;
+//! live with their owning domains; no matching Wasm import is required.
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -94,17 +91,17 @@ pub(crate) struct CompatSymbol {
 // An implementation can combine several upstream functions, or have no Wasm
 // import at all. Emit provenance only for tests; leave its executable body intact.
 macro_rules! ported_fns {
-    (@root source) => { crate::async_sys::SourceRoot::MoonbitAsync };
-    (@root runtime) => { crate::async_sys::SourceRoot::MoonbitRuntime };
+    (@root source) => { crate::upstream::SourceRoot::MoonbitAsync };
+    (@root runtime) => { crate::upstream::SourceRoot::MoonbitRuntime };
     (@collect [$prefix:expr] [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]) => {
         #[cfg(test)]
-        pub(crate) const PORTED_SYMBOLS: &[crate::async_sys::PortedSymbol] = &[
+        pub(crate) const PORTED_SYMBOLS: &[crate::upstream::PortedSymbol] = &[
             $($entries)*
         ];
 
         #[cfg(test)]
         #[allow(dead_code)]
-        pub(crate) const COMPAT_SYMBOLS: &[crate::async_sys::CompatSymbol] = &[
+        pub(crate) const COMPAT_SYMBOLS: &[crate::upstream::CompatSymbol] = &[
             $($compat_entries)*
         ];
 
@@ -169,7 +166,7 @@ macro_rules! ported_fns {
                 $($entries)*
                 $(
                     #[cfg($cfg)]
-                    crate::async_sys::PortedSymbol {
+                    crate::upstream::PortedSymbol {
                         rust_module: module_path!(),
                         rust_symbol: concat!($prefix, stringify!($name)),
                         native_symbol: $original,
@@ -201,7 +198,7 @@ macro_rules! ported_fns {
         ported_fns!(
             @collect [$prefix] [$($entries)*] [
                 $($compat_entries)*
-                crate::async_sys::CompatSymbol {
+                crate::upstream::CompatSymbol {
                     rust_module: module_path!(),
                     rust_symbol: concat!($prefix, stringify!($name)),
                     native_symbol: $original,
@@ -236,9 +233,9 @@ pub(crate) use ported_fns;
 pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     let mut symbols = Vec::new();
     symbols.extend_from_slice(crate::async_host::buffers::Buffers::PORTED_SYMBOLS);
-    symbols.extend_from_slice(internal::env_util::stub::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::filesystem::PIPE_PORTED_SYMBOLS);
-    symbols.extend(internal::event_loop::io::ported_symbols());
+    #[cfg(windows)]
+    symbols.extend_from_slice(crate::async_host::AsyncHost::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::filesystem::IO_PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::filesystem::LOCK_PORTED_SYMBOLS);
     symbols.extend(crate::poll::ported_symbols());
@@ -248,7 +245,7 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     symbols.extend_from_slice(crate::filesystem::watch::PORTED_SYMBOLS);
     #[cfg(unix)]
     symbols.extend_from_slice(crate::filesystem::WATCH_PORTED_SYMBOLS);
-    symbols.extend_from_slice(os_error::stub::PORTED_SYMBOLS);
+    symbols.extend_from_slice(crate::async_api::OS_ERROR_PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::process::HostProcess::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::run_signal::SignalReceiver::PORTED_SYMBOLS);
     symbols.extend_from_slice(crate::network::os::PORTED_SYMBOLS);
@@ -266,7 +263,7 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
 pub(crate) fn compat_symbols() -> Vec<CompatSymbol> {
     let mut symbols = Vec::new();
     symbols.extend(crate::filesystem::compat_symbols());
-    symbols.extend_from_slice(os_error::stub::COMPAT_SYMBOLS);
+    symbols.extend_from_slice(crate::async_api::OS_ERROR_COMPAT_SYMBOLS);
     symbols
 }
 

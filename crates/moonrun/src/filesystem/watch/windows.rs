@@ -18,9 +18,9 @@
 
 use super::os::watch::{self, EventLayout};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::ported_fns;
 use crate::filesystem::{FsOperation, FsTarget, HostFs};
 use crate::resource::Resource;
+use crate::upstream::ported_fns;
 use std::os::windows::io::AsRawHandle;
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ACTION_MODIFIED, FILE_NOTIFY_EXTENDED_INFORMATION, FILE_NOTIFY_INFORMATION,

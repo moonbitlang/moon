@@ -29,7 +29,7 @@ use openssl::ssl::{
 };
 use openssl::x509::{X509, X509Ref, store::X509StoreBuilder, verify::X509CheckFlags};
 
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 use super::{
     TLS_CLOSED_STATUS, TLS_ERROR_STATUS, TLS_RENEGOTIATION_STATUS, TLS_SUCCESS_STATUS,
@@ -823,6 +823,6 @@ ported_fns! {
 }
 
 #[cfg(test)]
-pub(super) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+pub(super) fn ported_symbols() -> Vec<crate::upstream::PortedSymbol> {
     [TlsConnection::PORTED_SYMBOLS, PORTED_SYMBOLS].concat()
 }

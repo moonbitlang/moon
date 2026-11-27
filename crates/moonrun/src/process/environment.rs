@@ -18,7 +18,7 @@
 
 //! Child environment assembly shared by guest input preparation and native spawn.
 
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 use std::ffi::{OsStr, OsString};
 
