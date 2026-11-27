@@ -77,6 +77,11 @@ Finishing native work does not itself restore guest access: the operation owner
 must first collect or finalize its result. Cancellation alone does not permit
 returning the storage.
 
+Host Network owns published DNS address lists. Each publication creates an
+independent list that outlives its lookup Job and retires separately. Publishing
+also records DNS-derived connection authority in Host Network; freeing the list
+does not revoke that authority.
+
 The `poll` module owns Poll registrations and the current readable event batch.
 Resource close and thread-pool teardown unregister through that owner. Removing
 a Poll retires its Handle and event access before native destruction; outstanding

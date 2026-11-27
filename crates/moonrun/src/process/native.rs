@@ -613,7 +613,7 @@ mod windows_tests {
         use std::os::windows::io::AsRawSocket;
 
         assert_eq!(crate::network::os::init_wsa(), 0);
-        let resource = crate::network::HostNetwork::new(None)
+        let resource = crate::network::HostNetwork::new(None, Default::default())
             .make_tcp_socket(4)
             .unwrap();
         let raw_socket = resource.as_socket().unwrap().as_raw_socket();

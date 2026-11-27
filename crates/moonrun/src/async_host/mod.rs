@@ -50,9 +50,7 @@ use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef}
 use crate::run_signal::SignalReceiver;
 use crate::run_termination::TerminationRequest;
 pub(crate) use crate::runtime::HostKey as HandleKey;
-use crate::runtime::{
-    Env, Handles, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream, null_handle,
-};
+use crate::runtime::{Env, Handles, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream};
 #[cfg(unix)]
 use crate::thread_pool::ThreadPoolCompletionNotifier;
 use crate::thread_pool::{
@@ -176,12 +174,6 @@ fn u16_bounds(memory_len: usize, offset: u32, len: usize) -> AsyncHostResult<(us
         return Err(AsyncHostError::Fault);
     }
     Ok((offset, end))
-}
-
-#[derive(Debug)]
-struct HostAddrInfo {
-    addr: Box<[u8]>,
-    next: Option<HostHandle>,
 }
 
 const STDIN_ID: i32 = 0;
@@ -458,7 +450,6 @@ pub(crate) struct AsyncHost {
     filesystem: Arc<HostFs>,
     network: HostNetwork,
     errno: Cell<i32>,
-    addr_infos: RefCell<Handles<HostAddrInfo>>,
     buffers: Buffers,
     process_inputs: ProcessInputs,
     process: HostProcess,
@@ -494,7 +485,6 @@ impl AsyncHost {
             filesystem,
             network,
             errno: Cell::new(0),
-            addr_infos: RefCell::new(Handles::new(keys.clone(), HandleKind::AddrInfo)),
             buffers: Buffers::new(keys.clone()),
             process_inputs: ProcessInputs::new(environment, keys.clone()),
             process,
@@ -617,12 +607,7 @@ impl AsyncHost {
             let mut leaks = Vec::new();
 
             self.buffers.append_leaks(&mut leaks);
-            {
-                let addr_infos = self.addr_infos.borrow();
-                if !addr_infos.is_empty() {
-                    leaks.push(format!("addr_infos={}", addr_infos.len()));
-                }
-            }
+            self.network.append_leaks(&mut leaks);
             #[cfg(windows)]
             {
                 let io_results = self.io_results.borrow();
@@ -1024,22 +1009,13 @@ impl AsyncHost {
     }
 
     pub(crate) fn get_getaddrinfo_result(&self, handle: u64) -> AsyncHostResult<u64> {
-        let addrs = {
-            let key = key_from_handle(handle);
-            let jobs = self.jobs.borrow();
-            let job = jobs.visible_job(key)?;
-            let JobPayload::Network(job) = job.payload() else {
-                return Err(AsyncHostError::Badf);
-            };
-            self.network.getaddrinfo_result(job)?
+        let key = key_from_handle(handle);
+        let jobs = self.jobs.borrow();
+        let job = jobs.visible_job(key)?;
+        let JobPayload::Network(job) = job.payload() else {
+            return Err(AsyncHostError::Badf);
         };
-        let mut addr_infos = self.addr_infos.borrow_mut();
-        let mut next = None;
-        for addr in addrs.into_iter().rev() {
-            let key = addr_infos.insert(HostAddrInfo { addr, next });
-            next = Some(handle_from_key(key));
-        }
-        Ok(next.unwrap_or_else(null_handle))
+        self.network.publish_getaddrinfo_result(job)
     }
 
     pub(crate) fn get_spawn_job_result_handle(&self, handle: u64) -> AsyncHostResult<HostHandle> {
@@ -1081,38 +1057,6 @@ impl AsyncHost {
         let mut jobs = self.jobs.borrow_mut();
         let job = jobs.ready_job_mut(key)?;
         job.process_mut()?.set_no_console_window()
-    }
-
-    pub(crate) fn addrinfo_next(&self, handle: u64) -> AsyncHostResult<u64> {
-        if handle == null_handle() {
-            return Ok(null_handle());
-        }
-        let key = key_from_handle(handle);
-        let addr_infos = self.addr_infos.borrow();
-        let addrinfo = addr_infos.get(key).ok_or(AsyncHostError::Badf)?;
-        Ok(addrinfo.next.unwrap_or_else(null_handle))
-    }
-
-    pub(crate) fn addrinfo_addr(&self, handle: u64) -> AsyncHostResult<Box<[u8]>> {
-        let key = key_from_handle(handle);
-        let addr_infos = self.addr_infos.borrow();
-        let addrinfo = addr_infos.get(key).ok_or(AsyncHostError::Badf)?;
-        Ok(addrinfo.addr.clone())
-    }
-
-    pub(crate) fn free_addrinfo(&self, handle: u64) -> AsyncHostResult<()> {
-        if handle == null_handle() {
-            return Ok(());
-        }
-        let mut current = Some(handle);
-        while let Some(handle) = current {
-            let mut addr_infos = self.addr_infos.borrow_mut();
-            let addrinfo = addr_infos
-                .remove(key_from_handle(handle))
-                .ok_or(AsyncHostError::Badf)?;
-            current = addrinfo.next;
-        }
-        Ok(())
     }
 
     pub(crate) fn close_fd(&self, handle: HostHandle) -> AsyncHostResult<()> {
@@ -1751,7 +1695,7 @@ mod tests {
     use crate::filesystem::{FsOperation, FsPath};
     use crate::policy::{self, Policy};
     use crate::process::{Job as ProcessJob, SpawnOptions};
-    use crate::runtime::WorkingDirectory;
+    use crate::runtime::{WorkingDirectory, null_handle};
 
     #[repr(align(2))]
     struct AlignedBytes<const N: usize>([u8; N]);
@@ -1782,7 +1726,7 @@ mod tests {
             Arc::clone(&environment),
             Arc::clone(&working_directory),
         ));
-        let network = HostNetwork::new(policy.as_ref().map(Policy::network));
+        let network = HostNetwork::new(policy.as_ref().map(Policy::network), keys.clone());
         let stdio = Arc::new(Stdio::Ambient);
         let process = HostProcess::new(
             policy,
@@ -3273,7 +3217,7 @@ mod tests {
     }
 
     #[test]
-    fn address_info_handles_preserve_results_and_reject_other_families() {
+    fn getaddrinfo_publication_validates_the_job_and_outlives_it() {
         #[cfg(windows)]
         assert_eq!(crate::network::os::init_wsa(), 0);
 
@@ -3281,65 +3225,20 @@ mod tests {
         let job = host
             .make_getaddrinfo_job(OsString::from("127.0.0.1"))
             .unwrap();
+        assert_eq!(host.get_getaddrinfo_result(job), Err(AsyncHostError::Inval));
+        assert_eq!(
+            host.get_getaddrinfo_result(host.invalid_fd()),
+            Err(AsyncHostError::Badf)
+        );
+
         host.run_job(job).unwrap();
-        let expected = host
-            .with_job(job, |job| {
-                assert_eq!(job.err(), 0);
-                assert_eq!(job.ret(), 0);
-                let JobPayload::Network(job) = job.payload() else {
-                    panic!()
-                };
-                host.network.getaddrinfo_result(job).unwrap()
-            })
-            .unwrap();
-        assert!(!expected.is_empty());
         let head = host.get_getaddrinfo_result(job).unwrap();
-        let buffer = host
-            .buffers()
-            .publish(b"buffer".to_vec().into_boxed_slice());
-
-        assert_eq!(host.addrinfo_addr(buffer), Err(AsyncHostError::Badf));
-        assert_eq!(host.addrinfo_next(buffer), Err(AsyncHostError::Badf));
-        assert_eq!(host.free_addrinfo(buffer), Err(AsyncHostError::Badf));
-        assert_eq!(
-            host.buffers().with_buffer(head, |_| Ok(())),
-            Err(AsyncHostError::Badf)
-        );
-        assert_eq!(
-            host.buffers().with_buffer_mut(head, |_| Ok(())),
-            Err(AsyncHostError::Badf)
-        );
-        assert!(matches!(
-            host.buffers().lease(head),
-            Err(AsyncHostError::Badf)
-        ));
+        assert_ne!(head, null_handle());
         assert_eq!(host.buffers().free(head), Err(AsyncHostError::Badf));
-
-        let mut handles = Vec::new();
-        let mut current = head;
-        for addr in expected {
-            assert_eq!(host.addrinfo_addr(current).unwrap(), addr);
-            handles.push(current);
-            current = host.addrinfo_next(current).unwrap();
-        }
-        assert_eq!(current, null_handle());
-        host.free_addrinfo(head).unwrap();
-        let replacement = host
-            .buffers()
-            .publish(b"replacement".to_vec().into_boxed_slice());
-        for handle in handles {
-            assert_eq!(host.addrinfo_addr(handle), Err(AsyncHostError::Badf));
-            assert_eq!(host.free_addrinfo(handle), Err(AsyncHostError::Badf));
-        }
-        host.buffers()
-            .with_buffer(replacement, |bytes| {
-                assert_eq!(bytes, b"replacement");
-                Ok(())
-            })
-            .unwrap();
-        host.buffers().free(buffer).unwrap();
-        host.buffers().free(replacement).unwrap();
         host.free_job(job).unwrap();
+        assert!(!host.network().addrinfo_addr(head).unwrap().is_empty());
+        assert_eq!(host.get_getaddrinfo_result(job), Err(AsyncHostError::Badf));
+        host.network().free_addrinfo(head).unwrap();
         assert!(host.leak_summary().is_none());
 
         #[cfg(windows)]
@@ -3351,8 +3250,8 @@ mod tests {
         let host = default_host();
         let null = null_handle();
         host.buffers().free(null).unwrap();
-        host.free_addrinfo(null).unwrap();
-        assert_eq!(host.addrinfo_next(null), Ok(null));
+        host.network().free_addrinfo(null).unwrap();
+        assert_eq!(host.network().addrinfo_next(null), Ok(null));
         assert!(matches!(
             host.buffers().lease(null),
             Err(AsyncHostError::Badf)
@@ -3362,8 +3261,14 @@ mod tests {
 
         for handle in [0, host.invalid_fd()] {
             assert_eq!(host.buffers().free(handle), Err(AsyncHostError::Badf));
-            assert_eq!(host.free_addrinfo(handle), Err(AsyncHostError::Badf));
-            assert_eq!(host.addrinfo_next(handle), Err(AsyncHostError::Badf));
+            assert_eq!(
+                host.network().free_addrinfo(handle),
+                Err(AsyncHostError::Badf)
+            );
+            assert_eq!(
+                host.network().addrinfo_next(handle),
+                Err(AsyncHostError::Badf)
+            );
             assert_eq!(host.tls().free(handle), Err(AsyncHostError::Badf));
             #[cfg(windows)]
             assert_eq!(

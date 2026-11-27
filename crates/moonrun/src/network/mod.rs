@@ -18,6 +18,7 @@
 
 //! Wasm-backend-neutral network operations owned by one moonrun Runtime.
 
+mod dns;
 mod job;
 #[cfg(windows)]
 mod overlapped;
@@ -28,17 +29,18 @@ pub(crate) use os::overlapped::AcceptBuffer;
 pub(crate) mod os;
 
 use std::cell::RefCell;
-use std::ffi::{OsStr, OsString};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawSocket;
+use std::rc::Rc;
 
 use self::os::IpFamily;
 use self::os::address;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::policy::{NetOperation, NetPolicy, ResolvedConnectRule};
 use crate::resource::{Resource, ResourceClass, ResourceRef};
+use crate::runtime::{Handles, HostKeys, HostResourceKind};
 
 pub(crate) use job::Job;
 
@@ -48,17 +50,18 @@ pub(crate) use job::Job;
 /// lifecycle. This module concentrates network authorization and the
 /// policy-bearing socket operations that must not depend on a Wasm engine or
 /// its guest-memory representation.
-#[derive(Debug)]
 pub(crate) struct HostNetwork {
     policy: Option<NetPolicy>,
+    addr_infos: RefCell<Handles<dns::HostAddrInfo>>,
     // DNS results are Runtime provenance, not part of the cloneable policy.
     resolved_connect: RefCell<Vec<ResolvedConnectRule>>,
 }
 
 impl HostNetwork {
-    pub(crate) fn new(policy: Option<NetPolicy>) -> Self {
+    pub(crate) fn new(policy: Option<NetPolicy>, keys: Rc<RefCell<HostKeys>>) -> Self {
         Self {
             policy,
+            addr_infos: RefCell::new(Handles::new(keys, HostResourceKind::AddrInfo)),
             resolved_connect: RefCell::new(Vec::new()),
         }
     }
@@ -66,28 +69,6 @@ impl HostNetwork {
     pub(crate) fn make_bind_job(&self, socket: ResourceRef, addr: Vec<u8>) -> AsyncHostResult<Job> {
         self.check_bind(&addr)?;
         Ok(Job::bind(socket, addr))
-    }
-
-    pub(crate) fn make_getaddrinfo_job(&self, host: OsString) -> AsyncHostResult<Job> {
-        self.check_dns(&host)?;
-        Ok(Job::getaddrinfo(host))
-    }
-
-    pub(crate) fn getaddrinfo_result(&self, job: &Job) -> AsyncHostResult<Vec<Box<[u8]>>> {
-        let (host, addrs) = job.getaddrinfo_result()?;
-        if let Some(policy) = &self.policy {
-            self.resolved_connect
-                .borrow_mut()
-                .extend(policy.resolved_connect_rules(
-                    host,
-                    addrs.iter().map(|addr| {
-                        address::socket_addr(addr)
-                            .map(|addr| addr.ip())
-                            .map_err(Into::into)
-                    }),
-                )?);
-        }
-        Ok(addrs.to_vec())
     }
 
     fn check_bind(&self, addr: &[u8]) -> AsyncHostResult<()> {
@@ -108,12 +89,6 @@ impl HostNetwork {
                 &self.resolved_connect.borrow(),
             )
         })
-    }
-
-    fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
-        self.policy
-            .as_ref()
-            .map_or(Ok(()), |policy| policy.check_dns(host))
     }
 }
 
@@ -155,12 +130,13 @@ fn raw_socket_of_class(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::sync::Arc;
 
     use crate::policy::{self, Policy};
 
     fn network(policy: Option<Policy>) -> HostNetwork {
-        HostNetwork::new(policy.as_ref().map(Policy::network))
+        HostNetwork::new(policy.as_ref().map(Policy::network), Rc::default())
     }
 
     #[test]
@@ -275,40 +251,6 @@ mod tests {
                 .make_getaddrinfo_job(OsString::from("localhost"))
                 .unwrap_err(),
             AsyncHostError::PermissionDenied
-        );
-    }
-
-    #[test]
-    fn resolved_connect_authority_is_local_to_host_network() {
-        let dir = tempfile::tempdir().unwrap();
-        let policy_file = dir.path().join("network.toml");
-        std::fs::write(&policy_file, "[net]\nconnect = [\"api.example.com:443\"]\n").unwrap();
-        let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let policy = policy.network();
-        let first = HostNetwork::new(Some(policy.clone()));
-        let second = HostNetwork::new(Some(policy));
-        let mut resolved_addr = vec![0; address::ipv4_addr_size()];
-        address::init_ip_addr(&mut resolved_addr, 0x7f000001, 0).unwrap();
-        let mut connect_addr = vec![0; address::ipv4_addr_size()];
-        address::init_ip_addr(&mut connect_addr, 0x7f000001, 443).unwrap();
-
-        let rules = first
-            .policy
-            .as_ref()
-            .unwrap()
-            .resolved_connect_rules(
-                OsStr::new("api.example.com"),
-                [address::socket_addr(&resolved_addr)
-                    .map(|addr| addr.ip())
-                    .map_err(Into::into)],
-            )
-            .unwrap();
-        first.resolved_connect.borrow_mut().extend(rules);
-
-        first.check_connect(&connect_addr).unwrap();
-        assert_eq!(
-            second.check_connect(&connect_addr),
-            Err(AsyncHostError::PermissionDenied)
         );
     }
 }
