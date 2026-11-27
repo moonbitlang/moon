@@ -248,22 +248,25 @@ fn io_result_status_rejects_wrong_fd_without_clearing_pending() {
     let other_file = Arc::new(Resource::invalid());
     let pending_fd = pending_resource.raw_identity();
 
-    result.mark_pending(pending_resource).unwrap();
+    result.io.mark_pending(pending_resource).unwrap();
 
     assert_eq!(
-        result.validate_pending_resource(&other_file),
+        result.io.validate_pending_resource(&other_file),
         Err(AsyncHostError::Badf)
     );
-    assert_eq!(result.pending_resource_identity(), Some(pending_fd));
+    assert_eq!(result.io.pending_resource_identity(), Some(pending_fd));
 }
 
 #[test]
 fn io_result_creation_keeps_only_host_buffer_capacity() {
     let result = HostIoResult::for_file_read(3, 0).unwrap();
 
-    assert_eq!(result.buffer, vec![0; 3]);
+    let HostIoOperation::File(buffer) = &result.operation else {
+        panic!("expected file read");
+    };
+    assert_eq!(buffer, &vec![0; 3]);
     assert_eq!(result.event, IO_RESULT_READ_EVENT);
-    assert_eq!(result.pending_resource_identity(), None);
+    assert_eq!(result.io.pending_resource_identity(), None);
 }
 
 #[test]
@@ -304,8 +307,9 @@ fn pending_watcher_cancellation_keeps_the_buffer_lease() {
             .io_results
             .get_mut(key_from_handle(request))
             .unwrap();
-        result.overlapped.Internal = windows_sys::Win32::Foundation::STATUS_PENDING as usize;
+        result.io.overlapped.Internal = windows_sys::Win32::Foundation::STATUS_PENDING as usize;
         result
+            .io
             .mark_pending(host.acquire_resource(read).unwrap())
             .unwrap();
     }
@@ -321,6 +325,7 @@ fn pending_watcher_cancellation_keeps_the_buffer_lease() {
         .io_results
         .get_mut(key_from_handle(request))
         .unwrap()
+        .io
         .clear_pending();
     host.free_io_result(request).unwrap();
     assert_eq!(
@@ -412,7 +417,10 @@ fn read_dir_changes_rejects_a_generic_c_buffer() {
 #[test]
 fn io_result_read_copy_uses_current_guest_destination() {
     let mut result = HostIoResult::for_file_read(3, 0).unwrap();
-    result.buffer.copy_from_slice(b"abc");
+    let HostIoOperation::File(buffer) = &mut result.operation else {
+        panic!("expected file read");
+    };
+    buffer.copy_from_slice(b"abc");
     let mut memory = vec![0; 16];
 
     result
@@ -423,10 +431,49 @@ fn io_result_read_copy_uses_current_guest_destination() {
 }
 
 #[test]
+fn accept_result_preserves_empty_generic_read_copy() {
+    // Direct ABI callers can use the generic getter on an Accept result. It
+    // exposes no payload, but still validates the destination of an empty copy.
+    let host = default_host();
+    let result = host.make_accept_io_result(16).unwrap();
+    let mut memory = [7; 4];
+
+    assert_eq!(
+        host.io_result_copy_read(&mut memory[..], result, 4, 0, 0),
+        Ok(())
+    );
+    assert_eq!(
+        host.io_result_copy_read(&mut memory[..], result, 0, 0, 1),
+        Err(AsyncHostError::Fault)
+    );
+    assert_eq!(
+        host.io_result_copy_read(&mut memory[..], result, 5, 0, 0),
+        Err(AsyncHostError::Fault)
+    );
+    assert_eq!(
+        host.io_result_copy_read(&mut memory[..], result, u32::MAX, 1, 0),
+        Err(AsyncHostError::Fault)
+    );
+    assert_eq!(
+        host.io_result_copy_read_with_addr(&mut memory[..], result, 0, 0, 0, 0, 0),
+        Err(AsyncHostError::Inval)
+    );
+    assert_eq!(memory, [7; 4]);
+    host.free_io_result(result).unwrap();
+    assert_eq!(host.leak_summary(), None);
+}
+
+#[test]
 fn io_result_read_with_addr_copy_uses_current_guest_buffers() {
     let mut result = HostIoResult::for_socket_with_addr_read(3, 0, b"addr".to_vec()).unwrap();
-    result.buffer.copy_from_slice(b"abc");
-    result.addr_len = 4;
+    let HostIoOperation::SocketWithAddr {
+        buffer, addr_len, ..
+    } = &mut result.operation
+    else {
+        panic!("expected socket read with address");
+    };
+    buffer.copy_from_slice(b"abc");
+    *addr_len = 4;
     let mut memory = vec![0; 16];
 
     result
@@ -445,8 +492,16 @@ fn io_result_read_with_addr_copy_uses_current_guest_buffers() {
 fn io_result_socket_addr_creation_copies_guest_source() {
     let result = HostIoResult::for_socket_with_addr_read(3, 0, b"addr".to_vec()).unwrap();
 
-    assert_eq!(result.addr_buffer, b"addr");
-    assert_eq!(result.addr_len, 4);
+    let HostIoOperation::SocketWithAddr {
+        addr_buffer,
+        addr_len,
+        ..
+    } = &result.operation
+    else {
+        panic!("expected socket read with address");
+    };
+    assert_eq!(addr_buffer, b"addr");
+    assert_eq!(*addr_len, 4);
     assert_eq!(result.event, IO_RESULT_READ_EVENT);
 }
 
@@ -462,7 +517,10 @@ fn io_result_write_creation_copies_guest_source() {
 
     let io_results = host.io_results.borrow();
     let result = io_results.io_results.get(key_from_handle(result)).unwrap();
-    assert_eq!(result.buffer, b"abc");
+    let HostIoOperation::File(buffer) = &result.operation else {
+        panic!("expected file write");
+    };
+    assert_eq!(buffer, b"abc");
     assert_eq!(result.event, IO_RESULT_WRITE_EVENT);
 }
 
@@ -479,6 +537,7 @@ fn cancel_io_result_rejects_wrong_fd_without_clearing_pending() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap()
+            .io
             .mark_pending(read_file)
             .unwrap();
         raw_read
@@ -494,8 +553,8 @@ fn cancel_io_result_rejects_wrong_fd_without_clearing_pending() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap();
-        assert_eq!(result.pending_resource_identity(), Some(raw_read));
-        result.clear_pending();
+        assert_eq!(result.io.pending_resource_identity(), Some(raw_read));
+        result.io.clear_pending();
     }
 
     host.free_io_result(result).unwrap();
@@ -515,6 +574,7 @@ fn cancel_io_result_clears_pending_result_when_no_wait_is_needed() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap()
+            .io
             .mark_pending(read_file)
             .unwrap();
     }
@@ -523,7 +583,7 @@ fn cancel_io_result_clears_pending_result_when_no_wait_is_needed() {
     {
         let io_results = host.io_results.borrow();
         let result = io_results.io_results.get(key_from_handle(result)).unwrap();
-        assert_eq!(result.pending_resource_identity(), None);
+        assert_eq!(result.io.pending_resource_identity(), None);
     }
 
     host.free_io_result(result).unwrap();
@@ -544,8 +604,8 @@ fn cancel_io_result_keeps_pending_result_when_wait_is_needed() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap();
-        result.overlapped.Internal = windows_sys::Win32::Foundation::STATUS_PENDING as usize;
-        result.mark_pending(read_file).unwrap();
+        result.io.overlapped.Internal = windows_sys::Win32::Foundation::STATUS_PENDING as usize;
+        result.io.mark_pending(read_file).unwrap();
         raw_read
     };
 
@@ -558,8 +618,8 @@ fn cancel_io_result_keeps_pending_result_when_wait_is_needed() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap();
-        assert_eq!(result.pending_resource_identity(), Some(raw_read));
-        result.clear_pending();
+        assert_eq!(result.io.pending_resource_identity(), Some(raw_read));
+        result.io.clear_pending();
     }
 
     host.free_io_result(result).unwrap();
@@ -580,6 +640,7 @@ fn close_fd_rejects_pending_io_result() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap()
+            .io
             .mark_pending(read_file)
             .unwrap();
         raw_read
@@ -593,8 +654,8 @@ fn close_fd_rejects_pending_io_result() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap();
-        assert_eq!(result.pending_resource_identity(), Some(raw_read));
-        result.clear_pending();
+        assert_eq!(result.io.pending_resource_identity(), Some(raw_read));
+        result.io.clear_pending();
     }
 
     host.free_io_result(result).unwrap();
@@ -617,6 +678,7 @@ fn close_fd_rejects_extra_pending_close_guard() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap()
+            .io
             .mark_pending_with_close_guard(read_file, write_file)
             .unwrap();
         (raw_read, raw_write)
@@ -636,10 +698,15 @@ fn close_fd_rejects_extra_pending_close_guard() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap();
-        assert_eq!(result.pending_resource_identity(), Some(raw_read));
-        assert!(result.protects_pending_resource(&host.acquire_resource(write).unwrap()));
+        assert_eq!(result.io.pending_resource_identity(), Some(raw_read));
+        assert!(
+            result
+                .io
+                .protects_pending_resource(&host.acquire_resource(write).unwrap())
+        );
         assert_eq!(
             result
+                .io
                 .pending
                 .as_ref()
                 .unwrap()
@@ -648,7 +715,7 @@ fn close_fd_rejects_extra_pending_close_guard() {
                 .map(|file| file.raw_identity()),
             Some(raw_write)
         );
-        result.clear_pending();
+        result.io.clear_pending();
     }
 
     host.free_io_result(result).unwrap();
@@ -668,6 +735,7 @@ fn free_io_result_rejects_pending_result() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap()
+            .io
             .mark_pending(read_file)
             .unwrap();
     }
@@ -685,6 +753,7 @@ fn free_io_result_rejects_pending_result() {
         .io_results
         .get_mut(key_from_handle(result))
         .unwrap()
+        .io
         .clear_pending();
     host.free_io_result(result).unwrap();
     host.close_fd(read).unwrap();
@@ -703,8 +772,8 @@ fn completion_retires_the_pending_result() {
             .io_results
             .get_mut(key_from_handle(result))
             .unwrap();
-        result.mark_pending(read_file).unwrap();
-        result.overlapped_ptr()
+        result.io.mark_pending(read_file).unwrap();
+        result.io.overlapped_ptr()
     };
     let key = host.io_results.borrow_mut().complete(overlapped).unwrap();
     assert_eq!(host.io_results.borrow().event_result(key).unwrap(), result);
@@ -714,6 +783,7 @@ fn completion_retires_the_pending_result() {
             .io_results
             .get(key_from_handle(result))
             .unwrap()
+            .io
             .pending_resource_identity(),
         None
     );
@@ -766,6 +836,7 @@ fn reading_an_old_completion_does_not_complete_a_resubmitted_io_result() {
         .io_results
         .get(key_from_handle(result))
         .unwrap()
+        .io
         .is_pending();
 
     // Finish the real second read before asserting: even the broken host
@@ -1000,18 +1071,18 @@ fn watcher_iocp_completion_returns_the_buffer_and_handles_buffered_changes() {
         let file = host.acquire_resource(directory_handle).unwrap();
         let mut table = host.io_results.borrow_mut();
         let request = table.io_results.get_mut(key_from_handle(result)).unwrap();
-        request.request_cancel().unwrap();
+        request.io.request_cancel().unwrap();
         let mut bytes = 0;
         unsafe {
             windows_sys::Win32::System::IO::GetOverlappedResult(
                 raw_overlapped_handle(&file).unwrap(),
-                request.overlapped_ptr(),
+                request.io.overlapped_ptr(),
                 &mut bytes,
                 1,
             );
         }
-        assert!(request.native_completed());
-        request.clear_pending();
+        assert!(request.io.native_completed());
+        request.io.clear_pending();
     }
     host.free_io_result(result).unwrap();
     host.buffers().free_windows_watcher(buffer).unwrap();
