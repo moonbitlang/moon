@@ -264,7 +264,7 @@ fn io_result_creation_keeps_only_host_buffer_capacity() {
     let HostIoOperation::File(buffer) = &result.operation else {
         panic!("expected file read");
     };
-    assert_eq!(buffer, &vec![0; 3]);
+    assert_eq!(buffer.as_ref(), &[0; 3]);
     assert_eq!(result.event, IO_RESULT_READ_EVENT);
     assert_eq!(result.io.pending_resource_identity(), None);
 }
@@ -465,7 +465,8 @@ fn accept_result_preserves_empty_generic_read_copy() {
 
 #[test]
 fn io_result_read_with_addr_copy_uses_current_guest_buffers() {
-    let mut result = HostIoResult::for_socket_with_addr_read(3, 0, b"addr".to_vec()).unwrap();
+    let mut result =
+        HostIoResult::for_socket_with_addr_read(3, 0, b"addr".as_slice().into()).unwrap();
     let HostIoOperation::SocketWithAddr {
         buffer, addr_len, ..
     } = &mut result.operation
@@ -490,7 +491,7 @@ fn io_result_read_with_addr_copy_uses_current_guest_buffers() {
 
 #[test]
 fn io_result_socket_addr_creation_copies_guest_source() {
-    let result = HostIoResult::for_socket_with_addr_read(3, 0, b"addr".to_vec()).unwrap();
+    let result = HostIoResult::for_socket_with_addr_read(3, 0, b"addr".as_slice().into()).unwrap();
 
     let HostIoOperation::SocketWithAddr {
         addr_buffer,
@@ -500,7 +501,7 @@ fn io_result_socket_addr_creation_copies_guest_source() {
     else {
         panic!("expected socket read with address");
     };
-    assert_eq!(addr_buffer, b"addr");
+    assert_eq!(addr_buffer.as_ref(), b"addr");
     assert_eq!(*addr_len, 4);
     assert_eq!(result.event, IO_RESULT_READ_EVENT);
 }
@@ -520,7 +521,7 @@ fn io_result_write_creation_copies_guest_source() {
     let HostIoOperation::File(buffer) = &result.operation else {
         panic!("expected file write");
     };
-    assert_eq!(buffer, b"abc");
+    assert_eq!(buffer.as_ref(), b"abc");
     assert_eq!(result.event, IO_RESULT_WRITE_EVENT);
 }
 

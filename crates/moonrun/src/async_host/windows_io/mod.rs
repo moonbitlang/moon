@@ -170,19 +170,19 @@ const IO_RESULT_READ_EVENT: i32 = 1;
 const IO_RESULT_WRITE_EVENT: i32 = 2;
 
 enum HostIoOperation {
-    File(Vec<u8>),
+    File(Box<[u8]>),
     Socket {
-        buffer: Vec<u8>,
+        buffer: Box<[u8]>,
         flags: u32,
     },
     SocketWithAddr {
-        buffer: Vec<u8>,
+        buffer: Box<[u8]>,
         flags: u32,
-        addr_buffer: Vec<u8>,
+        addr_buffer: Box<[u8]>,
         // WSARecvFrom may write through lpFromlen after submission returns.
         addr_len: i32,
     },
-    Connect(Vec<u8>),
+    Connect(Box<[u8]>),
     Accept(AcceptBuffer),
     // The I/OResult can outlive the lease returned after completion or cancel.
     ReadDirChanges(Option<WindowsWatcherBufferLease>),
@@ -238,15 +238,16 @@ struct PendingIo {
 
 impl HostIoResult {
     fn for_file_read(len: u32, position: i64) -> AsyncHostResult<Self> {
-        let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
+        let buffer =
+            vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?].into_boxed_slice();
         Ok(Self::for_file(IO_RESULT_READ_EVENT, buffer, position))
     }
 
-    fn for_file_write(buffer: Vec<u8>, position: i64) -> Self {
+    fn for_file_write(buffer: Box<[u8]>, position: i64) -> Self {
         Self::for_file(IO_RESULT_WRITE_EVENT, buffer, position)
     }
 
-    fn for_file(event: i32, buffer: Vec<u8>, position: i64) -> Self {
+    fn for_file(event: i32, buffer: Box<[u8]>, position: i64) -> Self {
         let mut io = OverlappedIo::default();
         io.overlapped.Anonymous.Anonymous.Offset = position as u32;
         io.overlapped.Anonymous.Anonymous.OffsetHigh = (position >> 32) as u32;
@@ -258,15 +259,16 @@ impl HostIoResult {
     }
 
     fn for_socket_read(len: u32, flags: i32) -> AsyncHostResult<Self> {
-        let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
+        let buffer =
+            vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?].into_boxed_slice();
         Ok(Self::for_socket(IO_RESULT_READ_EVENT, buffer, flags))
     }
 
-    fn for_socket_write(buffer: Vec<u8>, flags: i32) -> Self {
+    fn for_socket_write(buffer: Box<[u8]>, flags: i32) -> Self {
         Self::for_socket(IO_RESULT_WRITE_EVENT, buffer, flags)
     }
 
-    fn for_socket(event: i32, buffer: Vec<u8>, flags: i32) -> Self {
+    fn for_socket(event: i32, buffer: Box<[u8]>, flags: i32) -> Self {
         Self {
             operation: HostIoOperation::Socket {
                 buffer,
@@ -280,25 +282,26 @@ impl HostIoResult {
     fn for_socket_with_addr_read(
         len: u32,
         flags: i32,
-        addr_buffer: Vec<u8>,
+        addr_buffer: Box<[u8]>,
     ) -> AsyncHostResult<Self> {
-        let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
+        let buffer =
+            vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?].into_boxed_slice();
         Self::for_socket_with_addr(IO_RESULT_READ_EVENT, buffer, flags, addr_buffer)
     }
 
     fn for_socket_with_addr_write(
-        buffer: Vec<u8>,
+        buffer: Box<[u8]>,
         flags: i32,
-        addr_buffer: Vec<u8>,
+        addr_buffer: Box<[u8]>,
     ) -> AsyncHostResult<Self> {
         Self::for_socket_with_addr(IO_RESULT_WRITE_EVENT, buffer, flags, addr_buffer)
     }
 
     fn for_socket_with_addr(
         event: i32,
-        buffer: Vec<u8>,
+        buffer: Box<[u8]>,
         flags: i32,
-        addr_buffer: Vec<u8>,
+        addr_buffer: Box<[u8]>,
     ) -> AsyncHostResult<Self> {
         let addr_len = i32::try_from(addr_buffer.len()).map_err(|_| AsyncHostError::Fault)?;
         Ok(Self {
@@ -313,7 +316,7 @@ impl HostIoResult {
         })
     }
 
-    fn for_connect(addr_buffer: Vec<u8>) -> Self {
+    fn for_connect(addr_buffer: Box<[u8]>) -> Self {
         Self {
             operation: HostIoOperation::Connect(addr_buffer),
             event: IO_RESULT_WRITE_EVENT,
@@ -577,9 +580,9 @@ impl AsyncHost {
         ptr: u32,
         offset: u32,
         len: u32,
-    ) -> AsyncHostResult<Vec<u8>> {
+    ) -> AsyncHostResult<Box<[u8]>> {
         let ptr = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-        Ok(memory.read_exact(ptr, len)?.to_vec())
+        Ok(memory.read_exact(ptr, len)?.into())
     }
 
     pub(crate) fn make_file_read_io_result(&self, len: u32, position: i64) -> AsyncHostResult<u64> {
@@ -622,7 +625,7 @@ impl AsyncHost {
         addr: u32,
         addr_len: u32,
     ) -> AsyncHostResult<u64> {
-        let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
+        let addr_buffer = memory.read_exact(addr, addr_len)?.into();
         self.insert_io_result(HostIoResult::for_socket_with_addr_read(
             len,
             flags,
@@ -642,7 +645,7 @@ impl AsyncHost {
         addr_len: u32,
     ) -> AsyncHostResult<u64> {
         let buffer = Self::read_guest_slice(memory, src, offset, len)?;
-        let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
+        let addr_buffer = memory.read_exact(addr, addr_len)?.into();
         self.insert_io_result(HostIoResult::for_socket_with_addr_write(
             buffer,
             flags,
@@ -656,7 +659,7 @@ impl AsyncHost {
         addr: u32,
         addr_len: u32,
     ) -> AsyncHostResult<u64> {
-        let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
+        let addr_buffer = memory.read_exact(addr, addr_len)?.into();
         self.insert_io_result(HostIoResult::for_connect(addr_buffer))
     }
 

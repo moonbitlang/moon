@@ -25,12 +25,10 @@ use windows_sys::Win32::System::IO::OVERLAPPED;
 use super::address::{sockaddr_family, sockaddr_len};
 use super::{INVALID_ADDRESS, INVALID_INPUT, RawSocket, last_wsa_error};
 
-/// Native AcceptEx storage, held at a stable address by its I/OResult owner.
-/// The address padding and output scalar must live as long as the operation.
+/// Padded local and remote address storage for AcceptEx.
 pub(crate) struct AcceptBuffer {
-    buffer: Vec<u8>,
+    buffer: Box<[u8]>,
     addr_len: usize,
-    bytes_received: u32,
 }
 
 impl AcceptBuffer {
@@ -44,9 +42,8 @@ impl AcceptBuffer {
             .and_then(|len| len.checked_mul(2))
             .ok_or_else(|| io::Error::from_raw_os_error(INVALID_ADDRESS))?;
         Ok(Self {
-            buffer: vec![0; buffer_len],
+            buffer: vec![0; buffer_len].into_boxed_slice(),
             addr_len,
-            bytes_received: 0,
         })
     }
 
@@ -217,9 +214,8 @@ pub(in crate::network) unsafe fn connect(
 }
 
 /// # Safety
-/// Both sockets, the AcceptBuffer (including its output scalar) and OVERLAPPED
-/// must remain valid at stable addresses until completion. The buffer must not
-/// be accessed while pending.
+/// Retain both sockets until completion. Keep the address storage and OVERLAPPED
+/// at stable addresses until completion; do not access the storage while pending.
 pub(in crate::network) unsafe fn accept(
     server: RawSocket,
     connection: RawSocket,
@@ -229,6 +225,9 @@ pub(in crate::network) unsafe fn accept(
     let accept_ex = get_wsa_extension::<ws::LPFN_ACCEPTEX>(server, &ws::WSAID_ACCEPTEX)?
         .ok_or_else(|| io::Error::from_raw_os_error(INVALID_INPUT))?;
     let addr_len = (buffer.addr_len + 16) as u32;
+    // AcceptEx only writes this on synchronous completion. Pending requests
+    // report their byte count through the completion notification instead.
+    let mut bytes_received = 0;
     if unsafe {
         accept_ex(
             server as usize,
@@ -237,7 +236,7 @@ pub(in crate::network) unsafe fn accept(
             0,
             addr_len,
             addr_len,
-            &mut buffer.bytes_received,
+            &mut bytes_received,
             overlapped,
         )
     } != 0
