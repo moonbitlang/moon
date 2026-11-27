@@ -27,26 +27,26 @@ use crate::resource::{Resource, ResourceClass};
 
 impl HostNetwork {
     /// # Safety
-    /// Retain the socket, buffer, flags and OVERLAPPED until completion, without
+    /// Retain the socket, buffer and OVERLAPPED until completion, without
     /// moving native output storage or accessing it while pending.
     pub(crate) unsafe fn recv_overlapped(
         &self,
         socket: &Resource,
         buffer: &mut [u8],
-        flags: *mut u32,
+        flags: &mut u32,
         overlapped: *mut OVERLAPPED,
     ) -> AsyncHostResult<usize> {
         Ok(unsafe { sys::recv(raw_socket(socket)?, buffer, flags, overlapped)? })
     }
 
     /// # Safety
-    /// Retain the socket, buffers, flags, address length and OVERLAPPED until
+    /// Retain the socket, buffers, address length and OVERLAPPED until
     /// completion, without moving native output storage or accessing it while pending.
     pub(crate) unsafe fn recv_from_overlapped(
         &self,
         socket: &Resource,
         buffer: &mut [u8],
-        flags: *mut u32,
+        flags: &mut u32,
         addr: &mut [u8],
         addr_len: *mut i32,
         overlapped: *mut OVERLAPPED,

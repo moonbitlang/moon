@@ -22,6 +22,8 @@ use std::io;
 use windows_sys::Win32::Networking::WinSock as ws;
 use windows_sys::Win32::System::IO::OVERLAPPED;
 
+use crate::async_sys::ported_fns;
+
 use super::address::{sockaddr_family, sockaddr_len};
 use super::{INVALID_ADDRESS, INVALID_INPUT, RawSocket, last_wsa_error};
 
@@ -53,235 +55,273 @@ impl AcceptBuffer {
     }
 }
 
-/// # Safety
-/// The socket, buffer, flags and OVERLAPPED must remain valid until completion.
-/// Writable output must not be accessed while the operation is pending.
-pub(in crate::network) unsafe fn recv(
-    socket: RawSocket,
-    buffer: &mut [u8],
-    flags: *mut u32,
-    overlapped: *mut OVERLAPPED,
-) -> io::Result<usize> {
-    let buffer = socket_buffer(buffer.as_mut_ptr(), buffer.len())?;
-    let mut bytes = 0;
-    if unsafe {
-        ws::WSARecv(
-            socket as usize,
-            &buffer,
-            1,
-            &mut bytes,
-            flags,
-            overlapped,
-            None,
-        )
-    } == 0
-    {
-        Ok(bytes as usize)
-    } else {
-        Err(last_wsa_error())
+ported_fns! {
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_read"
+    )]
+    /// Flags are read and updated only during this call, not on deferred completion.
+    ///
+    /// # Safety
+    /// The socket, buffer and OVERLAPPED must remain valid until completion.
+    /// Writable output must not be accessed while the operation is pending.
+    pub(in crate::network) unsafe fn recv(
+        socket: RawSocket,
+        buffer: &mut [u8],
+        flags: &mut u32,
+        overlapped: *mut OVERLAPPED,
+    ) -> io::Result<usize> {
+        let buffer = socket_buffer(buffer.as_mut_ptr(), buffer.len())?;
+        let mut bytes = 0;
+        if unsafe {
+            ws::WSARecv(
+                socket as usize,
+                &buffer,
+                1,
+                &mut bytes,
+                flags,
+                overlapped,
+                None,
+            )
+        } == 0
+        {
+            Ok(bytes as usize)
+        } else {
+            Err(last_wsa_error())
+        }
     }
-}
 
-/// # Safety
-/// The socket, buffers, flags, address length and OVERLAPPED must remain valid
-/// until completion. Writable output must not be accessed while pending.
-pub(in crate::network) unsafe fn recv_from(
-    socket: RawSocket,
-    buffer: &mut [u8],
-    flags: *mut u32,
-    addr: &mut [u8],
-    addr_len: *mut i32,
-    overlapped: *mut OVERLAPPED,
-) -> io::Result<usize> {
-    let buffer = socket_buffer(buffer.as_mut_ptr(), buffer.len())?;
-    // Winsock can write the length after this function returns; use the owner's
-    // stable output scalar rather than a local variable.
-    unsafe {
-        *addr_len =
-            i32::try_from(addr.len()).map_err(|_| io::Error::from_raw_os_error(INVALID_ADDRESS))?
-    };
-    let mut bytes = 0;
-    if unsafe {
-        ws::WSARecvFrom(
-            socket as usize,
-            &buffer,
-            1,
-            &mut bytes,
-            flags,
-            addr.as_mut_ptr().cast(),
-            addr_len,
-            overlapped,
-            None,
-        )
-    } == 0
-    {
-        Ok(bytes as usize)
-    } else {
-        Err(last_wsa_error())
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_read"
+    )]
+    /// Flags are read and updated only during this call, not on deferred completion.
+    ///
+    /// # Safety
+    /// The socket, buffers, address length and OVERLAPPED must remain valid
+    /// until completion. Writable output must not be accessed while pending.
+    pub(in crate::network) unsafe fn recv_from(
+        socket: RawSocket,
+        buffer: &mut [u8],
+        flags: &mut u32,
+        addr: &mut [u8],
+        addr_len: *mut i32,
+        overlapped: *mut OVERLAPPED,
+    ) -> io::Result<usize> {
+        let buffer = socket_buffer(buffer.as_mut_ptr(), buffer.len())?;
+        // Winsock can write the length after this function returns; use the owner's
+        // stable output scalar rather than a local variable.
+        unsafe {
+            *addr_len =
+                i32::try_from(addr.len()).map_err(|_| io::Error::from_raw_os_error(INVALID_ADDRESS))?
+        };
+        let mut bytes = 0;
+        if unsafe {
+            ws::WSARecvFrom(
+                socket as usize,
+                &buffer,
+                1,
+                &mut bytes,
+                flags,
+                addr.as_mut_ptr().cast(),
+                addr_len,
+                overlapped,
+                None,
+            )
+        } == 0
+        {
+            Ok(bytes as usize)
+        } else {
+            Err(last_wsa_error())
+        }
     }
-}
 
-/// # Safety
-/// The socket, buffer and OVERLAPPED must remain valid until completion.
-/// The buffer must not be modified while the operation is pending.
-pub(in crate::network) unsafe fn send(
-    socket: RawSocket,
-    buffer: &[u8],
-    flags: u32,
-    overlapped: *mut OVERLAPPED,
-) -> io::Result<usize> {
-    let buffer = socket_buffer(buffer.as_ptr().cast_mut(), buffer.len())?;
-    let mut bytes = 0;
-    if unsafe {
-        ws::WSASend(
-            socket as usize,
-            &buffer,
-            1,
-            &mut bytes,
-            flags,
-            overlapped,
-            None,
-        )
-    } == 0
-    {
-        Ok(bytes as usize)
-    } else {
-        Err(last_wsa_error())
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_write"
+    )]
+    /// # Safety
+    /// The socket, buffer and OVERLAPPED must remain valid until completion.
+    /// The buffer must not be modified while the operation is pending.
+    pub(in crate::network) unsafe fn send(
+        socket: RawSocket,
+        buffer: &[u8],
+        flags: u32,
+        overlapped: *mut OVERLAPPED,
+    ) -> io::Result<usize> {
+        let buffer = socket_buffer(buffer.as_ptr().cast_mut(), buffer.len())?;
+        let mut bytes = 0;
+        if unsafe {
+            ws::WSASend(
+                socket as usize,
+                &buffer,
+                1,
+                &mut bytes,
+                flags,
+                overlapped,
+                None,
+            )
+        } == 0
+        {
+            Ok(bytes as usize)
+        } else {
+            Err(last_wsa_error())
+        }
     }
-}
 
-/// # Safety
-/// The socket, buffers and OVERLAPPED must remain valid until completion.
-/// Input buffers must not be modified while the operation is pending.
-pub(in crate::network) unsafe fn send_to(
-    socket: RawSocket,
-    buffer: &[u8],
-    flags: u32,
-    addr: &[u8],
-    overlapped: *mut OVERLAPPED,
-) -> io::Result<usize> {
-    let buffer = socket_buffer(buffer.as_ptr().cast_mut(), buffer.len())?;
-    let addr_len =
-        i32::try_from(addr.len()).map_err(|_| io::Error::from_raw_os_error(INVALID_ADDRESS))?;
-    let mut bytes = 0;
-    if unsafe {
-        ws::WSASendTo(
-            socket as usize,
-            &buffer,
-            1,
-            &mut bytes,
-            flags,
-            addr.as_ptr().cast(),
-            addr_len,
-            overlapped,
-            None,
-        )
-    } == 0
-    {
-        Ok(bytes as usize)
-    } else {
-        Err(last_wsa_error())
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_write"
+    )]
+    /// # Safety
+    /// The socket, buffers and OVERLAPPED must remain valid until completion.
+    /// Input buffers must not be modified while the operation is pending.
+    pub(in crate::network) unsafe fn send_to(
+        socket: RawSocket,
+        buffer: &[u8],
+        flags: u32,
+        addr: &[u8],
+        overlapped: *mut OVERLAPPED,
+    ) -> io::Result<usize> {
+        let buffer = socket_buffer(buffer.as_ptr().cast_mut(), buffer.len())?;
+        let addr_len =
+            i32::try_from(addr.len()).map_err(|_| io::Error::from_raw_os_error(INVALID_ADDRESS))?;
+        let mut bytes = 0;
+        if unsafe {
+            ws::WSASendTo(
+                socket as usize,
+                &buffer,
+                1,
+                &mut bytes,
+                flags,
+                addr.as_ptr().cast(),
+                addr_len,
+                overlapped,
+                None,
+            )
+        } == 0
+        {
+            Ok(bytes as usize)
+        } else {
+            Err(last_wsa_error())
+        }
     }
-}
 
-/// # Safety
-/// The socket, address and OVERLAPPED must remain valid until completion.
-pub(in crate::network) unsafe fn connect(
-    socket: RawSocket,
-    addr: &[u8],
-    overlapped: *mut OVERLAPPED,
-) -> io::Result<()> {
-    bind_any_for_connect(socket, addr)?;
-    let connect_ex = get_wsa_extension::<ws::LPFN_CONNECTEX>(socket, &ws::WSAID_CONNECTEX)?
-        .ok_or_else(|| io::Error::from_raw_os_error(INVALID_INPUT))?;
-    let addr_len = sockaddr_len(addr)?;
-    if unsafe {
-        connect_ex(
-            socket as usize,
-            addr.as_ptr().cast(),
-            addr_len,
-            std::ptr::null(),
-            0,
-            std::ptr::null_mut(),
-            overlapped,
-        )
-    } != 0
-    {
-        Ok(())
-    } else {
-        Err(last_wsa_error())
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = ["moonbitlang_async_connect", "get_WSA_extension"]
+    )]
+    /// # Safety
+    /// The socket, address and OVERLAPPED must remain valid until completion.
+    pub(in crate::network) unsafe fn connect(
+        socket: RawSocket,
+        addr: &[u8],
+        overlapped: *mut OVERLAPPED,
+    ) -> io::Result<()> {
+        bind_any_for_connect(socket, addr)?;
+        let connect_ex = get_wsa_extension::<ws::LPFN_CONNECTEX>(socket, &ws::WSAID_CONNECTEX)?
+            .ok_or_else(|| io::Error::from_raw_os_error(INVALID_INPUT))?;
+        let addr_len = sockaddr_len(addr)?;
+        if unsafe {
+            connect_ex(
+                socket as usize,
+                addr.as_ptr().cast(),
+                addr_len,
+                std::ptr::null(),
+                0,
+                std::ptr::null_mut(),
+                overlapped,
+            )
+        } != 0
+        {
+            Ok(())
+        } else {
+            Err(last_wsa_error())
+        }
     }
-}
 
-/// # Safety
-/// Retain both sockets until completion. Keep the address storage and OVERLAPPED
-/// at stable addresses until completion; do not access the storage while pending.
-pub(in crate::network) unsafe fn accept(
-    server: RawSocket,
-    connection: RawSocket,
-    buffer: &mut AcceptBuffer,
-    overlapped: *mut OVERLAPPED,
-) -> io::Result<()> {
-    let accept_ex = get_wsa_extension::<ws::LPFN_ACCEPTEX>(server, &ws::WSAID_ACCEPTEX)?
-        .ok_or_else(|| io::Error::from_raw_os_error(INVALID_INPUT))?;
-    let addr_len = (buffer.addr_len + 16) as u32;
-    // AcceptEx only writes this on synchronous completion. Pending requests
-    // report their byte count through the completion notification instead.
-    let mut bytes_received = 0;
-    if unsafe {
-        accept_ex(
-            server as usize,
-            connection as usize,
-            buffer.buffer.as_mut_ptr().cast(),
-            0,
-            addr_len,
-            addr_len,
-            &mut bytes_received,
-            overlapped,
-        )
-    } != 0
-    {
-        Ok(())
-    } else {
-        Err(last_wsa_error())
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = ["moonbitlang_async_accept", "get_WSA_extension"]
+    )]
+    /// # Safety
+    /// Retain both sockets until completion. Keep the address storage and OVERLAPPED
+    /// at stable addresses until completion; do not access the storage while pending.
+    pub(in crate::network) unsafe fn accept(
+        server: RawSocket,
+        connection: RawSocket,
+        buffer: &mut AcceptBuffer,
+        overlapped: *mut OVERLAPPED,
+    ) -> io::Result<()> {
+        let accept_ex = get_wsa_extension::<ws::LPFN_ACCEPTEX>(server, &ws::WSAID_ACCEPTEX)?
+            .ok_or_else(|| io::Error::from_raw_os_error(INVALID_INPUT))?;
+        let addr_len = (buffer.addr_len + 16) as u32;
+        // AcceptEx only writes this on synchronous completion. Pending requests
+        // report their byte count through the completion notification instead.
+        let mut bytes_received = 0;
+        if unsafe {
+            accept_ex(
+                server as usize,
+                connection as usize,
+                buffer.buffer.as_mut_ptr().cast(),
+                0,
+                addr_len,
+                addr_len,
+                &mut bytes_received,
+                overlapped,
+            )
+        } != 0
+        {
+            Ok(())
+        } else {
+            Err(last_wsa_error())
+        }
     }
-}
 
-pub(in crate::network) fn setup_connected_socket(socket: RawSocket) -> io::Result<()> {
-    if unsafe {
-        ws::setsockopt(
-            socket as usize,
-            ws::SOL_SOCKET,
-            ws::SO_UPDATE_CONNECT_CONTEXT,
-            std::ptr::null(),
-            0,
-        )
-    } == ws::SOCKET_ERROR
-    {
-        Err(last_wsa_error())
-    } else {
-        Ok(())
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_setup_connected_socket"
+    )]
+    pub(in crate::network) fn setup_connected_socket(socket: RawSocket) -> io::Result<()> {
+        if unsafe {
+            ws::setsockopt(
+                socket as usize,
+                ws::SOL_SOCKET,
+                ws::SO_UPDATE_CONNECT_CONTEXT,
+                std::ptr::null(),
+                0,
+            )
+        } == ws::SOCKET_ERROR
+        {
+            Err(last_wsa_error())
+        } else {
+            Ok(())
+        }
     }
-}
 
-pub(in crate::network) fn setup_accepted_socket(
-    listen: RawSocket,
-    accept: RawSocket,
-) -> io::Result<()> {
-    let listen = listen as usize;
-    if unsafe {
-        ws::setsockopt(
-            accept as usize,
-            ws::SOL_SOCKET,
-            ws::SO_UPDATE_ACCEPT_CONTEXT,
-            (&listen as *const usize).cast(),
-            std::mem::size_of_val(&listen) as i32,
-        )
-    } == ws::SOCKET_ERROR
-    {
-        Err(last_wsa_error())
-    } else {
-        Ok(())
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_setup_accepted_socket"
+    )]
+    pub(in crate::network) fn setup_accepted_socket(
+        listen: RawSocket,
+        accept: RawSocket,
+    ) -> io::Result<()> {
+        let listen = listen as usize;
+        if unsafe {
+            ws::setsockopt(
+                accept as usize,
+                ws::SOL_SOCKET,
+                ws::SO_UPDATE_ACCEPT_CONTEXT,
+                (&listen as *const usize).cast(),
+                std::mem::size_of_val(&listen) as i32,
+            )
+        } == ws::SOCKET_ERROR
+        {
+            Err(last_wsa_error())
+        } else {
+            Ok(())
+        }
     }
 }
 

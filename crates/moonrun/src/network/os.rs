@@ -27,6 +27,8 @@ pub(crate) mod interface;
 #[cfg(windows)]
 pub(super) mod overlapped;
 pub(super) mod socket;
+#[cfg(all(test, windows))]
+pub(crate) use overlapped::PORTED_SYMBOLS as OVERLAPPED_PORTED_SYMBOLS;
 #[cfg(test)]
 pub(crate) use socket::PORTED_SYMBOLS as SOCKET_PORTED_SYMBOLS;
 

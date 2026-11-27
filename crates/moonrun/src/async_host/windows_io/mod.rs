@@ -880,14 +880,15 @@ impl AsyncHost {
         result.io.prepare_submission(port)?;
         let overlapped = result.io.overlapped_ptr();
         // The domain borrows storage; this table owns it and the Resource until
-        // completion. In particular, flags and address length are not locals.
+        // completion. The address length can be written after submission; flags
+        // are only borrowed for the call.
         let outcome = match &mut result.operation {
             HostIoOperation::File(buffer) => unsafe {
                 self.filesystem.read_overlapped(file, buffer, overlapped)
             },
             HostIoOperation::Socket { buffer, flags } => unsafe {
                 self.network
-                    .recv_overlapped(file, buffer, std::ptr::from_mut(flags), overlapped)
+                    .recv_overlapped(file, buffer, flags, overlapped)
             },
             HostIoOperation::SocketWithAddr {
                 buffer,
@@ -898,7 +899,7 @@ impl AsyncHost {
                 self.network.recv_from_overlapped(
                     file,
                     buffer,
-                    std::ptr::from_mut(flags),
+                    flags,
                     addr_buffer,
                     std::ptr::from_mut(addr_len),
                     overlapped,
