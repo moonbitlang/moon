@@ -1,0 +1,6 @@
+import {
+  "moonbitlang/core/env",
+  "moonbitlang/async/process",
+}
+
+pkgtype(kind: "executable")

@@ -181,10 +181,21 @@ impl Policy {
         Ok(serde_json::to_vec(&transfer)?)
     }
 
+    #[cfg(test)]
     pub(crate) fn open_transfer(
         &self,
     ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
-        let mut file = tempfile::tempfile()?;
+        self.open_transfer_in(None)
+    }
+
+    pub(crate) fn open_transfer_in(
+        &self,
+        session_tmp: Option<&std::path::Path>,
+    ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
+        let mut file = match session_tmp {
+            Some(dir) => tempfile::tempfile_in(dir)?,
+            None => tempfile::tempfile()?,
+        };
         file.write_all(&self.to_transfer()?)?;
         file.flush()?;
         file.rewind()?;

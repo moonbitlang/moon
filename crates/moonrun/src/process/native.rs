@@ -23,12 +23,12 @@ use super::os::Executable;
 use super::{SpawnOptions, os};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
-use crate::policy::Policy;
 #[cfg(any(windows, target_os = "linux"))]
 use crate::resource::Resource;
 use crate::resource::{ResourcePublication, ResourceRef};
 #[cfg(unix)]
 use crate::thread_pool::with_cancellable_region;
+use moonutil::policy_transport::PolicyTransfer;
 use std::ffi::{OsStr, OsString};
 #[cfg(target_os = "linux")]
 use std::os::fd::IntoRawFd;
@@ -48,15 +48,9 @@ ported_fns! {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy_inheritance: Option<Policy>,
+        transfer: Option<PolicyTransfer>,
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
-        // Transfer creation belongs to worker execution: its temporary-storage
-        // errors must be reported before creating an OS child.
-        let transfer = policy_inheritance
-            .map(|policy| policy.open_transfer())
-            .transpose()
-            .map_err(policy_transfer_error)?;
         let transfer_fd = transfer.as_ref().map(|file| {
             // SAFETY: PolicyTransfer owns this open fd and stays alive
             // through spawn. Its public interface exposes only AsRawFd.
@@ -107,13 +101,9 @@ ported_fns! {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy_inheritance: Option<Policy>,
+        transfer: Option<PolicyTransfer>,
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
-        let transfer = policy_inheritance
-            .map(|policy| policy.open_transfer())
-            .transpose()
-            .map_err(policy_transfer_error)?;
         let inherited = transfer
             .as_ref()
             .map(|file| os::duplicate_inheritable_handle(file.as_raw_handle()))
@@ -223,7 +213,7 @@ pub(super) fn cancel_wait_for_process(cancel: &ResourceRef) -> AsyncHostResult<(
     os::cancel_wait_for_process(cancel.as_handle()?.as_raw_handle()).map_err(Into::into)
 }
 
-fn policy_transfer_error(error: std::io::Error) -> AsyncHostError {
+pub(super) fn policy_transfer_error(error: std::io::Error) -> AsyncHostError {
     error
         .raw_os_error()
         .map_or(AsyncHostError::Io, AsyncHostError::Native)

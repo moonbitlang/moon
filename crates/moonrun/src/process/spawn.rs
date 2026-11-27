@@ -63,6 +63,7 @@ pub(super) struct NativeSpawn {
     pub(super) _stdio_owner: Arc<Stdio>,
     pub(super) executable: Executable,
     pub(super) policy_inheritance: Option<crate::policy::Policy>,
+    pub(super) session_tmp: Option<Arc<Path>>,
 }
 
 pub(super) enum PreparedSpawn {
@@ -166,6 +167,7 @@ impl HostProcess {
                 request,
                 _stdio_owner: Arc::clone(&self.stdio),
                 executable,
+                session_tmp: self.session_tmp.clone(),
                 policy_inheritance: if inherits_policy {
                     self.policy_inheritance.clone()
                 } else {
@@ -297,6 +299,7 @@ impl HostProcess {
             request,
             _stdio_owner: Arc::clone(&self.stdio),
             executable,
+            session_tmp: self.session_tmp.clone(),
             policy_inheritance: if inherits_policy {
                 self.policy_inheritance.clone()
             } else {

@@ -177,6 +177,15 @@ impl RunOptions {
             .unwrap_or_else(|| self.runtime.selected_policy.as_ref().is_some_and(|p| p.ipc))
     }
 
+    /// Use this host directory for temporary policy files when spawning moonrun or moonx.
+    /// The caller creates the directory and keeps it available for the Run.
+    /// Relative paths resolve against the host working directory at Run startup.
+    /// Without this option, policy files use the host process's temporary directory.
+    pub fn with_session_tmp(mut self, session_tmp: impl AsRef<Path>) -> Self {
+        self.runtime.session_tmp = Some(session_tmp.as_ref().to_owned());
+        self
+    }
+
     /// Supply an owned environment. An empty iterator means an empty environment.
     /// Policy environment provisioning, when present, takes precedence.
     /// Guest changes affect only this execution's environment.

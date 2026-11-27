@@ -121,6 +121,7 @@ pub(crate) struct Runtime {
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeConfig {
     pub(crate) ipc_engine: Option<crate::Engine>,
+    pub(crate) session_tmp: Option<std::path::PathBuf>,
     pub(crate) selected_policy: Option<policy::LoadedPolicy>,
     pub(crate) inherited_policy: Option<policy::InheritedPolicyInput>,
     pub(crate) working_directory: WorkingDirectory,
@@ -216,6 +217,7 @@ impl Runtime {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(network_policy);
+        let session_tmp = config.session_tmp.map(std::path::absolute).transpose()?;
         let ipc_server = config
             .ipc_engine
             .take()
@@ -223,6 +225,7 @@ impl Runtime {
                 crate::ipc::server::IpcServer::start(
                     engine,
                     policy.clone(),
+                    session_tmp.clone(),
                     #[cfg(unix)]
                     child_signal_mask,
                 )
@@ -234,9 +237,9 @@ impl Runtime {
             Arc::clone(&stdio),
             config.process_context,
             Arc::clone(&environment),
-        );
-        let process =
-            process.with_ipc_endpoint(ipc_server.as_ref().map(|server| server.endpoint()));
+        )
+        .with_session_tmp(session_tmp)
+        .with_ipc_endpoint(ipc_server.as_ref().map(|server| server.endpoint()));
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
             &stdio,

@@ -50,6 +50,7 @@ impl IpcServer {
     pub(crate) fn start(
         engine: Engine,
         policy: Option<Policy>,
+        session_tmp: Option<std::path::PathBuf>,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
         let (mut listener, wake, endpoint) = Listener::bind()?;
@@ -87,11 +88,13 @@ impl IpcServer {
                         let state = &state;
                         let engine = &engine;
                         let policy = policy.clone();
+                        let session_tmp = session_tmp.clone();
                         let worker = std::thread::Builder::new()
                             .name("moonrun-ipc-run".into())
                             .stack_size(thread_stack)
                             .spawn_scoped(scope, move || {
                                 let mut options = RunOptions::default().with_ipc(true);
+                                options.runtime.session_tmp = session_tmp;
                                 if let Some(policy) = policy {
                                     options = options.with_parent_policy(policy);
                                 }
@@ -189,6 +192,7 @@ mod tests {
         for execution_started in [false, true] {
             let server = IpcServer::start(
                 Engine::default(),
+                None,
                 None,
                 crate::runtime::current_signal_mask().unwrap(),
             )
