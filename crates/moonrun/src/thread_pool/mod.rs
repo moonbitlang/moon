@@ -23,6 +23,8 @@ mod completion;
 mod jobs;
 mod registry;
 mod runner;
+#[cfg(unix)]
+mod signal_mask;
 mod sleep;
 mod types;
 mod worker;
@@ -39,6 +41,8 @@ pub(crate) use jobs::{errno_is_cancelled, get_platform};
 pub(crate) use jobs::{job_get_err, job_get_ret};
 pub(crate) use registry::InstanceWorkers;
 pub(crate) use runner::run_host_job;
+#[cfg(unix)]
+pub(crate) use signal_mask::SignalMask;
 pub(crate) use types::{CancellationOutcome, HostHandle, Job, JobPayload};
 pub(crate) use types::{JobCancellation, JobCancellationOverride};
 pub(crate) use worker::{CompletedJob, WorkerCompletionDestination, WorkerCompletionId, WorkerJob};

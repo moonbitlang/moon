@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::AsyncHostError;
-use crate::async_sys::signal;
 use crate::guest_memory::GuestMemory;
 
 use super::context::ImportContext;
@@ -40,7 +39,14 @@ pub(super) fn get_signal_by_index(
     _context: &mut ImportContext<'_>,
     index: u32,
 ) -> i32 {
-    signal::get_signal_by_index(index)
+    #[cfg(unix)]
+    let signals = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, -1];
+    #[cfg(windows)]
+    let signals = {
+        use windows_sys::Win32::System::Console::{CTRL_C_EVENT, CTRL_CLOSE_EVENT, CTRL_BREAK_EVENT};
+        [CTRL_C_EVENT as i32, -1, CTRL_CLOSE_EVENT as i32, CTRL_BREAK_EVENT as i32]
+    };
+    signals.get(index as usize).copied().unwrap_or(-1)
 }
 
 #[ported(runtime = "signal.c")]

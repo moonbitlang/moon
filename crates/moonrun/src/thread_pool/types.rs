@@ -17,11 +17,11 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-#[cfg(unix)]
-use crate::async_sys::signal::SigwaitJob;
 use crate::filesystem::Job as FilesystemJob;
 use crate::network::Job as NetworkJob;
 use crate::process::Job as ProcessJob;
+#[cfg(unix)]
+use crate::run_signal::SigwaitJob;
 use crate::sqlite::Job as SqliteJob;
 use std::sync::Arc;
 

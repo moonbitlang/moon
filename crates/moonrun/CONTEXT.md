@@ -383,9 +383,9 @@ _Avoid_: Wasm Adapter, Host state, native-stub implementation
 
 **Async Host**:
 Moonrun-owned async state for one `moonbitlang/async` host instance: Resources, host workers, completion queues, Jobs, and opaque host poll instances. It uses the Runtime's shared Host Key namespace and materializes its reserved standard-stream Resources from the Runtime Stdio. It owns the common Job lifecycle for Filesystem, Network, Process, Run Signal, and SQLite payloads; domain semantics remain with their Host Domains.
-It owns one Run Signal receiver, translates guest cancellation registration
-into that receiver's interest, starts and stops delivery to the Run's Completion
-target, and retains the Unix virtual signal-wait Job for older guests.
+It owns one Run Signal receiver and connects it to the registered Completion
+target. The receiver owns signal selection and delivery state; compatibility
+signal-wait Jobs follow the common Job lifecycle.
 _Avoid_: `moonbitlang/async` source mirror
 
 **SQLite API**:
@@ -417,9 +417,9 @@ _Avoid_: SQLite API, Async Host, V8 SQLite
 **Async Sys**:
 The remaining V8-free native-stub support. Ports carry provenance for the native
 source path and symbol they track, including implementations in domain modules.
-Job implementations and reusable OS mechanisms live with their owning domain. Signal support here is limited to
-platform signal values and Unix signal-mask operations; process capture
-belongs to the CLI and guest delivery belongs to Run Signals.
+Job implementations and reusable OS mechanisms live with their owning domain.
+Process signal capture belongs to the CLI, guest delivery to Run Signals, and
+Worker signal-mask ownership to the Thread Pool.
 _Avoid_: V8 adapter, placeholder unsupported imports
 
 **Thread Pool**:
@@ -428,7 +428,8 @@ coroutine loop. It owns Worker registration, execution, cancellation, Completion
 delivery, and teardown. The guest owns scheduling; Async Host transfers Jobs and
 accepts or discards their domain results. Worker internals remain private to the
 Thread Pool. Filesystem, Network, Process, Run Signal, and SQLite retain their
-operation semantics.
+operation semantics. Unix pool registration and Worker startup own scoped
+signal masks that restore the calling thread's mask when released.
 _Avoid_: Filesystem executor, Network executor, Process executor, SQLite executor
 
 **Host Poller**:
