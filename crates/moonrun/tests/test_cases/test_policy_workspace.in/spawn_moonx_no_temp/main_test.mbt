@@ -39,8 +39,9 @@ async test "policy transfer when the host temporary directory is unavailable" {
     None => abort("temporary directory is missing")
   }
 
-  let (code, _) = @process.collect_stdout("moonx", [
+  let (code, output) = @process.collect_stdout("moonx", [
     "moonbitlang/parser/cmd/moonfmt@0.3.3", "--", "--check-denied-read",
   ])
   assert_eq(code, 0)
+  assert_eq(output.text().trim(char_set="\n\r "), "inherited policy denied read")
 }

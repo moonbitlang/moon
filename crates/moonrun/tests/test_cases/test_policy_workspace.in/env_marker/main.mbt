@@ -55,7 +55,7 @@ async fn main {
         ignore(@fs.read_file("denied/secret.txt"))
         abort("child read a file forbidden by its inherited policy")
       } catch {
-        @os_error.OSError(_) as err if err.is_EACCES() => ()
+        @os_error.OSError(_) as err if err.is_EACCES() => println("inherited policy denied read")
         err => abort("unexpected read error: \{err}")
       }
     [marker] => @fs.write_file(marker, "inherited policy active")
