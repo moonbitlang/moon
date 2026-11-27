@@ -61,11 +61,6 @@ impl HostFs {
         Ok(fs::create_dir_all(self.resolve_path(path.as_os_str()))?)
     }
 
-    pub(crate) fn remove_directory_all(&self, path: &Path) -> Result<(), FsError> {
-        self.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path.as_os_str())))?;
-        Ok(fs::remove_dir_all(self.resolve_path(path.as_os_str()))?)
-    }
-
     pub(crate) fn current_directory(&self) -> Result<PathBuf, FsError> {
         self.authorize(FsOperation::Read(FsPath::Cwd(OsStr::new("."))))?;
         Ok(self.working_directory.current_dir()?)
@@ -84,12 +79,17 @@ impl HostFs {
     }
 
     pub(crate) fn read_directory(&self, path: &Path) -> Result<fs::ReadDir, FsError> {
-        self.authorize(FsOperation::Read(FsPath::Cwd(path.as_os_str())))?;
+        self.authorize(FsOperation::ListDirectory(FsTarget::Path(FsPath::Cwd(
+            path.as_os_str(),
+        ))))?;
         Ok(fs::read_dir(self.resolve_path(path.as_os_str()))?)
     }
 
     pub(crate) fn create_directory(&self, path: &Path) -> Result<(), FsError> {
-        self.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path.as_os_str())))?;
+        self.authorize(FsOperation::CreateDirectory {
+            path: FsPath::Cwd(path.as_os_str()),
+            mode: None,
+        })?;
         Ok(fs::create_dir(self.resolve_path(path.as_os_str()))?)
     }
 
@@ -111,7 +111,7 @@ impl HostFs {
     }
 
     pub(crate) fn unlink_file(&self, path: &Path) -> Result<(), FsError> {
-        self.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path.as_os_str())))?;
+        self.authorize(FsOperation::UnlinkFile(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::remove_file(self.resolve_path(path.as_os_str()))?)
     }
 }

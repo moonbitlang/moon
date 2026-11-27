@@ -78,8 +78,23 @@ pub(crate) enum FsOperation<'a> {
     Write(FsPath<'a>),
     Kind(FsTarget<'a>),
     Metadata(FsTarget<'a>),
+    ListDirectory(FsTarget<'a>),
     InspectEntry(FsPath<'a>),
-    ChangeEntry(FsPath<'a>),
+    CreateDirectory {
+        path: FsPath<'a>,
+        /// None selects the host default (the legacy ABI has no mode argument).
+        mode: Option<u32>,
+    },
+    CreateSymlink {
+        path: FsPath<'a>,
+        /// Link text, interpreted relative to the link's parent if relative.
+        target: &'a OsStr,
+        force_symlink: bool,
+    },
+    UnlinkFile(FsPath<'a>),
+    RemoveDirectory(FsPath<'a>),
+    /// Async removal with native choice of entry kind (including empty directories for removeat).
+    RemoveEntry(FsPath<'a>),
     Rename {
         source: FsPath<'a>,
         destination: FsPath<'a>,

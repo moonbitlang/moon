@@ -269,3 +269,39 @@ fn host_authorizer_caps_the_open_grant_and_checks_extra_metadata_before_truncati
     assert_eq!(Job::write(file, b"new!".to_vec(), 0).run(&fs).unwrap(), 4);
     assert_eq!(std::fs::read(&path).unwrap(), b"new!");
 }
+
+#[test]
+fn authorizer_can_allow_directory_changes_without_allowing_other_entry_changes() {
+    use crate::filesystem::{FsAuthorizer, FsError, FsOperation};
+    use crate::policy::AccessRights;
+
+    struct DirectoriesOnly;
+    impl FsAuthorizer for DirectoriesOnly {
+        fn authorize(&self, operation: FsOperation<'_>) -> Result<AccessRights, FsError> {
+            match operation {
+                FsOperation::CreateDirectory {
+                    mode: Some(0o700), ..
+                }
+                | FsOperation::RemoveDirectory(_) => Ok(AccessRights::WRITE),
+                _ => Err(FsError::Denied),
+            }
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    let fs = HostFs::new(
+        DirectoriesOnly,
+        Arc::new(Env::ambient()),
+        Arc::new(WorkingDirectory::Fixed(root.path().to_owned())),
+    );
+    let entry = std::ffi::OsString::from("entry");
+    Job::mkdir(entry.clone(), 0o700).run(&fs).unwrap();
+    for mut denied in [
+        Job::remove(entry.clone()),
+        Job::remove_at(None, entry.clone()),
+        Job::symlink("entry".into(), "link".into(), true),
+    ] {
+        assert_eq!(denied.run(&fs), Err(AsyncHostError::PermissionDenied));
+    }
+    Job::rmdir(entry).run(&fs).unwrap();
+    assert!(!root.path().join("entry").exists());
+}

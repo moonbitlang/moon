@@ -51,11 +51,11 @@ impl PolicyAuthorizer {
     // Internal checks for the two rename entries use only the built-in rules.
     // The additional authorizer receives the original request once.
     fn policy_access(&self, operation: FsOperation<'_>) -> Result<AccessRights, FsError> {
-        let (required, read_metadata) = operation.requirements();
         let acquired = match operation {
             FsOperation::ReadResource(file)
             | FsOperation::WriteResource(file)
             | FsOperation::Flush(file)
+            | FsOperation::ListDirectory(FsTarget::File(file))
             | FsOperation::Kind(FsTarget::File(file))
             | FsOperation::Metadata(FsTarget::File(file))
             | FsOperation::Watch(FsTarget::File(file))
@@ -63,7 +63,7 @@ impl PolicyAuthorizer {
             _ => None,
         };
         if let Some(FileGrant(GrantSource::Acquired(access))) = acquired {
-            return if access.contains(required) {
+            return if access.contains(operation.requirements().0) {
                 Ok(*access)
             } else {
                 Err(FsError::Denied)
@@ -81,6 +81,7 @@ impl PolicyAuthorizer {
             // sockets). Acquired file grants were checked above.
             FsOperation::ReadResource(_file)
             | FsOperation::WriteResource(_file)
+            | FsOperation::ListDirectory(FsTarget::File(_file))
             | FsOperation::Flush(_file) => return Ok(AccessRights::READ_WRITE),
             // The built-in policy requires both entries to be writable for all rename options.
             FsOperation::Rename {
@@ -88,11 +89,21 @@ impl PolicyAuthorizer {
                 destination,
                 options: _options,
             } => {
-                self.policy_access(FsOperation::ChangeEntry(source))?;
-                return self.policy_access(FsOperation::ChangeEntry(destination));
+                self.target_access(policy, operation, FsTarget::Path(source), entry)?;
+                (FsTarget::Path(destination), entry)
             }
-            FsOperation::InspectEntry(path) => (FsTarget::Path(path), entry),
-            FsOperation::ChangeEntry(path) => (FsTarget::Path(path), entry),
+            // These creation options are visible to other authorizers. Built-in
+            // write admission applies to the new entry in either case.
+            FsOperation::CreateDirectory { path, mode: _mode } => (FsTarget::Path(path), entry),
+            FsOperation::CreateSymlink {
+                path,
+                target: _target,
+                force_symlink: _force_symlink,
+            } => (FsTarget::Path(path), entry),
+            FsOperation::InspectEntry(path)
+            | FsOperation::UnlinkFile(path)
+            | FsOperation::RemoveDirectory(path)
+            | FsOperation::RemoveEntry(path) => (FsTarget::Path(path), entry),
             FsOperation::Read(path) => (FsTarget::Path(path), object),
             // Composite writes and recursive creation retain their existing
             // followed-target check, without inspecting intermediate entries.
@@ -101,7 +112,9 @@ impl PolicyAuthorizer {
             | FsOperation::WriteFile(path)
             | FsOperation::CreateDirectories(path) => (FsTarget::Path(path), object),
             FsOperation::Kind(FsTarget::File(_)) => return Ok(AccessRights::READ_WRITE),
-            FsOperation::Kind(target) | FsOperation::Metadata(target) => (target, object),
+            FsOperation::ListDirectory(target)
+            | FsOperation::Kind(target)
+            | FsOperation::Metadata(target) => (target, object),
             FsOperation::OpenAsync { path, .. }
             | FsOperation::OpenWithOptions { path, .. }
             | FsOperation::AccessCheck { path, .. } => (FsTarget::Path(path), object),
@@ -118,6 +131,17 @@ impl PolicyAuthorizer {
             FsOperation::Watch(FsTarget::File(_)) => return Ok(AccessRights::READ_WRITE),
             FsOperation::Watch(target) => (target, object),
         };
+        self.target_access(policy, operation, target, resolve)
+    }
+
+    fn target_access(
+        &self,
+        policy: &FsPolicy,
+        operation: FsOperation<'_>,
+        target: FsTarget<'_>,
+        resolve: fn(&Path) -> Result<PathBuf, FsError>,
+    ) -> Result<AccessRights, FsError> {
+        let (required, read_metadata) = operation.requirements();
         let (path, diagnostic) = match target {
             FsTarget::Path(FsPath::Cwd(path)) => (
                 self.working_directory
@@ -208,7 +232,11 @@ impl FsOperation<'_> {
             | Self::Chmod(_)
             | Self::WriteFile(_)
             | Self::CreateDirectories(_)
-            | Self::ChangeEntry(_)
+            | Self::CreateDirectory { .. }
+            | Self::CreateSymlink { .. }
+            | Self::UnlinkFile(_)
+            | Self::RemoveDirectory(_)
+            | Self::RemoveEntry(_)
             | Self::Rename { .. }
             | Self::Lock {
                 exclusive: true, ..
@@ -253,6 +281,7 @@ impl FsOperation<'_> {
             Self::AccessCheck { access: 2, .. } => AccessRights::WRITE,
             Self::ReadResource(_)
             | Self::Read(_)
+            | Self::ListDirectory(_)
             | Self::Kind(FsTarget::Path(_))
             | Self::Metadata(_)
             | Self::InspectEntry(_)

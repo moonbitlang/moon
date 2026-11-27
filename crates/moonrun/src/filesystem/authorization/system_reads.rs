@@ -27,6 +27,7 @@ const ZONEINFO: &str = "/usr/share/zoneinfo";
 pub(super) fn allows(operation: &FsOperation<'_>, requested: &Path, resolved: &Path) -> bool {
     let read_only = match *operation {
         FsOperation::Read(_)
+        | FsOperation::ListDirectory(super::FsTarget::Path(_))
         | FsOperation::AccessCheck { access: 0 | 1, .. } // F_OK or R_OK
         | FsOperation::OpenAsync {
             access: 0,

@@ -72,7 +72,7 @@ fn builtin_timezone_grant_is_read_only_and_excludes_untrusted_aliases() {
         FsOperation::AccessCheck { path, access: 2 },
         FsOperation::AccessCheck { path, access: 3 },
         FsOperation::Write(path),
-        FsOperation::ChangeEntry(path),
+        FsOperation::UnlinkFile(path),
         FsOperation::Watch(FsTarget::Path(path)),
         FsOperation::OpenAsync {
             path,
@@ -220,6 +220,71 @@ fn directory_write_grant_allows_removing_its_root() {
     host.remove_directory_all(&root).unwrap();
 
     assert!(!root.exists());
+}
+
+#[test]
+fn legacy_recursive_removal_lists_nonempty_directories_but_never_reads_file_contents() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("tree");
+    std::fs::create_dir_all(root.join("nested")).unwrap();
+    std::fs::write(root.join("nested/file"), b"keep").unwrap();
+
+    let policy_file = tmp.path().join("policy.toml");
+    for (read, allowed) in [
+        ("[]", false),
+        ("[{glob='tree'}]", false),
+        ("[{glob='tree'}, {glob='tree/nested'}]", true),
+    ] {
+        std::fs::write(
+            &policy_file,
+            format!("[fs]\nread = {read}\nwrite = ['tree']"),
+        )
+        .unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
+        let result = host.remove_directory_all(&root);
+        if allowed {
+            result.unwrap();
+            assert!(!root.exists());
+        } else {
+            assert!(matches!(result, Err(FsError::Denied)));
+            assert_eq!(std::fs::read(root.join("nested/file")).unwrap(), b"keep");
+        }
+    }
+}
+
+#[test]
+fn legacy_recursive_removal_reads_every_directory_batch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("tree");
+    std::fs::create_dir(&root).unwrap();
+    // The names alone exceed the 16 KiB directory buffer on every platform.
+    let prefix = "a".repeat(64);
+    for index in 0..300 {
+        std::fs::write(root.join(format!("{prefix}-{index}")), []).unwrap();
+    }
+
+    HostFs::default().remove_directory_all(&root).unwrap();
+    assert!(!root.exists());
+}
+
+#[test]
+fn legacy_recursive_removal_unlinks_directory_links() {
+    use crate::filesystem::os::symlink;
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("tree");
+    let target = tmp.path().join("target");
+    fs::create_dir(&root).unwrap();
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("keep"), []).unwrap();
+    symlink::create(target.as_os_str(), root.join("link").as_os_str(), false).unwrap();
+    HostFs::default().remove_directory_all(&root).unwrap();
+    symlink::create(target.as_os_str(), root.as_os_str(), false).unwrap();
+    HostFs::default().remove_directory_all(&root).unwrap();
+    assert!(!root.exists());
+    assert!(target.join("keep").is_file());
 }
 
 #[test]
@@ -441,7 +506,7 @@ fn remove_policy_checks_link_path_not_target() {
     let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
     assert!(matches!(
-        host.authorize(FsOperation::ChangeEntry(FsPath::Cwd(
+        host.authorize(FsOperation::UnlinkFile(FsPath::Cwd(
             denied_link.as_os_str()
         ))),
         Err(FsError::Denied)
@@ -465,7 +530,7 @@ fn remove_policy_checks_link_entry_not_target() {
     let (policy, _) = policy::load_file(&policy_file).unwrap();
     let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
-    host.authorize(FsOperation::ChangeEntry(FsPath::Cwd(
+    host.authorize(FsOperation::UnlinkFile(FsPath::Cwd(
         allowed_link.as_os_str(),
     )))
     .unwrap();

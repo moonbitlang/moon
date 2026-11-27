@@ -378,6 +378,89 @@ fn windows_name_range(buf: &[u8], offset: u32) -> AsyncHostResult<(usize, usize)
     Ok((name_start, name_len))
 }
 
+/// Collect names and removal kinds from the open directory.
+#[cfg(unix)]
+pub(super) fn children(file: &std::fs::File) -> std::io::Result<Vec<(std::ffi::OsString, bool)>> {
+    #[cfg(target_os = "linux")]
+    use linux_name_range as name_range;
+    #[cfg(target_os = "macos")]
+    use mac_name_range as name_range;
+    use std::{ffi::OsStr, io::ErrorKind, os::unix::ffi::OsStrExt};
+
+    let handle = super::os::raw_file(file);
+    let mut buffer = vec![0; 16 * 1024];
+    let mut children = Vec::new();
+    loop {
+        let mut remaining = super::os::directory::read(handle, &mut buffer, false)?;
+        if remaining == 0 {
+            return Ok(children);
+        }
+
+        let mut records = buffer.as_slice();
+        while remaining > 0 {
+            let len = entry_length(records, 0).map_err(|_| ErrorKind::InvalidData)? as usize;
+            let (record, rest) = records
+                .split_at_checked(len)
+                .filter(|(record, _)| !record.is_empty())
+                .ok_or(ErrorKind::InvalidData)?;
+            records = rest;
+            // getattrlistbulk counts records; getdents64 counts bytes.
+            let consumed = if cfg!(target_os = "macos") { 1 } else { len };
+            remaining = remaining
+                .checked_sub(consumed)
+                .ok_or(ErrorKind::InvalidData)?;
+
+            let (start, len) = name_range(record, 0).map_err(|_| ErrorKind::InvalidData)?;
+            let name = OsStr::from_bytes(&record[start..start + len]);
+            if name == "." || name == ".." {
+                continue;
+            }
+            let is_directory = match entry_is_dir(record, 0).map_err(|_| ErrorKind::InvalidData)? {
+                -1 => match super::os::metadata::file_info_at(Some(handle), name, false) {
+                    Ok(stat) => stat.st_mode & libc::S_IFMT == libc::S_IFDIR,
+                    Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error),
+                },
+                kind => kind != 0,
+            };
+            children.push((name.to_owned(), is_directory));
+        }
+    }
+}
+
+/// Windows directory junctions use rmdir even though their contents must never be visited.
+#[cfg(windows)]
+pub(super) fn children(file: &std::fs::File) -> std::io::Result<Vec<(std::ffi::OsString, bool)>> {
+    use std::{ffi::OsString, io, os::windows::ffi::OsStringExt};
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY;
+
+    let mut buffer = vec![0; 16 * 1024];
+    let mut children = Vec::new();
+    while super::os::directory::read(super::os::raw_file(file), &mut buffer, false)? != 0 {
+        let mut offset = 0;
+        loop {
+            let entry = windows_entry(&buffer, offset).map_err(|_| io::ErrorKind::InvalidData)?;
+            let (start, len) =
+                windows_name_range(&buffer, offset).map_err(|_| io::ErrorKind::InvalidData)?;
+            let name: Vec<_> = buffer[start..start + len]
+                .chunks_exact(2)
+                .map(|unit| u16::from_ne_bytes([unit[0], unit[1]]))
+                .collect();
+            let name = OsString::from_wide(&name);
+            if name != "." && name != ".." {
+                children.push((name, entry.FileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0));
+            }
+            if entry.NextEntryOffset == 0 {
+                break;
+            }
+            offset = offset
+                .checked_add(entry.NextEntryOffset)
+                .ok_or(io::ErrorKind::InvalidData)?;
+        }
+    }
+    Ok(children)
+}
+
 #[cfg(test)]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod tests {

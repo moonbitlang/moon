@@ -237,7 +237,7 @@ impl HostFs {
     ) -> Result<(), FsError> {
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
-        self.authorize(FsOperation::ChangeEntry(FsPath::At {
+        self.authorize(FsOperation::RemoveDirectory(FsPath::At {
             base: &base,
             path: path.as_os_str(),
         }))?;
@@ -251,7 +251,7 @@ impl HostFs {
     pub(crate) fn unlink_file_at(&self, directory: &Directory, path: &Path) -> Result<(), FsError> {
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
-        self.authorize(FsOperation::ChangeEntry(FsPath::At {
+        self.authorize(FsOperation::UnlinkFile(FsPath::At {
             base: &base,
             path: path.as_os_str(),
         }))?;
