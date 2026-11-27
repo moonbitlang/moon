@@ -62,7 +62,7 @@ fn composition_survives_repeated_derivation_without_replaying_provisioning() {
     )
     .unwrap();
     let (parent, _) = load(None, Some(&parent_file), None, &source).unwrap();
-    let parent = parent.unwrap().open_transfer().unwrap().read().unwrap();
+    let parent = parent.unwrap().open_transfer(None).unwrap().read().unwrap();
     let source = Env::owned([
         ("VISIBLE".into(), "changed-by-parent".into()),
         ("HIDDEN".into(), "delegated-but-filtered".into()),
@@ -87,7 +87,7 @@ fn composition_survives_repeated_derivation_without_replaying_provisioning() {
         environment.get(OsStr::new("CHILD")),
         Some("must-not-be-serialized".into())
     );
-    let mut transfer = child.unwrap().open_transfer().unwrap().read().unwrap();
+    let mut transfer = child.unwrap().open_transfer(None).unwrap().read().unwrap();
     assert!(!String::from_utf8_lossy(&transfer).contains("must-not"));
     let outside = std::fs::canonicalize(shared).unwrap().join("outside");
     for _ in 0..3 {
@@ -118,11 +118,21 @@ fn composition_survives_repeated_derivation_without_replaying_provisioning() {
             ),
             Err(AsyncHostError::PermissionDenied)
         );
-        transfer = derived.unwrap().open_transfer().unwrap().read().unwrap();
+        transfer = derived
+            .unwrap()
+            .open_transfer(None)
+            .unwrap()
+            .read()
+            .unwrap();
         // Ordinary inheritance adds no new restriction and preserves all rules.
         let (inherited, _) = load(Some(&transfer), None, None, &environment).unwrap();
         assert_eq!(
-            inherited.unwrap().open_transfer().unwrap().read().unwrap(),
+            inherited
+                .unwrap()
+                .open_transfer(None)
+                .unwrap()
+                .read()
+                .unwrap(),
             transfer
         );
     }
@@ -133,7 +143,7 @@ fn no_child_policy_preserves_grants_but_empty_child_policy_denies_domains() {
     let source = Env::owned([]).unwrap();
     let parent =
         resolved(br#"{"fs":{"read":["*"]},"net":{"connect":["*:*"]},"process":{"spawn":true}}"#)
-            .open_transfer()
+            .open_transfer(None)
             .unwrap()
             .read()
             .unwrap();
@@ -190,7 +200,7 @@ fn a_child_policy_is_complete_with_or_without_an_inherited_policy() {
     let parent = resolved(
         br#"{"fs":{"read":["*"],"write":["*"]},"net":{"dns":["*"]},"process":{"spawn":true}}"#,
     )
-    .open_transfer()
+    .open_transfer(None)
     .unwrap()
     .read()
     .unwrap();
@@ -228,7 +238,7 @@ fn inherited_ceiling_does_not_hide_invalid_child_policy() {
     let root = tempfile::tempdir().unwrap();
     let child = root.path().join("child.json");
     let source = Env::owned([]).unwrap();
-    let parent = resolved(b"{}").open_transfer().unwrap().read().unwrap();
+    let parent = resolved(b"{}").open_transfer(None).unwrap().read().unwrap();
     assert!(load(Some(&parent), Some(&child), None, &source).is_err());
     for contents in [
         r#"{"unknown":true}"#,
@@ -270,7 +280,7 @@ fn typed_and_external_composition_have_the_same_decisions() {
     )
     .unwrap();
     let parent = resolved(br#"{"fs":{"read":["*"]},"env":{"from_host":["*"]}}"#);
-    let encoded = parent.open_transfer().unwrap().read().unwrap();
+    let encoded = parent.open_transfer(None).unwrap().read().unwrap();
     for inherited in [
         InheritedPolicyInput::Resolved(parent),
         InheritedPolicyInput::Transfer(encoded),

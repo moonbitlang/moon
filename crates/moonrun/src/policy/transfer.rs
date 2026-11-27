@@ -181,14 +181,7 @@ impl Policy {
         Ok(serde_json::to_vec(&transfer)?)
     }
 
-    #[cfg(test)]
     pub(crate) fn open_transfer(
-        &self,
-    ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
-        self.open_transfer_in(None)
-    }
-
-    pub(crate) fn open_transfer_in(
         &self,
         tmp_dir: Option<&std::path::Path>,
     ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
@@ -229,7 +222,7 @@ mod tests {
     #[test]
     fn inheritance_transport_is_not_a_user_policy_document() {
         let rules = compile(PolicyConfig::default());
-        let contents = rules.open_transfer().unwrap().read().unwrap();
+        let contents = rules.open_transfer(None).unwrap().read().unwrap();
         assert!(serde_json::from_slice::<PolicyConfig>(&contents).is_err());
         let value: serde_json::Value = serde_json::from_slice(&contents).unwrap();
         assert!(value.get("env").is_none());
@@ -249,9 +242,12 @@ mod tests {
             "process":{"allow":[{"program":"a program", "args_prefix":["", "a b", "quote\"", "slash\\"]}]}
         }"#;
         let rules = compile(serde_json::from_slice(input).unwrap());
-        let encoded = rules.open_transfer().unwrap().read().unwrap();
+        let encoded = rules.open_transfer(None).unwrap().read().unwrap();
         let decoded = Policy::from_transfer(&encoded).unwrap();
-        assert_eq!(decoded.open_transfer().unwrap().read().unwrap(), encoded);
+        assert_eq!(
+            decoded.open_transfer(None).unwrap().read().unwrap(),
+            encoded
+        );
         for rules in [rules, decoded] {
             rules
                 .filesystem()
@@ -297,7 +293,7 @@ mod tests {
             )
             .unwrap(),
         );
-        let contents = rules.open_transfer().unwrap().read().unwrap();
+        let contents = rules.open_transfer(None).unwrap().read().unwrap();
         let decoded = Policy::from_transfer(&contents).unwrap();
         for rules in [rules, decoded] {
             rules
@@ -344,7 +340,7 @@ mod tests {
     #[test]
     fn transfer_rejects_unknown_versions_fields_and_invalid_rules() {
         let rules = compile(PolicyConfig::default());
-        let contents = rules.open_transfer().unwrap().read().unwrap();
+        let contents = rules.open_transfer(None).unwrap().read().unwrap();
         let original: serde_json::Value = serde_json::from_slice(&contents).unwrap();
         for (pointer, value) in [
             ("/version", serde_json::json!(99)),
@@ -404,7 +400,7 @@ mod tests {
             NetRules::from_config(Default::default()).unwrap(),
             ProcessRules::from_config(Default::default()).unwrap(),
         );
-        let contents = rules.open_transfer().unwrap().read().unwrap();
+        let contents = rules.open_transfer(None).unwrap().read().unwrap();
         let decoded = Policy::from_transfer(&contents).unwrap();
         decoded
             .filesystem()
@@ -424,10 +420,10 @@ mod tests {
         let inheritance = compile(PolicyConfig::default());
         let tmp = tempfile::tempdir().unwrap();
         assert!(matches!(
-            inheritance.open_transfer_in(Some(&tmp.path().join("missing"))),
+            inheritance.open_transfer(Some(&tmp.path().join("missing"))),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound
         ));
-        let transfer = inheritance.open_transfer_in(Some(tmp.path())).unwrap();
+        let transfer = inheritance.open_transfer(Some(tmp.path())).unwrap();
 
         drop(inheritance);
 
@@ -448,8 +444,8 @@ mod tests {
     #[test]
     fn each_transfer_has_an_independent_file_position() {
         let inheritance = compile(PolicyConfig::default());
-        let first = inheritance.open_transfer().unwrap();
-        let second = inheritance.open_transfer().unwrap();
+        let first = inheritance.open_transfer(None).unwrap();
+        let second = inheritance.open_transfer(None).unwrap();
         let first_contents = first.read().unwrap();
         let second_contents = second.read().unwrap();
 

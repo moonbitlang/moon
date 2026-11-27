@@ -335,7 +335,7 @@ fn main {}
             &crate::runtime::Env::ambient(),
         )
         .unwrap();
-        let contents = policy.open_transfer().unwrap().read().unwrap();
+        let contents = policy.open_transfer(None).unwrap().read().unwrap();
 
         assert!(!String::from_utf8_lossy(&contents).contains(secret));
         let inherited = Policy::from_transfer(&contents).unwrap();
@@ -362,7 +362,7 @@ fn main {}
         let source = tmp.path().join("policy.json");
         std::fs::write(&source, r#"{"process":{"spawn":false}}"#).unwrap();
         let (parent, _) = load_file(&source).unwrap();
-        let contents = parent.open_transfer().unwrap().read().unwrap();
+        let contents = parent.open_transfer(None).unwrap().read().unwrap();
 
         std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
         let inherited = Policy::from_transfer(&contents).unwrap();
@@ -596,7 +596,7 @@ fn main {}
         let file = directory.path().join("policy.json");
         std::fs::write(&file, r#"{"fs":{"read":["allowed"]}}"#).unwrap();
         let (parent, _) = load_file(&file).unwrap();
-        let contents = parent.open_transfer().unwrap().read().unwrap();
+        let contents = parent.open_transfer(None).unwrap().read().unwrap();
         std::fs::rename(&allowed, directory.path().join("moved")).unwrap();
         std::os::unix::fs::symlink(&outside, &allowed).unwrap();
         let child = Policy::from_transfer(&contents).unwrap();

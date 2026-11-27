@@ -226,7 +226,7 @@ write = ["*", { glob = "!private/**" }]
                 "{path:?}"
             );
         }
-        let bytes = effective.open_transfer().unwrap().read().unwrap();
+        let bytes = effective.open_transfer(None).unwrap().read().unwrap();
         effective = Policy::from_transfer(&bytes).unwrap();
     }
 }
@@ -420,7 +420,7 @@ read = [{ glob = "public/**" }]
     // Decoding must not re-observe anchors or select a descendant's cwd.
     std::fs::remove_dir(&child_dir).unwrap();
     for _ in 0..3 {
-        let bytes = effective.open_transfer().unwrap().read().unwrap();
+        let bytes = effective.open_transfer(None).unwrap().read().unwrap();
         effective = Policy::from_transfer(&bytes).unwrap();
         assert!(allows(
             &effective,
@@ -485,7 +485,7 @@ fn transferred_globs_validate_the_anchor_and_pattern() {
         directory.path(),
         "[fs]\nread = [{ glob = \"**/*.txt\" }, { glob = \"!**/*.mbt\" }]\n",
     );
-    let bytes = rules.open_transfer().unwrap().read().unwrap();
+    let bytes = rules.open_transfer(None).unwrap().read().unwrap();
     let original: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     for (field, value) in [
         ("pattern", serde_json::json!("[")),
