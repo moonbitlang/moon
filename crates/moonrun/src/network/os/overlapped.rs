@@ -31,6 +31,7 @@ use super::{INVALID_ADDRESS, INVALID_INPUT, RawSocket, last_wsa_error};
 pub(crate) struct AcceptBuffer {
     buffer: Box<[u8]>,
     addr_len: usize,
+    get_addrs: ws::LPFN_GETACCEPTEXSOCKADDRS,
 }
 
 impl AcceptBuffer {
@@ -46,12 +47,47 @@ impl AcceptBuffer {
         Ok(Self {
             buffer: vec![0; buffer_len].into_boxed_slice(),
             addr_len,
+            get_addrs: None,
         })
     }
 
-    pub(crate) fn peer_addr(&self) -> &[u8] {
-        let offset = self.addr_len + 16;
-        &self.buffer[offset..offset + self.addr_len]
+    /// # Safety
+    /// Native access must have ended and the buffer must satisfy its stored
+    /// parser's input contract. For AcceptEx, this requires successful completion.
+    pub(crate) unsafe fn parse_peer_addr(&self) -> io::Result<&[u8]> {
+        let get_addrs = self
+            .get_addrs
+            .ok_or_else(|| io::Error::from_raw_os_error(INVALID_INPUT))?;
+        let region_len = (self.addr_len + 16) as u32;
+        let mut local = std::ptr::null_mut();
+        let mut remote = std::ptr::null_mut();
+        let mut local_len = 0;
+        let mut remote_len = 0;
+        // The extra space belongs to the provider's internal format. Use its
+        // parser with the same buffer and region lengths as the submission.
+        unsafe {
+            get_addrs(
+                self.buffer.as_ptr().cast(),
+                0,
+                region_len,
+                region_len,
+                &mut local,
+                &mut local_len,
+                &mut remote,
+                &mut remote_len,
+            );
+        }
+        // Borrow from our allocation, rather than constructing a slice from
+        // an unchecked provider pointer or interpreting its padding as data.
+        let offset = (remote as usize)
+            .checked_sub(self.buffer.as_ptr() as usize)
+            .ok_or_else(|| io::Error::from_raw_os_error(INVALID_ADDRESS))?;
+        let len = usize::try_from(remote_len)
+            .map_err(|_| io::Error::from_raw_os_error(INVALID_ADDRESS))?;
+        self.buffer
+            .get(offset..)
+            .and_then(|remaining| remaining.get(..len))
+            .ok_or_else(|| io::Error::from_raw_os_error(INVALID_ADDRESS))
     }
 }
 
@@ -255,6 +291,14 @@ ported_fns! {
     ) -> io::Result<()> {
         let accept_ex = get_wsa_extension::<ws::LPFN_ACCEPTEX>(server, &ws::WSAID_ACCEPTEX)?
             .ok_or_else(|| io::Error::from_raw_os_error(INVALID_INPUT))?;
+        // Resolve the producer and parser through the same socket's provider.
+        buffer.get_addrs = Some(
+            get_wsa_extension::<ws::LPFN_GETACCEPTEXSOCKADDRS>(
+                server,
+                &ws::WSAID_GETACCEPTEXSOCKADDRS,
+            )?
+            .ok_or_else(|| io::Error::from_raw_os_error(INVALID_INPUT))?,
+        );
         let addr_len = (buffer.addr_len + 16) as u32;
         // AcceptEx only writes this on synchronous completion. Pending requests
         // report their byte count through the completion notification instead.
@@ -393,5 +437,68 @@ fn get_wsa_extension<T: Copy>(socket: RawSocket, guid: &windows_sys::core::GUID)
         Err(last_wsa_error())
     } else {
         Ok(unsafe { std::mem::transmute_copy(&extension) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    unsafe extern "system" fn length_prefixed_addrs(
+        output: *const std::ffi::c_void,
+        received: u32,
+        local_capacity: u32,
+        _remote_capacity: u32,
+        local: *mut *mut ws::SOCKADDR,
+        local_len: *mut i32,
+        remote: *mut *mut ws::SOCKADDR,
+        remote_len: *mut i32,
+    ) {
+        unsafe {
+            let local_start = output.cast::<u8>().add(received as usize);
+            let remote_start = local_start.add(local_capacity as usize);
+            *local_len = local_start.cast::<i32>().read_unaligned();
+            *local = local_start.add(4).cast_mut().cast();
+            *remote_len = remote_start.cast::<i32>().read_unaligned();
+            *remote = remote_start.add(4).cast_mut().cast();
+        }
+    }
+
+    #[test]
+    fn accept_peer_address_uses_the_provider_layout() {
+        for (family, addr_len) in [(2u16, 16usize), (23, 28)] {
+            let mut expected = vec![0; addr_len];
+            expected[..2].copy_from_slice(&family.to_le_bytes());
+            expected[2..4].copy_from_slice(&13398u16.to_be_bytes());
+            if family == 2 {
+                expected[4..8].copy_from_slice(&[192, 0, 2, 123]);
+            } else {
+                expected[8..24]
+                    .copy_from_slice(&[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+                expected[24..28].copy_from_slice(&7u32.to_le_bytes());
+            }
+            let mut buffer = AcceptBuffer::new(addr_len as u32).unwrap();
+            buffer.get_addrs = Some(length_prefixed_addrs);
+            // Replay Wine's fill_accept_output: each region starts with a
+            // four-byte length, followed by the actual sockaddr.
+            for start in [0, addr_len + 16] {
+                buffer.buffer[start..start + 4].copy_from_slice(&(addr_len as i32).to_le_bytes());
+                buffer.buffer[start + 4..start + 4 + addr_len].copy_from_slice(&expected);
+            }
+            // The fixture represents completed provider output.
+            assert_eq!(unsafe { buffer.parse_peer_addr() }.unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn accept_peer_address_rejects_invalid_provider_lengths() {
+        let mut buffer = AcceptBuffer::new(16).unwrap();
+        buffer.get_addrs = Some(length_prefixed_addrs);
+        let remote = 32;
+        for len in [-1i32, i32::MAX] {
+            buffer.buffer[remote..remote + 4].copy_from_slice(&len.to_le_bytes());
+            // An inconsistent provider output must not escape as a slice.
+            assert!(unsafe { buffer.parse_peer_addr() }.is_err(), "length {len}");
+        }
     }
 }
