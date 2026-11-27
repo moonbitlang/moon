@@ -48,7 +48,7 @@ pub(crate) use types::{JobCancellation, JobCancellationOverride};
 pub(crate) use worker::{CompletedJob, WorkerCompletionDestination, WorkerCompletionId, WorkerJob};
 
 #[cfg(test)]
-pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+pub(crate) fn ported_symbols() -> Vec<crate::upstream::PortedSymbol> {
     let mut symbols = jobs::PORTED_SYMBOLS.to_vec();
     symbols.extend_from_slice(worker::Worker::PORTED_SYMBOLS);
     symbols

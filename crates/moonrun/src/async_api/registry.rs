@@ -1825,7 +1825,7 @@ mod tests {
     #[test]
     fn compatibility_imports_record_the_upstream_replacement() {
         let compat_imports = async_api_compat_imports();
-        let compat_symbols = crate::async_sys::compat_symbols();
+        let compat_symbols = crate::upstream::compat_symbols();
 
         for import in ASYNC_IMPORTS
             .iter()
@@ -1845,7 +1845,7 @@ mod tests {
             assert_ne!(compat.upstream_pr, 0);
             assert!(!compat.replacement.is_empty());
             assert!(!(compat.no_op && compat.api_only));
-            let has_matching_sys_compat = compat_symbols.iter().any(|symbol| {
+            let has_matching_native_compat = compat_symbols.iter().any(|symbol| {
                 symbol.native_symbol == compat.original_symbol
                     && symbol.historical_source == compat.historical_source
                     && symbol.upstream_pr == compat.upstream_pr
@@ -1853,14 +1853,14 @@ mod tests {
             });
             if compat.api_only {
                 assert!(
-                    !has_matching_sys_compat,
-                    "API-only compatibility adapter {}::{} has a redundant Async Sys adapter",
+                    !has_matching_native_compat,
+                    "API-only compatibility adapter {}::{} has a redundant native adapter",
                     compat.rust_module, compat.rust_symbol
                 );
             } else if !compat.no_op {
                 assert!(
-                    has_matching_sys_compat,
-                    "compatibility adapter {}::{} has no matching Async Sys implementation",
+                    has_matching_native_compat,
+                    "compatibility adapter {}::{} has no matching native implementation",
                     compat.rust_module, compat.rust_symbol
                 );
             }

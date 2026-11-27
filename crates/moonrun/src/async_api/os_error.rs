@@ -17,7 +17,11 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::AsyncHostResult;
-use crate::async_sys::os_error::stub;
+
+mod os;
+
+#[cfg(test)]
+pub(crate) use os::{COMPAT_SYMBOLS, PORTED_SYMBOLS};
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;
@@ -25,7 +29,7 @@ use super::provenance::ported_imports;
 ported_imports! {
 #[ported(source = "src/os_error/stub.c")]
 pub(super) fn get_errno(context: &mut ImportContext<'_>) -> i32 {
-    stub::get_errno(context.host)
+    context.host.get_errno()
 }
 
 #[compat(
@@ -35,7 +39,7 @@ pub(super) fn get_errno(context: &mut ImportContext<'_>) -> i32 {
     replacement = "platform errno constants in src/os_error/error.mbt"
 )]
 pub(super) fn is_nonblocking_io_error(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
-    if stub::is_nonblocking_io_error(errno) {
+    if os::is_nonblocking_io_error(errno) {
         1
     } else {
         0
@@ -49,7 +53,7 @@ pub(super) fn is_nonblocking_io_error(_context: &mut ImportContext<'_>, errno: i
     replacement = "platform errno constants in src/os_error/error.mbt"
 )]
 pub(super) fn is_eintr(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
-    if stub::is_eintr(errno) { 1 } else { 0 }
+    if os::is_eintr(errno) { 1 } else { 0 }
 }
 
 #[compat(
@@ -59,7 +63,7 @@ pub(super) fn is_eintr(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
     replacement = "platform errno constants in src/os_error/error.mbt"
 )]
 pub(super) fn is_enoent(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
-    if stub::is_enoent(errno) { 1 } else { 0 }
+    if os::is_enoent(errno) { 1 } else { 0 }
 }
 
 #[compat(
@@ -69,7 +73,7 @@ pub(super) fn is_enoent(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
     replacement = "platform errno constants in src/os_error/error.mbt"
 )]
 pub(super) fn is_eexist(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
-    if stub::is_eexist(errno) { 1 } else { 0 }
+    if os::is_eexist(errno) { 1 } else { 0 }
 }
 
 #[compat(
@@ -79,7 +83,7 @@ pub(super) fn is_eexist(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
     replacement = "platform errno constants in src/os_error/error.mbt"
 )]
 pub(super) fn is_eacces(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
-    if stub::is_eacces(errno) { 1 } else { 0 }
+    if os::is_eacces(errno) { 1 } else { 0 }
 }
 
 #[compat(
@@ -89,7 +93,7 @@ pub(super) fn is_eacces(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
     replacement = "platform errno constants in src/os_error/error.mbt"
 )]
 pub(super) fn is_econnrefused(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
-    if stub::is_econnrefused(errno) { 1 } else { 0 }
+    if os::is_econnrefused(errno) { 1 } else { 0 }
 }
 
 #[compat(
@@ -99,7 +103,7 @@ pub(super) fn is_econnrefused(_context: &mut ImportContext<'_>, errno: i32) -> i
     replacement = "platform errno constants in src/os_error/error.mbt"
 )]
 pub(super) fn is_error_notify_enum_dir(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
-    if stub::is_error_notify_enum_dir(errno) {
+    if os::is_error_notify_enum_dir(errno) {
         1
     } else {
         0
@@ -108,7 +112,7 @@ pub(super) fn is_error_notify_enum_dir(_context: &mut ImportContext<'_>, errno: 
 
 #[ported(source = "src/os_error/stub.c")]
 pub(super) fn errno_to_string(context: &mut ImportContext<'_>, errno: i32) -> u64 {
-    context.host.buffers().publish(stub::errno_to_string(errno))
+    context.host.buffers().publish(os::errno_to_string(errno))
 }
 
 pub(super) fn free_errno_str(context: &mut ImportContext<'_>, ptr: u64) -> AsyncHostResult<()> {
@@ -122,7 +126,7 @@ pub(super) fn free_errno_str(context: &mut ImportContext<'_>, ptr: u64) -> Async
     replacement = "platform errno constants in src/os_error/error.mbt"
 )]
 pub(super) fn get_enotdir(_context: &mut ImportContext<'_>) -> i32 {
-    stub::get_enotdir()
+    os::get_enotdir()
 }
 
 #[compat(
@@ -132,7 +136,7 @@ pub(super) fn get_enotdir(_context: &mut ImportContext<'_>) -> i32 {
     replacement = "platform errno constants in src/os_error/error.mbt"
 )]
 pub(super) fn get_enotsup(_context: &mut ImportContext<'_>) -> i32 {
-    stub::get_enotsup()
+    os::get_enotsup()
 }
 
 }

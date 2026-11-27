@@ -28,6 +28,7 @@ use crate::network::AcceptBuffer;
 use crate::poll::CompletionPort;
 use crate::resource::{Resource, ResourceClass, ResourceRef};
 use crate::runtime::{Handles, HostKeys};
+use crate::upstream::ported_fns;
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::os::windows::io::{AsRawHandle, AsRawSocket, FromRawHandle, OwnedHandle, RawHandle};
@@ -604,6 +605,7 @@ impl Drop for IoResultTable {
     }
 }
 
+ported_fns! {
 impl AsyncHost {
     fn read_guest_slice(
         memory: &mut (impl GuestMemory + ?Sized),
@@ -615,10 +617,12 @@ impl AsyncHost {
         Ok(memory.read_exact(ptr, len)?.into())
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_make_file_read_io_result")]
     pub(crate) fn make_file_read_io_result(&self, len: u32, position: i64) -> AsyncHostResult<u64> {
         self.insert_io_result(HostIoResult::for_file_read(len, position)?)
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_make_file_write_io_result")]
     pub(crate) fn make_file_write_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
@@ -631,10 +635,12 @@ impl AsyncHost {
         self.insert_io_result(HostIoResult::for_file_write(buffer, position))
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_make_socket_read_io_result")]
     pub(crate) fn make_socket_read_io_result(&self, len: u32, flags: i32) -> AsyncHostResult<u64> {
         self.insert_io_result(HostIoResult::for_socket_read(len, flags)?)
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_make_socket_write_io_result")]
     pub(crate) fn make_socket_write_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
@@ -647,6 +653,7 @@ impl AsyncHost {
         self.insert_io_result(HostIoResult::for_socket_write(buffer, flags))
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_make_socket_with_addr_read_io_result")]
     pub(crate) fn make_socket_with_addr_read_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
@@ -663,6 +670,7 @@ impl AsyncHost {
         )?)
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_make_socket_with_addr_write_io_result")]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn make_socket_with_addr_write_io_result(
         &self,
@@ -683,6 +691,7 @@ impl AsyncHost {
         )?)
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_make_connect_io_result")]
     pub(crate) fn make_connect_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
@@ -693,6 +702,7 @@ impl AsyncHost {
         self.insert_io_result(HostIoResult::for_connect(addr_buffer))
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_make_accept_io_result")]
     pub(crate) fn make_accept_io_result(&self, addr_len: u32) -> AsyncHostResult<u64> {
         self.insert_io_result(HostIoResult::for_accept(addr_len)?)
     }
@@ -715,6 +725,7 @@ impl AsyncHost {
         Ok(handle)
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_free_io_result")]
     pub(crate) fn free_io_result(&self, handle: u64) -> AsyncHostResult<()> {
         let key = key_from_handle(handle);
         let mut io_results = self.io_results.borrow_mut();
@@ -742,6 +753,7 @@ impl AsyncHost {
         Ok(())
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_io_result_get_event")]
     pub(crate) fn io_result_get_event(&self, handle: u64) -> AsyncHostResult<i32> {
         let key = key_from_handle(handle);
         let io_results = self.io_results.borrow();
@@ -749,6 +761,7 @@ impl AsyncHost {
         Ok(result.event)
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_cancel_io_result")]
     pub(crate) fn cancel_io_result(
         &self,
         result_handle: u64,
@@ -780,6 +793,7 @@ impl AsyncHost {
         status
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_io_result_get_status")]
     pub(crate) fn io_result_get_status(
         &self,
         result_handle: u64,
@@ -885,6 +899,7 @@ impl AsyncHost {
         result.copy_read_result_with_addr(memory, dst, offset, len, addr, addr_len)
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_read")]
     pub(crate) fn read_io_result(
         &self,
         fd_handle: HostHandle,
@@ -950,6 +965,7 @@ impl AsyncHost {
         }
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_read_dir_changes")]
     pub(crate) fn read_dir_changes_io_result(
         &self,
         fd_handle: HostHandle,
@@ -989,6 +1005,7 @@ impl AsyncHost {
         Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_write")]
     pub(crate) fn write_io_result(
         &self,
         fd_handle: HostHandle,
@@ -1044,6 +1061,7 @@ impl AsyncHost {
         }
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_connect")]
     pub(crate) fn connect_io_result(
         &self,
         fd_handle: HostHandle,
@@ -1082,12 +1100,14 @@ impl AsyncHost {
         }
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_setup_connected_socket")]
     pub(crate) fn setup_connected_socket(&self, fd_handle: HostHandle) -> AsyncHostResult<()> {
         self.with_resource_of_class(fd_handle, ResourceClass::TcpSocket, |file| {
             self.network.setup_connected_socket(file)
         })
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_accept")]
     pub(crate) fn accept_io_result(
         &self,
         server_fd_handle: HostHandle,
@@ -1137,6 +1157,7 @@ impl AsyncHost {
         }
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_get_accept_peer_addr")]
     pub(crate) fn get_accept_peer_addr(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
@@ -1159,6 +1180,7 @@ impl AsyncHost {
         Ok(())
     }
 
+    #[ported(source = "src/internal/event_loop/io_windows.c", original = "moonbitlang_async_setup_accepted_socket")]
     pub(crate) fn setup_accepted_socket(
         &self,
         listen_fd_handle: HostHandle,
@@ -1169,6 +1191,7 @@ impl AsyncHost {
         let accept_file = handles.resource_of_class(accept_fd_handle, ResourceClass::TcpSocket)?;
         self.network.setup_accepted_socket(listen_file, accept_file)
     }
+}
 }
 
 fn last_errno() -> i32 {

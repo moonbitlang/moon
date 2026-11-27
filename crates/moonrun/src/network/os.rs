@@ -19,7 +19,7 @@
 //! Native networking mechanisms. Runtime authority, guest encoding and async
 //! request ownership belong to their callers; native socket failures use `io::Error`.
 
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 pub(crate) mod address;
 pub(crate) mod dns;

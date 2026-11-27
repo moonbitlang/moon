@@ -43,7 +43,7 @@ use windows_sys::Win32::Networking::WinSock as ws;
 use super::INVALID_ADDRESS;
 #[cfg(unix)]
 use super::INVALID_INPUT;
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 #[cfg(windows)]
 fn win32_error(errno: WIN32_ERROR) -> io::Error {

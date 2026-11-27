@@ -26,13 +26,21 @@ use std::os::fd::IntoRawFd;
 use std::os::windows::io::{AsRawHandle, IntoRawHandle};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::ported_fns;
 use crate::resource::{Resource, ResourceRef};
+use crate::upstream::ported_fns;
 
 use super::{HostProcess, Job, native, os};
 
 ported_fns! {
     impl HostProcess {
+        #[ported(source = "src/internal/env_util/stub.c", original = "moonbitlang_async_getpid")]
+        pub(crate) fn pid(&self) -> i32 {
+            self.context.as_ref().map_or_else(
+                || std::process::id() as i32,
+                |context| context.pid(),
+            )
+        }
+
         #[ported(source = "src/internal/event_loop/process.c", original = "moonbitlang_async_open_pid_handle")]
         /// Return an owned Resource for registration, or a PID-only wait target.
         /// Linux pidfd errors remain available to the ABI's fallback encoding.

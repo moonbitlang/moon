@@ -16,10 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_sys::internal::time::clock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::context::ImportContext;
 
 pub(super) fn get_ms_since_epoch(_context: &mut ImportContext<'_>) -> u64 {
-    clock::get_ms_since_epoch()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
 }

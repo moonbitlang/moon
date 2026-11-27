@@ -39,9 +39,11 @@ impl HostFs {
             .kind
             .map(metadata::file_kind_code)
             .ok_or_else(|| {
-                crate::async_host::AsyncHostError::Native(
-                    crate::async_sys::os_error::stub::get_enotsup(),
-                )
+                #[cfg(unix)]
+                let errno = libc::ENOTSUP;
+                #[cfg(windows)]
+                let errno = windows_sys::Win32::Foundation::ERROR_NOT_SUPPORTED as i32;
+                crate::async_host::AsyncHostError::Native(errno)
             })
     }
 

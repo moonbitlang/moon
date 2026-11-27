@@ -51,7 +51,7 @@ Audit an upstream update before preparing the commits that will deliver it:
    symbol is an audit signal, not a formatting failure.
 4. Compare the native C implementation together with every target-specific
    MoonBit wrapper, especially the wasm imports, to Moonrun's Async API, Async
-   Host, and Async Sys behavior. Do not assume an unchanged wasm wrapper
+   Host, and domain implementations. Do not assume an unchanged wasm wrapper
    already represents the new native ABI.
 5. If the wasm wrapper still uses a replaced ABI, prepare the coordinating
    async guest pull request during discovery. Compile that guest and audit its
@@ -92,7 +92,7 @@ replacement. It describes the provenance of the adapter, not whether the
 currently pinned wasm wrapper still calls it during a staged migration.
 
 Implementation provenance is independent of Wasm import registration.
-`ported_fns!` records the upstream implementation being followed, including
+`upstream::ported_fns!` records the upstream implementation being followed, including
 helpers with no import of their own. It also accepts inherent `impl` blocks;
 use `original = ["first_symbol", "second_symbol"]` when one Rust method combines
 upstream functions. Include each generated `PORTED_SYMBOLS` table in its domain's
@@ -110,8 +110,8 @@ implementation provenance from those adapter declarations.
   transferred, record it as a no-op `#[compat]` adapter instead of a generic
   helper.
 - If compatibility only translates a historical Wasm ABI before calling the
-  current ported Async Sys implementation, record it as an `api_only = true`
-  `#[compat]` adapter. Do not add a duplicate Async Sys wrapper solely for
+  current ported native implementation, record it as an `api_only = true`
+  `#[compat]` adapter. Do not add a duplicate native wrapper solely for
   provenance.
 - For a replacement, audit the new ABI, ownership, errors, platform behavior,
   and observable MoonBit API semantics. Add the new `#[ported]` implementation

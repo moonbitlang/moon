@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[cfg(test)]
-pub(crate) use crate::async_sys::SourceRoot;
+pub(crate) use crate::upstream::SourceRoot;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,8 +49,8 @@ pub(crate) struct CompatImport {
 }
 
 macro_rules! ported_imports {
-    (@root source) => { $crate::async_sys::SourceRoot::MoonbitAsync };
-    (@root runtime) => { $crate::async_sys::SourceRoot::MoonbitRuntime };
+    (@root source) => { $crate::upstream::SourceRoot::MoonbitAsync };
+    (@root runtime) => { $crate::upstream::SourceRoot::MoonbitRuntime };
     (@collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]) => {
         #[cfg(test)]
         pub(super) const PORTED_IMPORTS: &[$crate::async_api::provenance::PortedImport] = &[

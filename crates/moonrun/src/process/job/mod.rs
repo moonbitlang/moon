@@ -334,7 +334,7 @@ impl Job {
 }
 
 #[cfg(test)]
-fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+fn ported_symbols() -> Vec<crate::upstream::PortedSymbol> {
     native::PORTED_SYMBOLS.to_vec()
 }
 

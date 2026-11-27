@@ -30,8 +30,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::{AsyncHostError, AsyncHostResult, HandleKey, handle_from_key, key_from_handle};
-use crate::async_sys::ported_fns;
 use crate::runtime::{Handles, HostKeys, HostResourceKind as HandleKind, null_handle};
+use crate::upstream::ported_fns;
 
 enum HostCBuffer {
     Available(Box<[u8]>),

@@ -17,9 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::ported_fns;
 use crate::filesystem::{FsOperation, HostFs};
 use crate::resource::ResourceRef;
+use crate::upstream::ported_fns;
 
 ported_fns! {
     #[ported(runtime = "thread_pool.c", original = "read_console_job_worker")]

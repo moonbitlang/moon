@@ -25,7 +25,7 @@
 use std::io;
 
 use super::{BlockingIo, RawFile};
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 ported_fns! {
     #[ported(source = "src/fs/stub.c", original = "moonbitlang_async_errno_is_lock_violation")]

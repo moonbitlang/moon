@@ -16,25 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::AsyncHost;
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 
 ported_fns! {
-    #[ported(
-        source = "src/os_error/stub.c",
-        original = "moonbitlang_async_get_errno"
-    )]
-    pub(crate) fn get_errno(host: &AsyncHost) -> i32 {
-        host.get_errno()
-    }
-
     #[compat(
         source = "src/os_error/stub.c",
         original = "moonbitlang_async_is_nonblocking_io_error",
         upstream_pr = 566,
         replacement = "platform errno constants in src/os_error/error.mbt"
     )]
-    pub(crate) fn is_nonblocking_io_error(errno: i32) -> bool {
+    pub(super) fn is_nonblocking_io_error(errno: i32) -> bool {
         #[cfg(unix)]
         {
             errno == libc::EAGAIN || errno == libc::EINPROGRESS || errno == libc::EWOULDBLOCK
@@ -52,7 +43,7 @@ ported_fns! {
         upstream_pr = 566,
         replacement = "platform errno constants in src/os_error/error.mbt"
     )]
-    pub(crate) fn is_eintr(errno: i32) -> bool {
+    pub(super) fn is_eintr(errno: i32) -> bool {
         #[cfg(unix)]
         {
             errno == libc::EINTR
@@ -70,7 +61,7 @@ ported_fns! {
         upstream_pr = 566,
         replacement = "platform errno constants in src/os_error/error.mbt"
     )]
-    pub(crate) fn is_enoent(errno: i32) -> bool {
+    pub(super) fn is_enoent(errno: i32) -> bool {
         #[cfg(unix)]
         {
             errno == libc::ENOENT
@@ -88,7 +79,7 @@ ported_fns! {
         upstream_pr = 566,
         replacement = "platform errno constants in src/os_error/error.mbt"
     )]
-    pub(crate) fn is_eexist(errno: i32) -> bool {
+    pub(super) fn is_eexist(errno: i32) -> bool {
         #[cfg(unix)]
         {
             errno == libc::EEXIST
@@ -106,7 +97,7 @@ ported_fns! {
         upstream_pr = 566,
         replacement = "platform errno constants in src/os_error/error.mbt"
     )]
-    pub(crate) fn is_eacces(errno: i32) -> bool {
+    pub(super) fn is_eacces(errno: i32) -> bool {
         #[cfg(unix)]
         {
             errno == libc::EACCES
@@ -124,7 +115,7 @@ ported_fns! {
         upstream_pr = 566,
         replacement = "platform errno constants in src/os_error/error.mbt"
     )]
-    pub(crate) fn is_econnrefused(errno: i32) -> bool {
+    pub(super) fn is_econnrefused(errno: i32) -> bool {
         #[cfg(unix)]
         {
             errno == libc::ECONNREFUSED
@@ -145,7 +136,7 @@ ported_fns! {
         upstream_pr = 566,
         replacement = "platform errno constants in src/os_error/error.mbt"
     )]
-    pub(crate) fn is_error_notify_enum_dir(errno: i32) -> bool {
+    pub(super) fn is_error_notify_enum_dir(errno: i32) -> bool {
         #[cfg(windows)]
         {
             use windows_sys::Win32::Foundation::ERROR_NOTIFY_ENUM_DIR;
@@ -164,7 +155,7 @@ ported_fns! {
         upstream_pr = 566,
         replacement = "platform errno constants in src/os_error/error.mbt"
     )]
-    pub(crate) fn get_enotdir() -> i32 {
+    pub(super) fn get_enotdir() -> i32 {
         #[cfg(unix)]
         {
             libc::ENOTDIR
@@ -182,7 +173,7 @@ ported_fns! {
         upstream_pr = 566,
         replacement = "platform errno constants in src/os_error/error.mbt"
     )]
-    pub(crate) fn get_enotsup() -> i32 {
+    pub(super) fn get_enotsup() -> i32 {
         #[cfg(unix)]
         {
             libc::ENOTSUP
@@ -198,55 +189,55 @@ ported_fns! {
         source = "src/os_error/stub.c",
         original = "moonbitlang_async_errno_to_string"
     )]
-    pub(crate) fn errno_to_string(errno: i32) -> Box<[u8]> {
-        errno_to_string_sys(errno)
-    }
-}
+    #[cfg(unix)]
+    pub(super) fn errno_to_string(errno: i32) -> Box<[u8]> {
+        use std::ffi::CStr;
 
-#[cfg(unix)]
-fn errno_to_string_sys(errno: i32) -> Box<[u8]> {
-    use std::ffi::CStr;
+        let message = unsafe { libc::strerror(errno) };
+        if message.is_null() {
+            return fallback_errno_bytes(errno);
+        }
 
-    let message = unsafe { libc::strerror(errno) };
-    if message.is_null() {
-        return fallback_errno_bytes(errno);
+        copy_c_string_bytes(unsafe { CStr::from_ptr(message) }.to_bytes())
     }
 
-    copy_c_string_bytes(unsafe { CStr::from_ptr(message) }.to_bytes())
-}
+    #[ported(
+        source = "src/os_error/stub.c",
+        original = "moonbitlang_async_errno_to_string"
+    )]
+    #[cfg(windows)]
+    pub(super) fn errno_to_string(errno: i32) -> Box<[u8]> {
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::System::Diagnostics::Debug::{
+            FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS,
+            FormatMessageW,
+        };
 
-#[cfg(windows)]
-fn errno_to_string_sys(errno: i32) -> Box<[u8]> {
-    use windows_sys::Win32::Foundation::LocalFree;
-    use windows_sys::Win32::System::Diagnostics::Debug::{
-        FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS,
-        FormatMessageW,
-    };
+        let mut message = std::ptr::null_mut::<u16>();
+        let len = unsafe {
+            FormatMessageW(
+                FORMAT_MESSAGE_ALLOCATE_BUFFER
+                    | FORMAT_MESSAGE_FROM_SYSTEM
+                    | FORMAT_MESSAGE_IGNORE_INSERTS,
+                std::ptr::null(),
+                errno as u32,
+                0,
+                std::ptr::addr_of_mut!(message).cast(),
+                0,
+                std::ptr::null(),
+            )
+        };
+        if len == 0 {
+            return fallback_errno_wide_bytes(errno);
+        }
 
-    let mut message = std::ptr::null_mut::<u16>();
-    let len = unsafe {
-        FormatMessageW(
-            FORMAT_MESSAGE_ALLOCATE_BUFFER
-                | FORMAT_MESSAGE_FROM_SYSTEM
-                | FORMAT_MESSAGE_IGNORE_INSERTS,
-            std::ptr::null(),
-            errno as u32,
-            0,
-            std::ptr::addr_of_mut!(message).cast(),
-            0,
-            std::ptr::null(),
-        )
-    };
-    if len == 0 {
-        return fallback_errno_wide_bytes(errno);
+        let buffer = unsafe { std::slice::from_raw_parts(message, len as usize) };
+        let bytes = copy_wide_c_string_bytes(buffer);
+        unsafe {
+            let _ = LocalFree(message.cast());
+        }
+        bytes
     }
-
-    let buffer = unsafe { std::slice::from_raw_parts(message, len as usize) };
-    let bytes = copy_wide_c_string_bytes(buffer);
-    unsafe {
-        let _ = LocalFree(message.cast());
-    }
-    bytes
 }
 
 #[cfg(unix)]

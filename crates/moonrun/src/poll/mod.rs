@@ -342,7 +342,7 @@ pub(crate) fn post_thread_pool_completion(port: &CompletionPort, id: i32) -> Asy
 }
 
 #[cfg(test)]
-pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+pub(crate) fn ported_symbols() -> Vec<crate::upstream::PortedSymbol> {
     os::ported_symbols()
 }
 

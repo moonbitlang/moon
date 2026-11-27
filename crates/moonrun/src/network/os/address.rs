@@ -23,7 +23,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use windows_sys::Win32::Networking::WinSock as ws;
 
 use super::{INVALID_ADDRESS, INVALID_INPUT};
-use crate::async_sys::ported_fns;
+use crate::upstream::ported_fns;
 use std::io;
 
 /// Read the IP and port without altering the native address buffer.

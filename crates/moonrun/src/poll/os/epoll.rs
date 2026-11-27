@@ -16,8 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_sys::ported_fns;
 use crate::filesystem::RawFile as RawFd;
+use crate::upstream::ported_fns;
 use std::io;
 use std::os::fd::{FromRawFd, OwnedFd};
 

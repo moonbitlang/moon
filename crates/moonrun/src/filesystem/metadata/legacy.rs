@@ -27,12 +27,12 @@ use std::os::fd::AsRawFd;
 use std::os::windows::io::AsRawHandle;
 
 use crate::async_host::AsyncHostResult;
-use crate::async_sys::ported_fns;
 use crate::filesystem::os::{
     BlockingIo, RawFile,
     metadata::{self, FileInfo},
 };
 use crate::resource::Resource;
+use crate::upstream::ported_fns;
 
 #[cfg(unix)]
 use super::FILE_KIND_BLOCK_DEVICE;
