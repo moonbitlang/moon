@@ -2,6 +2,5 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/async",
   "moonbitlang/async/fs",
-  "moonbitlang/async/os_error",
   "moonbitlang/async/process",
 } for "test"

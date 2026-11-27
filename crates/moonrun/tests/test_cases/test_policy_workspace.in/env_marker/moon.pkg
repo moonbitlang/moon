@@ -3,6 +3,7 @@ import {
   "moonbitlang/async",
   "moonbitlang/async/fs",
   "moonbitlang/async/process",
+  "moonbitlang/async/os_error",
 }
 
 pkgtype(kind: "executable")

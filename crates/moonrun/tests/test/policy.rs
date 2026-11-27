@@ -192,7 +192,7 @@ spawn = true
     )
     .unwrap();
 
-    // The guest removes this directory before spawning moonx. On Linux the
+    // The guest removes this directory before spawning moonx. The
     // inherited policy must still reach the cached env_marker fixture.
     let policy_transfer_temp = tempfile::TempDir::new().expect("create policy transfer temp");
     moon_cmd()
@@ -206,7 +206,7 @@ spawn = true
         .args([
             "test",
             "--package",
-            "moon/policy_workspace/spawn_moonx_error",
+            "moon/policy_workspace/spawn_moonx_no_temp",
             "--target",
             "wasm",
             "--wasm-policy",
