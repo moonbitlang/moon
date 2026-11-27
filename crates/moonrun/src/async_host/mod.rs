@@ -3788,6 +3788,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn run_job_rechecks_swapped_open_symlink_at_execution() {
+        use crate::filesystem::{CreateMode, OpenAccess};
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
         let denied = tmp.path().join("denied");
@@ -3804,10 +3805,11 @@ mod tests {
         let host = host_with_policy(&policy_file);
 
         host.filesystem()
-            .authorize(FsOperation::OpenAsync {
+            .authorize(FsOperation::Open {
                 path: FsPath::Cwd(link.as_os_str()),
-                access: 0,
-                create_mode: 0,
+                access: Some(OpenAccess::Read),
+                create: Some(CreateMode::Open),
+                append: false,
                 read_metadata: false,
             })
             .unwrap();

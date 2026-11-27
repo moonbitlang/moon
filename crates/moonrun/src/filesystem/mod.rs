@@ -33,10 +33,11 @@ pub(crate) use authorization::entry_before_directory_suffix;
 pub(crate) use authorization::{
     FileGrant, FsAuthorizer, FsOperation, FsPath, FsTarget, PolicyAuthorizer,
 };
-pub(crate) use host::{Directory, FileOpenOptions, FsError, HostFs};
+pub(crate) use host::{Directory, FsError, HostFs};
 pub(crate) use job::Job;
 pub(crate) use os::RawFile;
 pub(crate) use os::lock::errno_is_lock_violation;
+pub(crate) use os::openat::{Access as OpenAccess, CreateMode};
 pub(crate) use os::pipe::pipe;
 #[cfg(unix)]
 pub(crate) use os::pipe::set_cloexec;

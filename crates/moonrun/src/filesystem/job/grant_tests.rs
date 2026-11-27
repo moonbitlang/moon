@@ -227,7 +227,7 @@ fn host_authorizer_caps_the_open_grant_and_checks_extra_metadata_before_truncati
     impl FsAuthorizer for WriteOnlyOpen {
         fn authorize(&self, operation: FsOperation<'_>) -> Result<AccessRights, FsError> {
             Ok(match operation {
-                FsOperation::OpenAsync { .. } => AccessRights::WRITE,
+                FsOperation::Open { .. } => AccessRights::WRITE,
                 _ => AccessRights::READ_WRITE,
             })
         }
@@ -268,6 +268,26 @@ fn host_authorizer_caps_the_open_grant_and_checks_extra_metadata_before_truncati
     );
     assert_eq!(Job::write(file, b"new!".to_vec(), 0).run(&fs).unwrap(), 4);
     assert_eq!(std::fs::read(&path).unwrap(), b"new!");
+}
+
+#[test]
+fn open_authorization_precedes_invalid_scalar_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("file"), b"keep").unwrap();
+    let read = filesystem(dir.path(), "[fs]\nread = ['file']");
+    let both = filesystem(dir.path(), "[fs]\nread = ['file']\nwrite = ['file']");
+    for (access, create, sync) in [(-1, 0, 0), (0, -1, 0), (1, 1, -1)] {
+        for (host, expected) in [
+            (&read, AsyncHostError::PermissionDenied),
+            (&both, AsyncHostError::Inval),
+        ] {
+            assert_eq!(
+                Job::open_legacy("file".into(), access, create, false, sync, 0).run(host),
+                Err(expected)
+            );
+        }
+    }
+    assert_eq!(std::fs::read(dir.path().join("file")).unwrap(), b"keep");
 }
 
 #[test]

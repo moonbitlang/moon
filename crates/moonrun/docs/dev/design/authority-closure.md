@@ -78,11 +78,21 @@ operations check those rights without re-resolving the opening pathname; native
 access modes and ABI descriptor rights remain additional constraints. New path
 lookups, including children of an acquired directory, require path authorization.
 
-`OpenAsync` retains scalar access/create modes and a positioning-only append flag.
-`OpenWithOptions` retains the std::OpenOptions contract, where append implies
-write and invalid creation/truncation combinations are rejected. Neither moves
-validation ahead of policy. Async opening's optional extra metadata read is
-checked after its open admission, using the same acquired-directory base.
+`FsOperation::Open` carries the effects of an open across async and WASI.
+File read, write, directory listing, file creation and truncation are distinct
+effects an authorizer can inspect. This follows the distinctions in the
+[Landlock filesystem access rights](https://docs.kernel.org/userspace-api/landlock.html#filesystem-flags).
+A WASI directory open requests a traversal handle. Listing the directory later
+requires a separate enumeration check. Async can request a listing handle directly.
+
+Both adapters translate their flags before authorization. Append affects write
+positioning on async, while WASI append also requests write access. An exclusive
+create takes precedence over truncate on WASI. The built-in rules still map
+these effects to read and write. Async's extra metadata read is checked after
+open admission using the same resolved target. If the returned grant cannot
+cover the request, the open fails before creating, truncating or publishing a
+handle. Otherwise the native open uses the requested flags. Invalid async scalar
+values and invalid WASI file open combinations retain their error ordering.
 
 Each HostFs receives one bound `FsAuthorizer` and submits the complete operation.
 Runtime construction binds the built-in `PolicyAuthorizer` to the effective filesystem
@@ -103,6 +113,20 @@ an empty entry. A nonempty directory requires enumeration access, and each
 child removal requires its own grant. A denial stops traversal and may leave a
 partially removed tree. Directory rename still checks the two endpoints without
 visiting descendants.
+
+### Comparing filesystem operations with Landlock
+
+| moonrun request | Effects an authorizer can distinguish |
+| --- | --- |
+| `Open`, `ListDirectory` | Read or write file data, list a directory, create a regular file, or truncate one. Landlock calls these `READ_FILE`, `WRITE_FILE`, `READ_DIR`, `MAKE_REG`, and `TRUNCATE`. A traversal handle has its own open access mode in moonrun. |
+| `CreateDirectory`, `CreateSymlink`, `UnlinkFile`, `RemoveDirectory` | The entry changes correspond to `MAKE_DIR`, `MAKE_SYM`, `REMOVE_FILE`, and `REMOVE_DIR`. For `RemoveEntry`, the caller leaves the choice of removal kind to the OS. |
+| `Rename` | One request carries both entries and the replacement and cross-device options. Landlock also considers reparenting (`REFER`). The current moonrun policy checks write access at both endpoints. |
+| `ReadResource`, `WriteResource`, `Flush` | I/O uses a retained handle grant. The native handle's open mode constrains its use. |
+| `Read`, `Write`, `WriteFile`, `CreateDirectories` | These include composite operations. For example, SQLite asks for access to both a database and its parent, and recursive creation can affect multiple directory entries. |
+| `Kind`, `Metadata`, `InspectEntry`, `Chmod`, `AccessCheck`, `Lock`, `Watch` | moonrun exposes these operations to its authorizer directly. Their built-in checks are specified by moonrun. |
+
+The Linux flags describe the effects used for comparison. The moonrun policy
+configuration continues to expose read and write rules. [Landlock filesystem flags](https://docs.kernel.org/userspace-api/landlock.html#filesystem-flags)
 
 ### Operation ownership
 

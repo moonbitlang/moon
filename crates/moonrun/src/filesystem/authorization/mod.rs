@@ -32,8 +32,8 @@ pub(crate) use grant::FileGrant;
 use std::ffi::OsStr;
 use std::path::Path;
 
-use super::host::{FileOpenOptions, FsError};
 use super::os::RawFile;
+use super::{CreateMode, FsError, OpenAccess};
 use crate::policy::AccessRights;
 
 /// A pathname lookup uses either Runtime cwd or an acquired directory's base.
@@ -102,21 +102,16 @@ pub(crate) enum FsOperation<'a> {
     },
     WriteFile(FsPath<'a>),
     CreateDirectories(FsPath<'a>),
-    /// Async ABI: access selects read/write/read-write/directory listing;
-    /// append only changes positioning. Permissions precede scalar validation.
-    OpenAsync {
+    /// Unknown async access or creation modes stay absent until validation
+    /// so that a policy denial retains precedence over invalid input.
+    Open {
         path: FsPath<'a>,
-        access: i32,
-        create_mode: i32,
-        /// Additional metadata beyond the identity supplied by opening.
+        access: Option<OpenAccess>,
+        create: Option<CreateMode>,
+        /// Append positions writes. Write access is determined by `access`.
+        append: bool,
+        /// Metadata beyond the identity supplied by opening.
         read_metadata: bool,
-    },
-    /// std::OpenOptions contract: append implies write; creation/truncation
-    /// without write, and append+truncate without create_new, are rejected after
-    /// authorization. Used by WASI, separately from the async ABI.
-    OpenWithOptions {
-        path: FsPath<'a>,
-        options: &'a FileOpenOptions,
     },
     AccessCheck {
         path: FsPath<'a>,

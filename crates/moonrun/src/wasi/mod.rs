@@ -23,7 +23,7 @@ pub(crate) mod imports;
 #[cfg(test)]
 mod authority_tests;
 
-use crate::filesystem::{Directory, FileOpenOptions, FsError, HostFs};
+use crate::filesystem::{CreateMode, Directory, FsError, HostFs, OpenAccess};
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::runtime::{Env, Runtime, Stdio, StdioStream};
 use anyhow::Context;
@@ -835,19 +835,29 @@ pub(crate) fn path_open_impl(
         let wants_write = (rights_base & WASI_RIGHT_FD_WRITE) != 0;
         let append = (fdflags & WASI_FDFLAG_APPEND) != 0;
 
-        // Preserve native open access (including read fallback and create's
-        // write access) in the same options used by HostFs authorization.
-        let options = FileOpenOptions {
-            read: wants_read || !wants_write,
-            write: wants_write || append || create_requested,
-            append,
-            create: create_requested,
-            create_new: (oflags & WASI_OFLAGS_EXCL) != 0,
-            truncate: (oflags & WASI_OFLAGS_TRUNC) != 0,
+        // WASI falls back to a readable handle when no write right was
+        // requested. Append and creation also acquire native write access.
+        let access = match (
+            wants_read || !wants_write,
+            wants_write || append || create_requested,
+        ) {
+            (true, true) => OpenAccess::ReadWrite,
+            (_, true) => OpenAccess::Write,
+            _ => OpenAccess::Read,
+        };
+        let create = if oflags & WASI_OFLAGS_EXCL != 0 {
+            CreateMode::Exclusive
+        } else {
+            match (create_requested, oflags & WASI_OFLAGS_TRUNC != 0) {
+                (false, false) => CreateMode::Open,
+                (false, true) => CreateMode::Truncate,
+                (true, false) => CreateMode::Create,
+                (true, true) => CreateMode::CreateOrTruncate,
+            }
         };
         let file = context
             .filesystem
-            .open_file_at(&resolved.directory, &path, options)
+            .open_file_at(&resolved.directory, &path, access, create, append)
             .map_err(fs_error_to_errno)?;
         DescriptorKind::File(Mutex::new(file))
     };

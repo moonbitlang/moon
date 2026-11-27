@@ -23,7 +23,7 @@ use super::path::{canonicalize_entry_path, canonicalize_existing_prefix, directo
 #[cfg(unix)]
 use super::system_reads;
 use super::{FileGrant, FsAuthorizer, FsOperation, FsPath, FsTarget};
-use crate::filesystem::FsError;
+use crate::filesystem::{CreateMode, FsError, OpenAccess};
 use crate::policy::{AccessRights, FsPolicy};
 use crate::runtime::WorkingDirectory;
 use std::path::{Path, PathBuf};
@@ -115,9 +115,9 @@ impl PolicyAuthorizer {
             FsOperation::ListDirectory(target)
             | FsOperation::Kind(target)
             | FsOperation::Metadata(target) => (target, object),
-            FsOperation::OpenAsync { path, .. }
-            | FsOperation::OpenWithOptions { path, .. }
-            | FsOperation::AccessCheck { path, .. } => (FsTarget::Path(path), object),
+            FsOperation::Open { path, .. } | FsOperation::AccessCheck { path, .. } => {
+                (FsTarget::Path(path), object)
+            }
             FsOperation::Lock {
                 exclusive: false, ..
             } => return Ok(AccessRights::READ_WRITE),
@@ -210,16 +210,21 @@ impl FsAuthorizer for PolicyAuthorizer {
         };
         let allowed = authorizer.authorize(operation)?;
         let granted = ceiling.intersection(allowed);
-        let (required, read_metadata) = operation.requirements();
-        if granted.contains(required) && (!read_metadata || granted.contains(AccessRights::READ)) {
-            Ok(granted)
-        } else {
-            Err(FsError::Denied)
-        }
+        operation.check_grant(granted)?;
+        Ok(granted)
     }
 }
 
 impl FsOperation<'_> {
+    pub(in crate::filesystem) fn check_grant(&self, granted: AccessRights) -> Result<(), FsError> {
+        let (required, read_metadata) = self.requirements();
+        if granted.contains(required) && (!read_metadata || granted.contains(AccessRights::READ)) {
+            Ok(())
+        } else {
+            Err(FsError::Denied)
+        }
+    }
+
     /// Paths and acquired files use the same operation-to-access interpretation.
     /// Extra open metadata retains its separate read admission.
     fn requirements(&self) -> (AccessRights, bool) {
@@ -241,42 +246,29 @@ impl FsOperation<'_> {
             | Self::Lock {
                 exclusive: true, ..
             } => AccessRights::WRITE,
-            Self::OpenAsync {
+            Self::Open {
                 access,
-                create_mode,
+                create,
+                append: _append,
                 read_metadata,
                 ..
             } => {
                 let access = match access {
-                    0 | 3 => AccessRights::READ,
-                    1 => AccessRights::WRITE,
-                    _ => AccessRights::READ_WRITE,
+                    Some(
+                        OpenAccess::Read
+                        | OpenAccess::ListDirectory
+                        | OpenAccess::TraverseDirectory
+                        | OpenAccess::Attributes,
+                    ) => AccessRights::READ,
+                    Some(OpenAccess::Write | OpenAccess::Delete) => AccessRights::WRITE,
+                    Some(OpenAccess::ReadWrite) | None => AccessRights::READ_WRITE,
                 };
-                return (
-                    if *create_mode != 0 {
-                        access.union(AccessRights::WRITE)
-                    } else {
-                        access
-                    },
-                    *read_metadata,
-                );
-            }
-            Self::OpenWithOptions { options, .. } => {
-                let access = if options.read {
-                    AccessRights::READ
-                } else {
-                    AccessRights::NONE
-                };
-                if options.write
-                    || options.append
-                    || options.create
-                    || options.create_new
-                    || options.truncate
-                {
-                    access.union(AccessRights::WRITE)
-                } else {
+                let access = if *create == Some(CreateMode::Open) {
                     access
-                }
+                } else {
+                    access.union(AccessRights::WRITE)
+                };
+                return (access, *read_metadata);
             }
             Self::AccessCheck { access: 2, .. } => AccessRights::WRITE,
             Self::ReadResource(_)

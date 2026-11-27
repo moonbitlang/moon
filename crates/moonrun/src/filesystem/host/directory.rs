@@ -22,57 +22,20 @@ use super::{FsError, HostFs};
 #[cfg(unix)]
 use crate::filesystem::authorization::entry_before_directory_suffix;
 use crate::filesystem::{FsOperation, FsPath, authorization, os};
+use os::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// One source for both native open options and their authorization intent.
-pub(crate) struct FileOpenOptions {
-    pub(crate) read: bool,
-    pub(crate) write: bool,
-    pub(crate) append: bool,
-    pub(crate) create: bool,
-    pub(crate) create_new: bool,
-    pub(crate) truncate: bool,
-}
-
-impl FileOpenOptions {
-    fn openat_options(&self) -> std::io::Result<os::openat::OpenOptions> {
-        use os::openat::{Access, CreateMode, OpenOptions, Sync, TypeConstraint};
-        // Preserve std::OpenOptions validation separately from opening the file.
-        // Async jobs retain their own scalar-option contract.
-        let write = self.write || self.append;
-        if (!write && (!self.read || self.create || self.create_new || self.truncate))
-            || (self.append && self.truncate && !self.create_new)
-        {
-            return Err(std::io::ErrorKind::InvalidInput.into());
-        }
-        Ok(OpenOptions {
-            access: if self.read && write {
-                Access::ReadWrite
-            } else if write {
-                Access::Write
-            } else {
-                Access::Read
-            },
-            type_constraint: TypeConstraint::Any,
-            follow_symlink: true,
-            is_async: false,
-            create: if self.create_new {
-                CreateMode::Exclusive
-            } else {
-                match (self.create, self.truncate) {
-                    (false, false) => CreateMode::Open,
-                    (false, true) => CreateMode::Truncate,
-                    (true, false) => CreateMode::Create,
-                    (true, true) => CreateMode::CreateOrTruncate,
-                }
-            },
-            append: self.append,
-            sync: Sync::None,
-            permission: 0o666,
-        })
-    }
-}
+const TRAVERSE_DIRECTORY: OpenOptions = OpenOptions {
+    access: Access::TraverseDirectory,
+    type_constraint: TypeConstraint::Directory,
+    follow_symlink: true,
+    is_async: false,
+    create: CreateMode::Open,
+    append: false,
+    sync: Sync::None,
+    permission: 0,
+};
 
 /// An acquired directory, independent of guest descriptor numbering and rights.
 /// Its pathname is queried only for authorization and path-only operations.
@@ -84,26 +47,8 @@ impl Directory {
     /// Runtime configuration acquires a preopen without granting guest access.
     /// HostFs still authorizes each operation using its requested effects.
     pub(crate) fn preopen(path: &Path) -> std::io::Result<Self> {
-        use os::{
-            DirectIo,
-            openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
-        };
         Ok(Self {
-            file: openat::open(
-                None,
-                path.as_os_str(),
-                &OpenOptions {
-                    access: Access::TraverseDirectory,
-                    type_constraint: TypeConstraint::Directory,
-                    follow_symlink: true,
-                    is_async: false,
-                    create: CreateMode::Open,
-                    append: false,
-                    sync: Sync::None,
-                    permission: 0,
-                },
-                &DirectIo,
-            )?,
+            file: openat::open(None, path.as_os_str(), &TRAVERSE_DIRECTORY, &os::DirectIo)?,
         })
     }
 
@@ -170,24 +115,44 @@ impl HostFs {
         &self,
         directory: &Directory,
         path: &Path,
-        options: FileOpenOptions,
+        access: Access,
+        create: CreateMode,
+        append: bool,
     ) -> Result<fs::File, FsError> {
-        use os::{DirectIo, openat};
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
-        self.authorize(FsOperation::OpenWithOptions {
+        self.authorize(FsOperation::Open {
             path: FsPath::At {
                 base: &base,
                 path: path.as_os_str(),
             },
-            options: &options,
+            access: Some(access),
+            create: Some(create),
+            append,
+            read_metadata: false,
         })?;
-        let options = options.openat_options()?;
+        // std::OpenOptions rejects mutation without write and append with
+        // truncation. Exclusive creation takes precedence over truncation.
+        if (!matches!(access, Access::Write | Access::ReadWrite) && create != CreateMode::Open)
+            || (append && matches!(create, CreateMode::Truncate | CreateMode::CreateOrTruncate))
+        {
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput).into());
+        }
+        let options = OpenOptions {
+            access,
+            create,
+            append,
+            type_constraint: TypeConstraint::Any,
+            follow_symlink: true,
+            is_async: false,
+            sync: Sync::None,
+            permission: 0o666,
+        };
         Ok(openat::open(
             Some(os::raw_file(&directory.file)),
             path.as_os_str(),
             &options,
-            &DirectIo,
+            &os::DirectIo,
         )?)
     }
 
@@ -196,16 +161,18 @@ impl HostFs {
         directory: &Directory,
         path: &Path,
     ) -> Result<Directory, FsError> {
-        use os::{
-            DirectIo,
-            openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
-        };
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
-        self.authorize(FsOperation::Read(FsPath::At {
-            base: &base,
-            path: path.as_os_str(),
-        }))?;
+        self.authorize(FsOperation::Open {
+            path: FsPath::At {
+                base: &base,
+                path: path.as_os_str(),
+            },
+            access: Some(TRAVERSE_DIRECTORY.access),
+            create: Some(TRAVERSE_DIRECTORY.create),
+            append: false,
+            read_metadata: false,
+        })?;
         // NtCreateFile does not perform DOS dot-component normalization. The
         // normalized path is empty when opening the acquired directory itself.
         let file = if path.as_os_str().is_empty() {
@@ -214,17 +181,8 @@ impl HostFs {
             openat::open(
                 Some(os::raw_file(&directory.file)),
                 path.as_os_str(),
-                &OpenOptions {
-                    access: Access::TraverseDirectory,
-                    type_constraint: TypeConstraint::Directory,
-                    follow_symlink: true,
-                    is_async: false,
-                    create: CreateMode::Open,
-                    append: false,
-                    sync: Sync::None,
-                    permission: 0,
-                },
-                &DirectIo,
+                &TRAVERSE_DIRECTORY,
+                &os::DirectIo,
             )?
         };
         Ok(Directory { file })
