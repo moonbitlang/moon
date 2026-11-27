@@ -192,6 +192,37 @@ spawn = true
     )
     .unwrap();
 
+    // The guest removes its startup temp directory and sets a different, valid
+    // one. Handoff must still fail before spawn even though the host can write
+    // to its own temp directory.
+    let policy_transfer_temp = tempfile::TempDir::new().expect("create policy transfer temp");
+    let transfer_policy = dir.path().join("transfer-policy.json");
+    std::fs::write(&transfer_policy, serde_json::to_vec(&serde_json::json!({
+        "env": {"from_host": ["*"], "set": {
+            "TMPDIR": policy_transfer_temp.path(), "TMP": policy_transfer_temp.path(),
+            "TEMP": policy_transfer_temp.path(), "REPLACEMENT_TMP": dir.path()
+        }},
+        "fs": {"write": ["*"]},
+        "process": {"spawn": true}
+    })).unwrap()).unwrap();
+    moon_cmd()
+        .current_dir(dir.path())
+        .env("PATH", &path)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .args([
+            "test",
+            "--package",
+            "moon/policy_workspace/spawn_moonx_error",
+            "--target",
+            "wasm",
+            "--wasm-policy",
+        ])
+        .arg(&transfer_policy)
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+
     moon_cmd()
         .current_dir(dir.path())
         .env("PATH", &path)
