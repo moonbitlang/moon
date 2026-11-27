@@ -66,9 +66,9 @@ All filesystem authorization requests go through `HostFs::authorize` with an
 or an acquired-directory base, while handle operations use an opaque `FileGrant`.
 Metadata and kind queries accept either target; entry changes require a pathname
 and locks require an acquired file. A directory's handle grant cannot authorize
-lookups beneath it. Directory-relative requests supply either an existing base
-path or a live directory handle; the authorizer queries handle paths only when a
-policy is present. There is no absent-base target state.
+lookups beneath it. Directory-relative authorization requests carry the live
+directory handle and lookup name. The built-in authorizer recovers the
+directory's current pathname when a policy requires it.
 
 The authorizer interprets operation options, selects object or entry resolution,
 and applies resource exemptions before matching resolved read/write requirements.

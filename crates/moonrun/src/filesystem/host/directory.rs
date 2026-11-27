@@ -61,7 +61,7 @@ impl Directory {
 /// need conversion to a name relative to the acquired handle. Resolve only the
 /// parent: following the final link here would change unlink and exclusive-open
 /// semantics before their OS operation gets to interpret the entry.
-fn relative_path(base: &Path, path: &Path) -> Result<PathBuf, FsError> {
+fn relative_path(directory: &Directory, path: &Path) -> Result<PathBuf, FsError> {
     #[cfg(unix)]
     if !path.is_absolute() {
         return Ok(if path.as_os_str().is_empty() {
@@ -70,6 +70,8 @@ fn relative_path(base: &Path, path: &Path) -> Result<PathBuf, FsError> {
             path.to_owned()
         });
     }
+    let base_path = directory.path()?;
+    let base = base_path.as_path();
     #[cfg(windows)]
     let host_path = std::path::absolute(dunce::simplified(base).join(path))?;
     #[cfg(unix)]
@@ -119,11 +121,11 @@ impl HostFs {
         create: CreateMode,
         append: bool,
     ) -> Result<fs::File, FsError> {
-        let base = directory.path()?;
-        let path = relative_path(&base, path)?;
+        let handle = os::raw_file(&directory.file);
+        let path = relative_path(directory, path)?;
         self.authorize(FsOperation::Open {
-            path: FsPath::At {
-                base: &base,
+            path: FsPath::AtHandle {
+                directory: handle,
                 path: path.as_os_str(),
             },
             access: Some(access),
@@ -149,7 +151,7 @@ impl HostFs {
             permission: 0o666,
         };
         Ok(openat::open(
-            Some(os::raw_file(&directory.file)),
+            Some(handle),
             path.as_os_str(),
             &options,
             &os::DirectIo,
@@ -161,11 +163,11 @@ impl HostFs {
         directory: &Directory,
         path: &Path,
     ) -> Result<Directory, FsError> {
-        let base = directory.path()?;
-        let path = relative_path(&base, path)?;
+        let handle = os::raw_file(&directory.file);
+        let path = relative_path(directory, path)?;
         self.authorize(FsOperation::Open {
-            path: FsPath::At {
-                base: &base,
+            path: FsPath::AtHandle {
+                directory: handle,
                 path: path.as_os_str(),
             },
             access: Some(TRAVERSE_DIRECTORY.access),
@@ -179,7 +181,7 @@ impl HostFs {
             directory.file.try_clone()?
         } else {
             openat::open(
-                Some(os::raw_file(&directory.file)),
+                Some(handle),
                 path.as_os_str(),
                 &TRAVERSE_DIRECTORY,
                 &os::DirectIo,
@@ -193,28 +195,28 @@ impl HostFs {
         directory: &Directory,
         path: &Path,
     ) -> Result<(), FsError> {
-        let base = directory.path()?;
-        let path = relative_path(&base, path)?;
-        self.authorize(FsOperation::RemoveDirectory(FsPath::At {
-            base: &base,
+        let handle = os::raw_file(&directory.file);
+        let path = relative_path(directory, path)?;
+        self.authorize(FsOperation::RemoveDirectory(FsPath::AtHandle {
+            directory: handle,
             path: path.as_os_str(),
         }))?;
         Ok(os::unlinkat::remove_directory_at(
-            Some(os::raw_file(&directory.file)),
+            Some(handle),
             path.as_os_str(),
             &os::DirectIo,
         )?)
     }
 
     pub(crate) fn unlink_file_at(&self, directory: &Directory, path: &Path) -> Result<(), FsError> {
-        let base = directory.path()?;
-        let path = relative_path(&base, path)?;
-        self.authorize(FsOperation::UnlinkFile(FsPath::At {
-            base: &base,
+        let handle = os::raw_file(&directory.file);
+        let path = relative_path(directory, path)?;
+        self.authorize(FsOperation::UnlinkFile(FsPath::AtHandle {
+            directory: handle,
             path: path.as_os_str(),
         }))?;
         Ok(os::unlinkat::unlink_file_at(
-            Some(os::raw_file(&directory.file)),
+            Some(handle),
             path.as_os_str(),
             &os::DirectIo,
         )?)

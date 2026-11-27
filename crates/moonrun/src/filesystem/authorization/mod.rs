@@ -30,7 +30,6 @@ mod system_reads;
 pub(crate) use grant::FileGrant;
 
 use std::ffi::OsStr;
-use std::path::Path;
 
 use super::os::RawFile;
 use super::{CreateMode, FsError, OpenAccess};
@@ -41,10 +40,6 @@ use crate::policy::AccessRights;
 #[derive(Clone, Copy)]
 pub(crate) enum FsPath<'a> {
     Cwd(&'a OsStr),
-    At {
-        base: &'a Path,
-        path: &'a OsStr,
-    },
     /// The caller keeps this directory handle alive through authorization.
     /// Recover its pathname only when policy requires it.
     AtHandle {
