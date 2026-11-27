@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn inheritance_transport_is_not_a_user_policy_document() {
         let rules = compile(PolicyConfig::default());
-        let contents = rules.open_transfer(None).unwrap().read().unwrap();
+        let contents = rules.to_transfer().unwrap();
         assert!(serde_json::from_slice::<PolicyConfig>(&contents).is_err());
         let value: serde_json::Value = serde_json::from_slice(&contents).unwrap();
         assert!(value.get("env").is_none());
@@ -242,12 +242,9 @@ mod tests {
             "process":{"allow":[{"program":"a program", "args_prefix":["", "a b", "quote\"", "slash\\"]}]}
         }"#;
         let rules = compile(serde_json::from_slice(input).unwrap());
-        let encoded = rules.open_transfer(None).unwrap().read().unwrap();
+        let encoded = rules.to_transfer().unwrap();
         let decoded = Policy::from_transfer(&encoded).unwrap();
-        assert_eq!(
-            decoded.open_transfer(None).unwrap().read().unwrap(),
-            encoded
-        );
+        assert_eq!(decoded.to_transfer().unwrap(), encoded);
         for rules in [rules, decoded] {
             rules
                 .filesystem()
@@ -293,7 +290,7 @@ mod tests {
             )
             .unwrap(),
         );
-        let contents = rules.open_transfer(None).unwrap().read().unwrap();
+        let contents = rules.to_transfer().unwrap();
         let decoded = Policy::from_transfer(&contents).unwrap();
         for rules in [rules, decoded] {
             rules
@@ -340,7 +337,7 @@ mod tests {
     #[test]
     fn transfer_rejects_unknown_versions_fields_and_invalid_rules() {
         let rules = compile(PolicyConfig::default());
-        let contents = rules.open_transfer(None).unwrap().read().unwrap();
+        let contents = rules.to_transfer().unwrap();
         let original: serde_json::Value = serde_json::from_slice(&contents).unwrap();
         for (pointer, value) in [
             ("/version", serde_json::json!(99)),
@@ -400,7 +397,7 @@ mod tests {
             NetRules::from_config(Default::default()).unwrap(),
             ProcessRules::from_config(Default::default()).unwrap(),
         );
-        let contents = rules.open_transfer(None).unwrap().read().unwrap();
+        let contents = rules.to_transfer().unwrap();
         let decoded = Policy::from_transfer(&contents).unwrap();
         decoded
             .filesystem()
