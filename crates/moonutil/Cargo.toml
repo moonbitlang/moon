@@ -53,17 +53,10 @@ tempfile.workspace = true
 
 [target."cfg(windows)".dependencies]
 find-msvc-tools.workspace = true
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Memory"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation"] }
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true
-
-[target.'cfg(target_os = "linux")'.dependencies]
-rustix = { version = "1.1.6", features = ["fs"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-rand.workspace = true
-rustix = { version = "1.1.6", features = ["shm"] }
 
 [dev-dependencies]
 expect-test.workspace = true

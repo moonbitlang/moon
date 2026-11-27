@@ -70,13 +70,10 @@ handle inheritable again only for the final `moonrun` command. That `moonrun`
 reads and closes the handle before constructing the Run environment. Detached
 `moonx` processes therefore do not depend on the parent Run's lifetime, while
 registry and build subprocesses and processes spawned by the resolved program
-receive neither the marker nor the handle.
-
-Policy publication works without a writable host temporary directory on Linux,
-macOS, and Windows. Linux uses an anonymous memory file, macOS unlinks a POSIX
-shared memory object before populating it, and Windows uses an unnamed
-pagefile-backed mapping. Only the inherited descriptor or handle crosses the
-process boundary.
+receive neither the marker nor the handle. No pathname crosses the process
+boundary: Unix removes the temporary name before spawning, while Windows keeps
+the delete-on-close file exclusively open. The guest therefore has no
+filesystem name it can replace or modify.
 
 Policy publication and handle setup run as part of the direct `moonx` spawn
 job. If either fails, the job reports the corresponding OS error and no child

@@ -31,36 +31,12 @@ use anyhow::Context;
 
 use crate::constants::MOONRUN_INHERITED_POLICY;
 
-#[cfg(any(target_os = "macos", windows))]
-mod shared_memory;
-
 #[derive(Debug)]
 pub struct PolicyTransfer {
     file: File,
 }
 
 impl PolicyTransfer {
-    /// Materialize an independent handle that survives the publishing process.
-    pub fn from_bytes(contents: &[u8]) -> io::Result<Self> {
-        #[cfg(any(target_os = "macos", windows))]
-        let file = shared_memory::create(contents)?;
-        #[cfg(not(any(target_os = "macos", windows)))]
-        let file = {
-            use std::io::{Seek, Write};
-            #[cfg(target_os = "linux")]
-            let mut file = File::from(rustix::fs::memfd_create(
-                c"moonrun-policy",
-                rustix::fs::MemfdFlags::CLOEXEC,
-            )?);
-            #[cfg(not(target_os = "linux"))]
-            let mut file = tempfile::tempfile()?;
-            file.write_all(contents)?;
-            file.rewind()?;
-            file
-        };
-        Self::from_file(file)
-    }
-
     /// Wrap a newly created policy file and make it non-inheritable until a
     /// process adapter deliberately attaches it to one child.
     pub fn from_file(file: File) -> io::Result<Self> {
@@ -102,15 +78,10 @@ impl PolicyTransfer {
 
     pub fn read(mut self) -> anyhow::Result<Vec<u8>> {
         let mut contents = Vec::new();
-        // The handle token also accepts regular files from older publishers.
-        match self.file.read_to_end(&mut contents) {
-            Ok(_) => Ok(contents),
-            #[cfg(any(target_os = "macos", windows))]
-            Err(e) if shared_memory::is_non_file_read(&e) => {
-                shared_memory::read(&self.file).context("failed to map inherited Moonrun Policy")
-            }
-            Err(e) => Err(e).context("failed to read inherited Moonrun Policy"),
-        }
+        self.file
+            .read_to_end(&mut contents)
+            .context("failed to read inherited Moonrun Policy")?;
+        Ok(contents)
     }
 
     /// Restrict this transfer to the intermediary role used by moonx.

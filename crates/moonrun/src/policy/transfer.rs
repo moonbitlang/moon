@@ -24,6 +24,7 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
+use std::io::{Seek, Write};
 use std::net::IpAddr;
 
 use super::{Policy, Rules, fs::FsRules, net::NetRules, process::ProcessRules};
@@ -183,7 +184,11 @@ impl Policy {
     pub(crate) fn open_transfer(
         &self,
     ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
-        moonutil::policy_transport::PolicyTransfer::from_bytes(&self.to_transfer()?)
+        let mut file = tempfile::tempfile()?;
+        file.write_all(&self.to_transfer()?)?;
+        file.flush()?;
+        file.rewind()?;
+        moonutil::policy_transport::PolicyTransfer::from_file(file)
     }
 }
 
